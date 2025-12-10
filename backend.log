@@ -1,0 +1,21 @@
+INFO:     Started server process [37292]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:48994 - "POST /token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48994 - "OPTIONS /users/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49004 - "OPTIONS /users/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49008 - "GET /users/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49004 - "GET /users/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49004 - "OPTIONS /friends HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49008 - "OPTIONS /groups HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48994 - "OPTIONS /balances HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49040 - "OPTIONS /balances HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49008 - "GET /exchange_rates HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49040 - "GET /exchange_rates HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49042 - "GET /balances HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49024 - "GET /friends HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49004 - "GET /groups HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49042 - "GET /friends HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49040 - "GET /balances HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49024 - "GET /groups HTTP/1.1" 200 OK
