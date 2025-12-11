@@ -16,6 +16,7 @@ class Group(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
     created_by_id = Column(Integer)
+    default_currency = Column(String, default="USD")
 
 class GroupMember(Base):
     __tablename__ = "group_members"
@@ -23,6 +24,15 @@ class GroupMember(Base):
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer)
     user_id = Column(Integer)
+
+class GuestMember(Base):
+    __tablename__ = "guest_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, nullable=False)
+    name = Column(String, nullable=False)
+    created_by_id = Column(Integer, nullable=False)
+    claimed_by_id = Column(Integer, nullable=True)  # Set when claimed by registered user
 
 class Friendship(Base):
     __tablename__ = "friendships"
@@ -40,8 +50,10 @@ class Expense(Base):
     currency = Column(String, default="USD")
     date = Column(String) # ISO date string
     payer_id = Column(Integer)
+    payer_is_guest = Column(Boolean, default=False)
     group_id = Column(Integer, nullable=True)
     created_by_id = Column(Integer)
+    exchange_rate = Column(String, nullable=True) # Rate from currency to USD on expense date (stored as float)
 
 class ExpenseSplit(Base):
     __tablename__ = "expense_splits"
@@ -49,6 +61,7 @@ class ExpenseSplit(Base):
     id = Column(Integer, primary_key=True, index=True)
     expense_id = Column(Integer)
     user_id = Column(Integer)
+    is_guest = Column(Boolean, default=False)
     amount_owed = Column(Integer) # The amount this user owes
     percentage = Column(Integer, nullable=True) # For percentage splits
     shares = Column(Integer, nullable=True) # For share splits

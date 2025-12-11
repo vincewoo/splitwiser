@@ -16,7 +16,7 @@ interface SettleUpModalProps {
 
 const SettleUpModal: React.FC<SettleUpModalProps> = ({ isOpen, onClose, onSettled, friends }) => {
     const { user } = useAuth();
-    const [payerId, setPayerId] = useState<number>(user?.id || 0);
+    const [payerId] = useState<number>(user?.id || 0);
     const [recipientId, setRecipientId] = useState<number>(friends[0]?.id || 0);
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('USD');

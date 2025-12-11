@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Tesseract from 'tesseract.js';
 
 interface ReceiptScannerProps {
     onItemsDetected: (items: { description: string, price: number }[]) => void;
@@ -21,51 +20,46 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
         if (!image) return;
 
         setLoading(true);
-        try {
-            const result = await Tesseract.recognize(
-                image,
-                'eng',
-                {
-                    logger: m => {
-                        if (m.status === 'recognizing text') {
-                            setProgress(Math.floor(m.progress * 100));
-                        }
-                    }
-                }
-            );
+        setProgress(0);
 
-            const text = result.data.text;
-            console.log("OCR Text:", text);
-            const items = parseReceiptText(text);
-            onItemsDetected(items);
-        } catch (error) {
+        try {
+            const formData = new FormData();
+            formData.append('file', image);
+
+            const token = localStorage.getItem('token');
+
+            // Simulate progress (since backend doesn't provide real-time updates)
+            const progressInterval = setInterval(() => {
+                setProgress(prev => Math.min(prev + 10, 90));
+            }, 300);
+
+            const response = await fetch('http://localhost:8000/ocr/scan-receipt', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            });
+
+            clearInterval(progressInterval);
+            setProgress(100);
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'OCR processing failed');
+            }
+
+            const data = await response.json();
+            console.log("OCR Response:", data);
+
+            onItemsDetected(data.items);
+
+        } catch (error: any) {
             console.error(error);
-            alert("Failed to scan receipt");
+            alert(`Failed to scan receipt: ${error.message}`);
         } finally {
             setLoading(false);
         }
-    };
-
-    const parseReceiptText = (text: string) => {
-        // Very basic parser. Looks for lines with a price at the end.
-        // E.g. "Burger 10.99"
-        const lines = text.split('\n');
-        const items: { description: string, price: number }[] = [];
-
-        const priceRegex = /(\d+\.\d{2})/; // Simple regex for prices
-
-        for (const line of lines) {
-            const match = line.match(priceRegex);
-            if (match) {
-                const priceVal = parseFloat(match[0]);
-                // Basic cleanup of description
-                const description = line.replace(match[0], '').trim();
-                if (description && priceVal > 0) {
-                     items.push({ description, price: priceVal * 100 }); // Store in cents
-                }
-            }
-        }
-        return items;
     };
 
     return (

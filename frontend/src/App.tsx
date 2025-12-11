@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Login from './Login';
 import Register from './Register';
 import AddExpenseModal from './AddExpenseModal';
 import SettleUpModal from './SettleUpModal';
+import GroupDetailPage from './GroupDetailPage';
 import { AuthProvider, useAuth } from './AuthContext';
 
 interface Friend {
@@ -16,6 +17,7 @@ interface Group {
   id: number;
   name: string;
   created_by_id: number;
+  default_currency: string;
 }
 
 interface Balance {
@@ -26,11 +28,14 @@ interface Balance {
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
   const [newFriendEmail, setNewFriendEmail] = useState('');
   const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupCurrency, setNewGroupCurrency] = useState('USD');
+  const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD']);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isSettleUpModalOpen, setIsSettleUpModalOpen] = useState(false);
 
@@ -99,10 +104,11 @@ const Dashboard = () => {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ name: newGroupName })
+        body: JSON.stringify({ name: newGroupName, default_currency: newGroupCurrency })
     });
     if (response.ok) {
         setNewGroupName('');
+        setNewGroupCurrency('USD');
         fetchGroups();
     } else {
         alert('Failed to create group');
@@ -153,19 +159,30 @@ const Dashboard = () => {
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Groups</h3>
              <ul className="space-y-1">
                 {groups.map(group => (
-                    <li key={group.id} className="text-sm text-gray-600 hover:text-gray-900 px-2 py-1 cursor-pointer">
+                    <li
+                        key={group.id}
+                        className="text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 px-2 py-1 cursor-pointer rounded"
+                        onClick={() => navigate(`/groups/${group.id}`)}
+                    >
                         {group.name}
                     </li>
                 ))}
              </ul>
-             <form onSubmit={handleCreateGroup} className="mt-2 flex">
+             <form onSubmit={handleCreateGroup} className="mt-2">
                  <input
                     type="text"
                     placeholder="New Group"
-                    className="w-full text-xs p-1 border rounded"
+                    className="w-full text-xs p-1 border rounded mb-1"
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
                  />
+                 <select
+                    value={newGroupCurrency}
+                    onChange={(e) => setNewGroupCurrency(e.target.value)}
+                    className="w-full text-xs p-1 border rounded"
+                 >
+                    {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                 </select>
              </form>
           </div>
 
@@ -276,6 +293,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/" element={<ProtectedRoute element={<Dashboard />} />} />
+          <Route path="/groups/:groupId" element={<ProtectedRoute element={<GroupDetailPage />} />} />
         </Routes>
       </Router>
     </AuthProvider>
