@@ -1,5 +1,14 @@
 // Shared types for groups and members
 
+export interface GroupBalance {
+    user_id: number;
+    is_guest: boolean;
+    full_name: string;
+    amount: number;
+    currency: string;
+    managed_guests: string[];
+}
+
 export interface GroupMember {
     id: number;
     user_id: number;
@@ -13,6 +22,8 @@ export interface GuestMember {
     name: string;
     created_by_id: number;
     claimed_by_id: number | null;
+    managed_by_user_id: number | null;
+    managed_by_name: string | null;
 }
 
 export interface Group {

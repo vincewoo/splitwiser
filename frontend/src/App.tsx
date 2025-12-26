@@ -4,6 +4,8 @@ import Login from './Login';
 import Register from './Register';
 import AddExpenseModal from './AddExpenseModal';
 import SettleUpModal from './SettleUpModal';
+import AddGroupModal from './AddGroupModal';
+import AddFriendModal from './AddFriendModal';
 import GroupDetailPage from './GroupDetailPage';
 import { AuthProvider, useAuth } from './AuthContext';
 import { ThemeProvider, useTheme } from './ThemeContext';
@@ -20,12 +22,10 @@ const Dashboard = () => {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
-  const [newFriendEmail, setNewFriendEmail] = useState('');
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newGroupCurrency, setNewGroupCurrency] = useState('USD');
-  const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD']);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isSettleUpModalOpen, setIsSettleUpModalOpen] = useState(false);
+  const [isAddGroupModalOpen, setIsAddGroupModalOpen] = useState(false);
+  const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -61,27 +61,12 @@ const Dashboard = () => {
     }
   };
 
-  const handleAddFriend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const response = await friendsApi.add(newFriendEmail);
-    if (response.ok) {
-      setNewFriendEmail('');
-      fetchFriends();
-    } else {
-      alert('Failed to add friend');
-    }
+  const handleAddFriend = () => {
+    fetchFriends();
   };
 
-  const handleCreateGroup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const response = await groupsApi.create(newGroupName, newGroupCurrency);
-    if (response.ok) {
-      setNewGroupName('');
-      setNewGroupCurrency('USD');
-      fetchGroups();
-    } else {
-      alert('Failed to create group');
-    }
+  const handleCreateGroup = () => {
+    fetchGroups();
   };
 
   const onExpenseAdded = () => {
@@ -154,7 +139,18 @@ const Dashboard = () => {
           </div>
 
           <div className="pt-4">
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Groups</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Groups</h3>
+              <button
+                onClick={() => setIsAddGroupModalOpen(true)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-teal-500 dark:text-teal-400 transition-colors"
+                aria-label="Add group"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
             <ul className="space-y-1">
               {groups.map(group => (
                 <li
@@ -169,26 +165,21 @@ const Dashboard = () => {
                 </li>
               ))}
             </ul>
-            <form onSubmit={handleCreateGroup} className="mt-2">
-              <input
-                type="text"
-                placeholder="New Group"
-                className="w-full text-xs p-1 border dark:border-gray-600 rounded mb-1 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-              />
-              <select
-                value={newGroupCurrency}
-                onChange={(e) => setNewGroupCurrency(e.target.value)}
-                className="w-full text-xs p-1 border dark:border-gray-600 rounded dark:bg-gray-700 dark:text-gray-100"
-              >
-                {currencies.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </form>
           </div>
 
           <div className="pt-4">
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Friends</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Friends</h3>
+              <button
+                onClick={() => setIsAddFriendModalOpen(true)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-teal-500 dark:text-teal-400 transition-colors"
+                aria-label="Add friend"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
             <ul className="space-y-1">
               {friends.map(friend => (
                 <li key={friend.id} className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 cursor-pointer">
@@ -196,15 +187,6 @@ const Dashboard = () => {
                 </li>
               ))}
             </ul>
-            <form onSubmit={handleAddFriend} className="mt-2 flex">
-              <input
-                type="email"
-                placeholder="Add friend email"
-                className="w-full text-xs p-1 border dark:border-gray-600 rounded dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
-                value={newFriendEmail}
-                onChange={(e) => setNewFriendEmail(e.target.value)}
-              />
-            </form>
           </div>
         </nav>
         <div className="p-4 border-t dark:border-gray-700">
@@ -334,6 +316,18 @@ const Dashboard = () => {
         onClose={() => setIsSettleUpModalOpen(false)}
         onSettled={onExpenseAdded}
         friends={friends}
+      />
+
+      <AddGroupModal
+        isOpen={isAddGroupModalOpen}
+        onClose={() => setIsAddGroupModalOpen(false)}
+        onGroupAdded={handleCreateGroup}
+      />
+
+      <AddFriendModal
+        isOpen={isAddFriendModalOpen}
+        onClose={() => setIsAddFriendModalOpen(false)}
+        onFriendAdded={handleAddFriend}
       />
     </div>
   );

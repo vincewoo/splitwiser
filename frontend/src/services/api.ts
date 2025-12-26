@@ -12,23 +12,77 @@ const getToken = (): string | null => {
 };
 
 /**
- * Base fetch wrapper with authentication
+ * Refresh the access token using the refresh token
+ */
+const refreshAccessToken = async (): Promise<string | null> => {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (!refreshToken) return null;
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ refresh_token: refreshToken })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            localStorage.setItem('token', data.access_token);
+            return data.access_token;
+        } else {
+            // Refresh token expired or invalid
+            localStorage.removeItem('token');
+            localStorage.removeItem('refreshToken');
+            return null;
+        }
+    } catch (error) {
+        console.error('Token refresh failed:', error);
+        return null;
+    }
+};
+
+/**
+ * Base fetch wrapper with authentication and automatic token refresh
  */
 const apiFetch = async (
     endpoint: string,
     options: RequestInit = {}
 ): Promise<Response> => {
-    const token = getToken();
+    let token = getToken();
     const headers: HeadersInit = {
         'Content-Type': 'application/json',
         ...(token && { Authorization: `Bearer ${token}` }),
         ...options.headers,
     };
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    let response = await fetch(`${API_BASE_URL}${endpoint}`, {
         ...options,
         headers,
     });
+
+    // If we get a 401, try to refresh the token and retry
+    if (response.status === 401 && localStorage.getItem('refreshToken')) {
+        token = await refreshAccessToken();
+
+        if (token) {
+            // Retry the request with the new token
+            const newHeaders: HeadersInit = {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+                ...options.headers,
+            };
+
+            response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                ...options,
+                headers: newHeaders,
+            });
+        } else {
+            // Refresh failed, redirect to login
+            window.location.href = '/login';
+        }
+    }
 
     return response;
 };

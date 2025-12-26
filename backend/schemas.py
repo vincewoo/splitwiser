@@ -165,6 +165,8 @@ class GuestMember(BaseModel):
     name: str
     created_by_id: int
     claimed_by_id: Optional[int] = None
+    managed_by_user_id: Optional[int] = None
+    managed_by_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -194,3 +196,4 @@ class GroupBalance(BaseModel):
     full_name: str
     amount: float
     currency: str
+    managed_guests: list[str] = []  # Names of managed guests included in this balance

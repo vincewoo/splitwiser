@@ -5,6 +5,9 @@ import EditGroupModal from './EditGroupModal';
 import DeleteGroupConfirm from './DeleteGroupConfirm';
 import AddExpenseModal from './AddExpenseModal';
 import ExpenseDetailModal from './ExpenseDetailModal';
+import AddMemberModal from './AddMemberModal';
+import AddGuestModal from './AddGuestModal';
+import ManageGuestModal from './ManageGuestModal';
 
 interface GroupMember {
     id: number;
@@ -19,6 +22,8 @@ interface GuestMember {
     name: string;
     created_by_id: number;
     claimed_by_id: number | null;
+    managed_by_user_id: number | null;
+    managed_by_name: string | null;
 }
 
 interface Group {
@@ -47,6 +52,7 @@ interface GroupBalance {
     full_name: string;
     amount: number;
     currency: string;
+    managed_guests: string[];
 }
 
 interface Friend {
@@ -67,11 +73,10 @@ const GroupDetailPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const [newMemberEmail, setNewMemberEmail] = useState('');
-    const [addMemberError, setAddMemberError] = useState<string | null>(null);
-
-    const [newGuestName, setNewGuestName] = useState('');
-    const [addGuestError, setAddGuestError] = useState<string | null>(null);
+    const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+    const [isAddGuestModalOpen, setIsAddGuestModalOpen] = useState(false);
+    const [isManageGuestModalOpen, setIsManageGuestModalOpen] = useState(false);
+    const [selectedGuest, setSelectedGuest] = useState<GuestMember | null>(null);
 
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -143,27 +148,8 @@ const GroupDetailPage: React.FC = () => {
             .catch(err => console.error('Failed to fetch exchange rates:', err));
     }, [groupId]);
 
-    const handleAddMember = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setAddMemberError(null);
-
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/groups/${groupId}/members`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ email: newMemberEmail })
-        });
-
-        if (response.ok) {
-            setNewMemberEmail('');
-            fetchGroupData();
-        } else {
-            const err = await response.json();
-            setAddMemberError(err.detail || 'Failed to add member');
-        }
+    const handleAddMember = () => {
+        fetchGroupData();
     };
 
     const handleRemoveMember = async (userId: number) => {
@@ -186,27 +172,8 @@ const GroupDetailPage: React.FC = () => {
         }
     };
 
-    const handleAddGuest = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setAddGuestError(null);
-
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/groups/${groupId}/guests`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ name: newGuestName })
-        });
-
-        if (response.ok) {
-            setNewGuestName('');
-            fetchGroupData();
-        } else {
-            const err = await response.json();
-            setAddGuestError(err.detail || 'Failed to add guest');
-        }
+    const handleAddGuest = () => {
+        fetchGroupData();
     };
 
     const handleRemoveGuest = async (guestId: number) => {
@@ -372,14 +339,19 @@ const GroupDetailPage: React.FC = () => {
 
         return (
             <ul className="space-y-2">
-                {processedBalances.map((balance, idx) => (
-                    <li key={`${balance.user_id}_${balance.is_guest}_${idx}`}
-                        className="flex justify-between items-center">
-                        <span className="text-sm text-gray-700 dark:text-gray-300">
-                            {balance.full_name}
-                        </span>
-                        <span className={`text-sm font-medium ${balance.amount >= 0 ? 'text-teal-600' : 'text-red-500'
-                            }`}>
+                {balances.map((balance, index) => (
+                    <li key={index} className="flex items-center justify-between py-2">
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {balance.full_name}
+                            </span>
+                            {balance.managed_guests && balance.managed_guests.length > 0 && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    Includes: {balance.managed_guests.join(', ')}
+                                </span>
+                            )}
+                        </div>
+                        <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                             {balance.amount >= 0 ? '+' : ''}
                             {formatMoney(balance.amount, balance.currency)}
                         </span>
@@ -573,77 +545,69 @@ const GroupDetailPage: React.FC = () => {
                                         )}
                                     </li>
                                 ))}
+                            </ul>
+                            <ul className="space-y-2">
                                 {group.guests?.map(guest => (
-                                    <li key={`guest-${guest.id}`} className="flex items-center justify-between">
-                                        <div>
-                                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                                {guest.name}
-                                                <span className="ml-2 text-xs text-orange-500 dark:text-orange-400">(guest)</span>
+                                    <li key={guest.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700 rounded">
+                                        <div className="flex flex-col">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-gray-900 dark:text-gray-100">{guest.name}</span>
+                                                <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 text-xs rounded">
+                                                    guest
+                                                </span>
                                             </div>
-                                            <div className="text-xs text-gray-400 dark:text-gray-500">No account</div>
+                                            {guest.managed_by_name && (
+                                                <span className="text-xs text-teal-600 dark:text-teal-400 mt-1">
+                                                    Managed by {guest.managed_by_name}
+                                                </span>
+                                            )}
                                         </div>
-                                        <div className="flex space-x-2">
+                                        <div className="flex gap-2">
                                             <button
                                                 onClick={() => handleClaimGuest(guest.id)}
-                                                className="text-xs text-teal-500 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300"
+                                                className="text-xs px-2 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
+                                                title="Claim this guest"
                                             >
                                                 Claim
                                             </button>
                                             <button
-                                                onClick={() => handleRemoveGuest(guest.id)}
-                                                className="text-xs text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
+                                                onClick={() => {
+                                                    setSelectedGuest(guest);
+                                                    setIsManageGuestModalOpen(true);
+                                                }}
+                                                className="text-xs px-2 py-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded"
+                                                title={guest.managed_by_user_id ? "Change manager" : "Set manager"}
                                             >
-                                                Remove
+                                                {guest.managed_by_user_id ? 'Change' : 'Manage'}
                                             </button>
+                                            {user?.id === group.created_by_id && (
+                                                <button
+                                                    onClick={() => handleRemoveGuest(guest.id)}
+                                                    className="text-xs px-2 py-1 text-red-600 darktext-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
                                         </div>
                                     </li>
                                 ))}
                             </ul>
 
-                            <form onSubmit={handleAddMember} className="mt-4">
-                                <div className="flex gap-2">
-                                    <input
-                                        type="email"
-                                        placeholder="Add member by email"
-                                        className="flex-1 text-xs lg:text-sm p-2 border dark:border-gray-600 rounded focus:outline-none focus:border-teal-500 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
-                                        value={newMemberEmail}
-                                        onChange={(e) => setNewMemberEmail(e.target.value)}
-                                        required
-                                    />
-                                    <button
-                                        type="submit"
-                                        className="px-2 lg:px-3 py-2 bg-teal-500 text-white text-xs lg:text-sm rounded hover:bg-teal-600 whitespace-nowrap"
-                                    >
-                                        Add
-                                    </button>
-                                </div>
-                                {addMemberError && (
-                                    <p className="mt-2 text-xs text-red-500 dark:text-red-400">{addMemberError}</p>
-                                )}
-                            </form>
-
-                            <form onSubmit={handleAddGuest} className="mt-2">
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        placeholder="Add guest by name"
-                                        className="flex-1 text-xs lg:text-sm p-2 border dark:border-gray-600 rounded focus:outline-none focus:border-orange-500 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
-                                        value={newGuestName}
-                                        onChange={(e) => setNewGuestName(e.target.value)}
-                                        required
-                                    />
-                                    <button
-                                        type="submit"
-                                        className="px-2 lg:px-3 py-2 bg-orange-500 text-white text-xs lg:text-sm rounded hover:bg-orange-600 whitespace-nowrap"
-                                    >
-                                        <span className="hidden sm:inline">Add Guest</span>
-                                        <span className="sm:hidden">+Guest</span>
-                                    </button>
-                                </div>
-                                {addGuestError && (
-                                    <p className="mt-2 text-xs text-red-500 dark:text-red-400">{addGuestError}</p>
-                                )}
-                            </form>
+                            {/* Action buttons */}
+                            <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                                <button
+                                    onClick={() => setIsAddMemberModalOpen(true)}
+                                    className="flex-1 px-4 py-3 bg-teal-500 text-white text-sm font-medium rounded-lg hover:bg-teal-600 transition-colors min-h-[44px]"
+                                >
+                                    Add Member
+                                </button>
+                                <button
+                                    onClick={() => setIsAddGuestModalOpen(true)}
+                                    className="flex-1 px-4 py-3 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition-colors min-h-[44px]"
+                                >
+                                    Add Guest
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -682,6 +646,37 @@ const GroupDetailPage: React.FC = () => {
                 groupMembers={group.members}
                 groupGuests={group.guests || []}
                 currentUserId={user?.id || 0}
+            />
+
+            <AddMemberModal
+                isOpen={isAddMemberModalOpen}
+                onClose={() => setIsAddMemberModalOpen(false)}
+                onMemberAdded={handleAddMember}
+                groupId={groupId || ''}
+                friends={friends}
+            />
+
+            <AddGuestModal
+                isOpen={isAddGuestModalOpen}
+                onClose={() => setIsAddGuestModalOpen(false)}
+                onGuestAdded={handleAddGuest}
+                groupId={groupId || ''}
+            />
+
+            <ManageGuestModal
+                isOpen={isManageGuestModalOpen}
+                onClose={() => {
+                    setIsManageGuestModalOpen(false);
+                    setSelectedGuest(null);
+                }}
+                guest={selectedGuest}
+                groupId={groupId || ''}
+                groupMembers={group?.members || []}
+                onGuestUpdated={() => {
+                    fetchGroupData();
+                    setIsManageGuestModalOpen(false);
+                    setSelectedGuest(null);
+                }}
             />
         </div>
     );

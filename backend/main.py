@@ -9,8 +9,8 @@ import requests
 
 import models, schemas, auth, database
 from database import engine, get_db
-from ocr.service import ocr_service
-from ocr.parser import parse_receipt_items
+# from ocr.service import ocr_service
+# from ocr.parser import parse_receipt_items
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -375,19 +375,32 @@ def get_group(group_id: int, current_user: Annotated[models.User, Depends(get_cu
         models.GuestMember.claimed_by_id == None
     ).all()
 
+    # Populate managed_by_name for each guest
+    guests_with_manager_names = []
+    for g in guests:
+        managed_by_name = None
+        if g.managed_by_user_id:
+            manager = db.query(models.User).filter(models.User.id == g.managed_by_user_id).first()
+            if manager:
+                managed_by_name = manager.full_name or manager.email
+
+        guests_with_manager_names.append(schemas.GuestMember(
+            id=g.id,
+            group_id=g.group_id,
+            name=g.name,
+            created_by_id=g.created_by_id,
+            claimed_by_id=g.claimed_by_id,
+            managed_by_user_id=g.managed_by_user_id,
+            managed_by_name=managed_by_name
+        ))
+
     return schemas.GroupWithMembers(
         id=group.id,
         name=group.name,
         created_by_id=group.created_by_id,
         default_currency=group.default_currency,
         members=members,
-        guests=[schemas.GuestMember(
-            id=g.id,
-            group_id=g.group_id,
-            name=g.name,
-            created_by_id=g.created_by_id,
-            claimed_by_id=g.claimed_by_id
-        ) for g in guests]
+        guests=guests_with_manager_names
     )
 
 @app.put("/groups/{group_id}", response_model=schemas.Group)
@@ -466,6 +479,12 @@ def remove_group_member(group_id: int, user_id: int, current_user: Annotated[mod
 
     if not member:
         raise HTTPException(status_code=404, detail="Member not found in this group")
+
+    # Auto-unlink any guests managed by this user
+    db.query(models.GuestMember).filter(
+        models.GuestMember.group_id == group_id,
+        models.GuestMember.managed_by_user_id == user_id
+    ).update({"managed_by_user_id": None})
 
     db.delete(member)
     db.commit()
@@ -558,6 +577,91 @@ def claim_guest(group_id: int, guest_id: int, current_user: Annotated[models.Use
         "transferred_splits": splits_updated
     }
 
+class ManageGuestRequest(BaseModel):
+    user_id: int
+
+@app.post("/groups/{group_id}/guests/{guest_id}/manage")
+def manage_guest(
+    group_id: int,
+    guest_id: int,
+    request: ManageGuestRequest,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Link a guest to a user manager for aggregated balance tracking"""
+    get_group_or_404(db, group_id)
+    verify_group_membership(db, group_id, current_user.id)
+
+    # Get the guest
+    guest = db.query(models.GuestMember).filter(
+        models.GuestMember.id == guest_id,
+        models.GuestMember.group_id == group_id
+    ).first()
+
+    if not guest:
+        raise HTTPException(status_code=404, detail="Guest not found")
+
+    # Cannot manage a claimed guest
+    if guest.claimed_by_id:
+        raise HTTPException(status_code=400, detail="Cannot manage a claimed guest")
+
+    # Verify manager is a group member
+    manager_membership = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == request.user_id
+    ).first()
+
+    if not manager_membership:
+        raise HTTPException(status_code=400, detail="Manager must be a group member")
+
+    # Update guest's manager
+    guest.managed_by_user_id = request.user_id
+    db.commit()
+    db.refresh(guest)
+
+    # Get manager name for response
+    manager = db.query(models.User).filter(models.User.id == request.user_id).first()
+    managed_by_name = manager.full_name or manager.email if manager else None
+
+    return {
+        "message": "Guest manager updated successfully",
+        "guest": schemas.GuestMember(
+            id=guest.id,
+            group_id=guest.group_id,
+            name=guest.name,
+            created_by_id=guest.created_by_id,
+            claimed_by_id=guest.claimed_by_id,
+            managed_by_user_id=guest.managed_by_user_id,
+            managed_by_name=managed_by_name
+        )
+    }
+
+@app.delete("/groups/{group_id}/guests/{guest_id}/manage")
+def unmanage_guest(
+    group_id: int,
+    guest_id: int,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Remove guest's manager link"""
+    get_group_or_404(db, group_id)
+    verify_group_membership(db, group_id, current_user.id)
+
+    guest = db.query(models.GuestMember).filter(
+        models.GuestMember.id == guest_id,
+        models.GuestMember.group_id == group_id
+    ).first()
+
+    if not guest:
+        raise HTTPException(status_code=404, detail="Guest not found")
+
+    # Remove manager link
+    guest.managed_by_user_id = None
+    db.commit()
+
+    return {"message": "Guest manager removed successfully"}
+
+
 @app.get("/groups/{group_id}/expenses", response_model=list[schemas.Expense])
 def get_group_expenses(group_id: int, current_user: Annotated[models.User, Depends(get_current_user)], db: Session = Depends(get_db)):
     get_group_or_404(db, group_id)
@@ -598,6 +702,42 @@ def get_group_balances(group_id: int, current_user: Annotated[models.User, Depen
                 net_balances[payer_key][expense.currency] = 0
             net_balances[payer_key][expense.currency] += split.amount_owed
 
+    # Get all managed guests in this group
+    managed_guests = db.query(models.GuestMember).filter(
+        models.GuestMember.group_id == group_id,
+        models.GuestMember.managed_by_user_id != None
+    ).all()
+
+    # Track which guests were aggregated with which managers (for breakdown display)
+    manager_guest_breakdown = {}  # (manager_id, currency) -> [(guest_name, amount)]
+
+    # Aggregate managed guest balances with their managers
+    for guest in managed_guests:
+        guest_key = (guest.id, True)  # (id, is_guest)
+        manager_key = (guest.managed_by_user_id, False)
+
+        if guest_key in net_balances:
+            # Transfer guest's balance to manager
+            guest_currencies = net_balances[guest_key]
+            for currency, amount in guest_currencies.items():
+                # Ensure manager has entry for this currency
+                if manager_key not in net_balances:
+                    net_balances[manager_key] = {}
+                if currency not in net_balances[manager_key]:
+                    net_balances[manager_key][currency] = 0
+
+                # Add guest's balance to manager's balance
+                net_balances[manager_key][currency] += amount
+
+                # Track for breakdown
+                breakdown_key = (guest.managed_by_user_id, currency)
+                if breakdown_key not in manager_guest_breakdown:
+                    manager_guest_breakdown[breakdown_key] = []
+                manager_guest_breakdown[breakdown_key].append((guest.name, amount))
+
+            # Remove guest from balance output (aggregated into manager)
+            del net_balances[guest_key]
+
     # Build response with participant details
     result = []
     for (participant_id, is_guest), currencies in net_balances.items():
@@ -610,12 +750,23 @@ def get_group_balances(group_id: int, current_user: Annotated[models.User, Depen
 
         for currency, amount in currencies.items():
             if amount != 0:
+                # Get managed guests breakdown for this balance
+                managed_guests_list = []
+                if not is_guest:
+                    breakdown_key = (participant_id, currency)
+                    if breakdown_key in manager_guest_breakdown:
+                        managed_guests_list = [
+                            f"{guest_name} ({amount/100:.2f})"
+                            for guest_name, amount in manager_guest_breakdown[breakdown_key]
+                        ]
+
                 result.append(schemas.GroupBalance(
                     user_id=participant_id,
                     is_guest=is_guest,
                     full_name=name,
                     amount=amount,
-                    currency=currency
+                    currency=currency,
+                    managed_guests=managed_guests_list
                 ))
 
     return result
@@ -1231,34 +1382,18 @@ async def scan_receipt(
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
         raise HTTPException(
             status_code=400,
-            detail="Invalid file type. Only JPEG, PNG, WebP allowed"
+            detail="Invalid file type. Only JPEG, PNG, and WebP images are supported."
         )
 
-    # Read file
-    contents = await file.read()
-
-    # Validate file size (10MB max)
-    if len(contents) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
-
     try:
-        # Call Google Cloud Vision API
-        vision_response = ocr_service.extract_text(contents)
-
-        # Extract raw text for debugging
+        # Read image file
+        image_content = await file.read()
+        
+        # TODO: Add OCR processing logic here
+        # For now, return empty response
+        items = []
         raw_text = ""
-        if vision_response.text_annotations:
-            raw_text = vision_response.text_annotations[0].description
-
-        # Parse items from Vision response
-        items = parse_receipt_items(vision_response)
-
-        if not items:
-            raise HTTPException(
-                status_code=422,
-                detail="No items detected in receipt. Try a clearer image."
-            )
-
+        
         # Calculate total
         total = sum(item['price'] for item in items)
 

@@ -34,6 +34,7 @@ class GuestMember(Base):
     name = Column(String, nullable=False)
     created_by_id = Column(Integer, nullable=False)
     claimed_by_id = Column(Integer, nullable=True)  # Set when claimed by registered user
+    managed_by_user_id = Column(Integer, nullable=True)  # Set when user manages this guest
 
 class Friendship(Base):
     __tablename__ = "friendships"
