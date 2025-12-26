@@ -206,6 +206,50 @@ def calculate_itemized_splits(items: list[schemas.ExpenseItemCreate]) -> list[sc
 
     return splits
 
+def validate_expense_participants(
+    db: Session,
+    payer_id: int,
+    payer_is_guest: bool,
+    splits: list[schemas.ExpenseSplitBase],
+    items: list[schemas.ExpenseItemCreate] | None = None
+) -> None:
+    """Validate that all participants (payer, split participants, item assignees) exist."""
+    # Validate payer
+    if payer_is_guest:
+        payer = db.query(models.GuestMember).filter(models.GuestMember.id == payer_id).first()
+        if not payer:
+            raise HTTPException(status_code=400, detail=f"Guest payer with ID {payer_id} not found")
+    else:
+        payer = db.query(models.User).filter(models.User.id == payer_id).first()
+        if not payer:
+            raise HTTPException(status_code=400, detail=f"User payer with ID {payer_id} not found")
+    
+    # Validate split participants
+    for split in splits:
+        if split.is_guest:
+            guest = db.query(models.GuestMember).filter(models.GuestMember.id == split.user_id).first()
+            if not guest:
+                raise HTTPException(status_code=400, detail=f"Guest with ID {split.user_id} not found in splits")
+        else:
+            user = db.query(models.User).filter(models.User.id == split.user_id).first()
+            if not user:
+                raise HTTPException(status_code=400, detail=f"User with ID {split.user_id} not found in splits")
+    
+    # Validate item assignments if provided
+    if items:
+        for item in items:
+            if item.assignments:
+                for assignment in item.assignments:
+                    if assignment.is_guest:
+                        guest = db.query(models.GuestMember).filter(models.GuestMember.id == assignment.user_id).first()
+                        if not guest:
+                            raise HTTPException(status_code=400, detail=f"Guest with ID {assignment.user_id} not found in item assignments")
+                    else:
+                        user = db.query(models.User).filter(models.User.id == assignment.user_id).first()
+                        if not user:
+                            raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} not found in item assignments")
+
+
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -519,6 +563,19 @@ def remove_guest(group_id: int, guest_id: int, current_user: Annotated[models.Us
     if not guest:
         raise HTTPException(status_code=404, detail="Guest not found in this group")
 
+    # Delete all expense splits involving this guest
+    db.query(models.ExpenseSplit).filter(
+        models.ExpenseSplit.user_id == guest_id,
+        models.ExpenseSplit.is_guest == True
+    ).delete()
+
+    # Delete all expenses where this guest was the payer
+    db.query(models.Expense).filter(
+        models.Expense.payer_id == guest_id,
+        models.Expense.payer_is_guest == True
+    ).delete()
+
+    # Now delete the guest
     db.delete(guest)
     db.commit()
 
@@ -840,6 +897,15 @@ def create_expense(expense: schemas.ExpenseCreate, current_user: Annotated[model
         if abs(total_split - expense.amount) > 1: # Allow 1 cent diff
              raise HTTPException(status_code=400, detail=f"Split amounts do not sum to total expense amount. Total: {expense.amount}, Sum: {total_split}")
 
+    # Validate all participants exist
+    validate_expense_participants(
+        db=db,
+        payer_id=expense.payer_id,
+        payer_is_guest=expense.payer_is_guest,
+        splits=expense.splits,
+        items=expense.items if expense.split_type == "ITEMIZED" else None
+    )
+
     # Fetch and cache the historical exchange rate for this expense
     exchange_rate = get_exchange_rate_for_expense(expense.date, expense.currency)
 
@@ -1050,6 +1116,15 @@ def update_expense(expense_id: int, expense_update: schemas.ExpenseUpdate, curre
     total_split = sum(split.amount_owed for split in expense_update.splits)
     if abs(total_split - expense_update.amount) > 1:
         raise HTTPException(status_code=400, detail=f"Split amounts do not sum to total expense amount. Total: {expense_update.amount}, Sum: {total_split}")
+
+    # Validate all participants exist
+    validate_expense_participants(
+        db=db,
+        payer_id=expense_update.payer_id,
+        payer_is_guest=expense_update.payer_is_guest,
+        splits=expense_update.splits,
+        items=expense_update.items if expense_update.split_type == "ITEMIZED" else None
+    )
 
     # Update expense fields
     expense.description = expense_update.description

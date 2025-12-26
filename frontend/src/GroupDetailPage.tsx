@@ -265,11 +265,33 @@ const GroupDetailPage: React.FC = () => {
     const getProcessedBalances = () => {
         if (showInGroupCurrency && group?.default_currency) {
             // Convert all balances to group's default currency
-            const converted = balances.map(balance => ({
-                ...balance,
-                amount: convertCurrency(balance.amount, balance.currency, group.default_currency),
-                currency: group.default_currency
-            }));
+            const converted = balances.map(balance => {
+                // Convert the main balance amount
+                const convertedAmount = convertCurrency(balance.amount, balance.currency, group.default_currency);
+
+                // Convert managed_guests amounts if they exist
+                let convertedManagedGuests = balance.managed_guests;
+                if (balance.managed_guests && balance.managed_guests.length > 0 && balance.currency !== group.default_currency) {
+                    convertedManagedGuests = balance.managed_guests.map(guestStr => {
+                        // Parse "Guest Name (amount)" format
+                        const match = guestStr.match(/^(.+?)\s*\(([+-]?\d+\.?\d*)\)$/);
+                        if (match) {
+                            const guestName = match[1];
+                            const amount = parseFloat(match[2]) * 100; // Convert to cents
+                            const convertedGuestAmount = convertCurrency(amount, balance.currency, group.default_currency);
+                            return `${guestName} (${(convertedGuestAmount / 100).toFixed(2)})`;
+                        }
+                        return guestStr; // Return unchanged if parsing fails
+                    });
+                }
+
+                return {
+                    ...balance,
+                    amount: convertedAmount,
+                    currency: group.default_currency,
+                    managed_guests: convertedManagedGuests
+                };
+            });
 
             // Aggregate by user (combine amounts now in same currency)
             const aggregated: Record<string, GroupBalance> = {};
@@ -277,6 +299,13 @@ const GroupDetailPage: React.FC = () => {
                 const key = `${balance.user_id}_${balance.is_guest}`;
                 if (aggregated[key]) {
                     aggregated[key].amount += balance.amount;
+                    // Merge managed_guests arrays
+                    if (balance.managed_guests && balance.managed_guests.length > 0) {
+                        aggregated[key].managed_guests = [
+                            ...(aggregated[key].managed_guests || []),
+                            ...balance.managed_guests
+                        ];
+                    }
                 } else {
                     aggregated[key] = { ...balance };
                 }
@@ -316,12 +345,18 @@ const GroupDetailPage: React.FC = () => {
                         <ul className="space-y-2">
                             {balanceList.map((balance, idx) => (
                                 <li key={`${balance.user_id}_${balance.is_guest}_${idx}`}
-                                    className="flex justify-between items-center pl-2">
-                                    <span className="text-sm text-gray-700 dark:text-gray-300">
-                                        {balance.full_name}
-                                    </span>
-                                    <span className={`text-sm font-medium ${balance.amount >= 0 ? 'text-teal-600' : 'text-red-500'
-                                        }`}>
+                                    className="flex items-center justify-between py-2">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                            {balance.full_name}
+                                        </span>
+                                        {balance.managed_guests && balance.managed_guests.length > 0 && (
+                                            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                                Includes: {balance.managed_guests.join(', ')}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                         {balance.amount >= 0 ? '+' : ''}
                                         {formatMoney(balance.amount, balance.currency)}
                                     </span>
@@ -339,7 +374,7 @@ const GroupDetailPage: React.FC = () => {
 
         return (
             <ul className="space-y-2">
-                {balances.map((balance, index) => (
+                {processedBalances.map((balance, index) => (
                     <li key={index} className="flex items-center justify-between py-2">
                         <div className="flex flex-col">
                             <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
