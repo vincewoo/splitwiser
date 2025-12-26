@@ -14,148 +14,93 @@ NOISE_PATTERNS = [
     r'cash',
     r'credit',
     r'debit',
+    r'^food$',                          # Line that just says "food"
+    r'^drink',                          # Line that just says "drink/drinks"
     r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}',  # Dates (MM/DD/YYYY)
-    r'\d{3}[-.]?\d{3}[-.]?\d{4}',      # Phone numbers
+    r'\d{3}[-.:]\d{3}[-.:]\d{4}',      # Phone numbers (including colon and dot)
     r'card\s*#',
     r'receipt\s*#',
     r'transaction\s*#',
     r'thank\s*you',
+    r'www\.',                           # URLs
+    r'\.com',                           # Domain names
+    r'tbl\s+\d+',                       # Table numbers
+    r'ch\s+\d+',                        # Check numbers
+    r'gst\s+\d+',                       # Guest numbers
 ]
 
 # Price detection patterns (in order of preference)
 PRICE_PATTERNS = [
     r'\$\s?(\d{1,3}(?:,\d{3})*\.\d{2})',           # $12.99 or $ 12.99
     r'(\d{1,3}(?:,\d{3})*\.\d{2})\s?(?:USD|usd)',  # 12.99 USD
-    r'(\d{1,3}(?:,\d{3})*\.\d{2})',                # 12.99
+    r'(?<!\d[-.:\d])(\d{1,3}\.\d{2})(?!\d)',       # 12.99 (not part of phone/longer number)
 ]
 
 
-def parse_receipt_items(ocr_result) -> List[Dict[str, any]]:
+def parse_receipt_items(vision_response) -> List[Dict[str, any]]:
     """
-    Parse OCR result into items with descriptions and prices.
+    Parse Google Cloud Vision OCR response into items with descriptions and prices.
 
-    Uses spatial text analysis to group text by lines and associate
-    descriptions with prices. Filters out noise patterns.
+    Uses the full text from Vision API and parses line-by-line to extract
+    item-price pairs. Filters out noise patterns (totals, tax, etc.).
 
     Args:
-        ocr_result: PaddleOCR v3.3.2 result dictionary with keys:
-                    - 'dt_polys': bounding boxes
-                    - 'rec_text': recognized text
-                    - 'rec_score': confidence scores
+        vision_response: Google Cloud Vision AnnotateImageResponse object
+                        with text_annotations list
 
     Returns:
         List of items: [{"description": str, "price": int}, ...]
         where price is in cents
     """
-    if not ocr_result:
+    if not vision_response or not vision_response.text_annotations:
         return []
+
+    # Get full text from first annotation (contains entire document text)
+    full_text = vision_response.text_annotations[0].description
+    lines = full_text.split('\n')
 
     items = []
 
-    # PaddleOCR v3.3.2 returns a dict format
-    if isinstance(ocr_result, dict):
-        # Extract text, bounding boxes, and scores (note: keys are plural)
-        texts = ocr_result.get('rec_texts', [])
-        bboxes = ocr_result.get('dt_polys', [])
-        scores = ocr_result.get('rec_scores', [])
-
-        print(f"DEBUG: Found {len(texts)} text items")
-
-        # Create text blocks with Y-coordinates for sorting
-        text_blocks = []
-        for i in range(len(texts)):
-            text = texts[i]
-            bbox = bboxes[i] if i < len(bboxes) else None
-            score = scores[i] if i < len(scores) else 1.0
-
-            # Get Y-coordinate (top-left corner of bounding box)
-            if bbox is not None and len(bbox) > 0:
-                # bbox is a numpy array with shape (4, 2) - 4 corners with x,y coords
-                y_coord = float(bbox[0][1])  # Top-left Y coordinate
-            else:
-                y_coord = 0
-
-            text_blocks.append({
-                'text': text,
-                'bbox': bbox,
-                'confidence': score,
-                'y': y_coord
-            })
-    else:
-        # Fallback for old format (shouldn't happen with v3.3.2)
-        print("DEBUG: Unexpected OCR result format, returning empty")
-        return []
-
-    # Sort by Y-coordinate (top to bottom)
-    text_blocks.sort(key=lambda b: b['y'])
-
-    # Group text blocks by line (Y-proximity)
-    lines = group_by_proximity(text_blocks, y_threshold=15)
-
-    # Process each line to find item-price pairs
+    # First pass: try same-line item/price pairs (e.g., "Burger $12.99")
     for line in lines:
-        line_text = ' '.join([b['text'] for b in line])
-
-        # Skip noise lines
-        if is_noise_line(line_text):
+        line = line.strip()
+        if not line or is_noise_line(line):
             continue
 
-        # Extract price from line
-        price_match, price_cents = extract_price(line_text)
+        price_match, price_cents = extract_price(line)
+        if price_match and price_cents and 1 <= price_cents <= 99999:
+            description = clean_description(line[:price_match.start()])
+            if description and len(description) >= 2:
+                items.append({'description': description, 'price': price_cents})
 
-        if price_match and price_cents:
-            # Validate price range ($0.01 to $999.99)
-            if not (1 <= price_cents <= 99999):
+    # If no same-line items found, try multi-line parsing
+    if not items:
+        pending_description = None
+        for line in lines:
+            line = line.strip()
+            if not line or is_noise_line(line):
                 continue
 
-            # Extract description (text before price)
-            description = line_text[:price_match.start()].strip()
-
-            # Clean description
-            description = clean_description(description)
-
-            # Validate description
-            if description and len(description) >= 2:
-                items.append({
-                    'description': description,
-                    'price': price_cents
-                })
+            price_match, price_cents = extract_price(line)
+            if price_match and price_cents and 1 <= price_cents <= 99999:
+                non_price_text = line[:price_match.start()].strip()
+                if len(non_price_text) < 3 and pending_description:
+                    # Price-only line, pair with pending description
+                    items.append({'description': pending_description, 'price': price_cents})
+                    pending_description = None
+                elif non_price_text:
+                    # Has both description and price
+                    desc = clean_description(non_price_text)
+                    if desc and len(desc) >= 2:
+                        items.append({'description': desc, 'price': price_cents})
+                    pending_description = None
+            else:
+                # No price - store as potential description (only last one)
+                desc = clean_description(line)
+                if desc and len(desc) >= 2:
+                    pending_description = desc  # Replace, don't accumulate
 
     return items
-
-
-def group_by_proximity(blocks: List[Dict], y_threshold: int = 15) -> List[List[Dict]]:
-    """
-    Group text blocks that are on the same line (similar Y coordinate).
-
-    Args:
-        blocks: List of text blocks with 'y' coordinate
-        y_threshold: Maximum Y-distance to consider blocks on same line
-
-    Returns:
-        List of lines, where each line is a list of text blocks
-    """
-    if not blocks:
-        return []
-
-    lines = []
-    current_line = [blocks[0]]
-    prev_y = blocks[0]['y']
-
-    for block in blocks[1:]:
-        if abs(block['y'] - prev_y) <= y_threshold:
-            current_line.append(block)
-        else:
-            if current_line:
-                lines.append(current_line)
-            current_line = [block]
-        prev_y = block['y']
-
-    # Add last line
-    if current_line:
-        lines.append(current_line)
-
-    return lines
 
 
 def is_noise_line(text: str) -> bool:
@@ -204,10 +149,10 @@ def clean_description(text: str) -> str:
     """
     Clean and format item description.
 
-    Removes:
-    - Leading numbers/quantities (e.g., "2x" or "1 ")
-    - Special characters
-    - Extra whitespace
+    Preserves quantities but cleans formatting:
+    - Keeps quantities (e.g., "2 Diet" stays as "2 Diet")
+    - Removes special characters
+    - Removes extra whitespace
 
     Args:
         text: Raw description text
@@ -215,9 +160,6 @@ def clean_description(text: str) -> str:
     Returns:
         Cleaned description
     """
-    # Remove leading numbers and special chars (quantities like "2x", "1 ")
-    text = re.sub(r'^[\d\s\-*x×]+', '', text, flags=re.I)
-
     # Remove trailing special chars
     text = re.sub(r'[\s\-*]+$', '', text)
 

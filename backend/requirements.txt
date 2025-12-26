@@ -6,7 +6,5 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 requests
-paddlepaddle
-paddleocr>=3.3.2
+google-cloud-vision>=3.0.0
 pillow>=11.1.0
-opencv-python>=4.11.0

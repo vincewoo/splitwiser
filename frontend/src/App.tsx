@@ -235,7 +235,7 @@ const Dashboard = () => {
                      <ul className="space-y-2">
                          {balances.filter(b => b.amount < 0).length === 0 && <li className="text-gray-500 italic">No debts</li>}
                          {balances.filter(b => b.amount < 0).map(b => (
-                             <li key={b.user_id} className="text-red-500 flex justify-between">
+                             <li key={`${b.user_id}-${b.currency}`} className="text-red-500 flex justify-between">
                                  <span>User {b.user_id}</span>
                                  <span>{formatMoney(Math.abs(b.amount), b.currency)}</span>
                              </li>
@@ -247,7 +247,7 @@ const Dashboard = () => {
                      <ul className="space-y-2">
                          {balances.filter(b => b.amount > 0).length === 0 && <li className="text-gray-500 italic">No one owes you</li>}
                          {balances.filter(b => b.amount > 0).map(b => (
-                             <li key={b.user_id} className="text-teal-500 flex justify-between">
+                             <li key={`${b.user_id}-${b.currency}`} className="text-teal-500 flex justify-between">
                                  <span>User {b.user_id}</span>
                                  <span>{formatMoney(b.amount, b.currency)}</span>
                              </li>

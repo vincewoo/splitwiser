@@ -22,7 +22,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/App.tsx` - Main app with Dashboard, routing, protected routes, and group creation with currency selection
 - `frontend/src/AuthContext.tsx` - Authentication context provider
 - `frontend/src/AddExpenseModal.tsx` - Expense creation with split type selection and automatic currency pre-fill from group default
-- `frontend/src/ReceiptScanner.tsx` - OCR receipt scanning using tesseract.js
+- `frontend/src/ReceiptScanner.tsx` - OCR receipt scanning (calls backend API)
 - `frontend/src/SettleUpModal.tsx` - Settlement modal
 - `frontend/src/GroupDetailPage.tsx` - Group detail view with balance grouping by currency and conversion toggle
 - `frontend/src/EditGroupModal.tsx` - Group editing with default currency management
@@ -247,6 +247,55 @@ Fetch current rates
     ↓ (Frankfurter API)
 Display with today's conversion rates
 ```
+
+## OCR Receipt Scanning
+
+Receipt scanning uses Google Cloud Vision API for text extraction.
+
+### Architecture
+
+```
+backend/ocr/
+├── service.py   # Google Cloud Vision client (singleton)
+└── parser.py    # Receipt text parsing & item extraction
+```
+
+### Setup
+
+1. Create Google Cloud project and enable Cloud Vision API
+2. Create service account with "Cloud Vision API User" role
+3. Download JSON credentials file
+4. Set environment variable:
+   ```bash
+   export GOOGLE_APPLICATION_CREDENTIALS="/path/to/credentials.json"
+   ```
+
+### Free Tier
+
+- 1,000 pages/month free
+- Requires GCP account with billing enabled (won't charge within free tier)
+
+### API Endpoint
+
+- `POST /ocr/scan-receipt` - Upload receipt image, returns extracted items
+- Accepts: JPEG, PNG, WebP (max 10MB)
+- Returns:
+  ```json
+  {
+    "items": [{"description": "Burger", "price": 1299}],
+    "total": 1299,
+    "raw_text": "Full receipt text..."
+  }
+  ```
+
+### How It Works
+
+1. Frontend uploads image to `/ocr/scan-receipt`
+2. Backend sends image bytes to Google Cloud Vision API
+3. Vision returns full text with bounding boxes
+4. Parser extracts item-price pairs using regex patterns
+5. Filters out noise (totals, tax, dates, phone numbers)
+6. Returns structured items with prices in cents
 
 ## Database Schema Changes
 

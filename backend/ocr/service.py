@@ -1,56 +1,38 @@
-from paddleocr import PaddleOCR
-from typing import List, Tuple, Optional, Union
-import numpy as np
-from PIL import Image
+from google.cloud import vision
+from google.api_core import exceptions as google_exceptions
 
 
 class OCRService:
     """
-    Singleton service for PaddleOCR text extraction.
-    Initializes PaddleOCR once and reuses it for all requests.
+    Singleton service for Google Cloud Vision OCR text extraction.
+    Initializes Vision client once and reuses it for all requests.
     """
 
     def __init__(self):
-        """Initialize PaddleOCR with optimal settings for receipt scanning."""
-        self.ocr = PaddleOCR(
-            use_angle_cls=True,  # Auto-rotate text for better accuracy
-            lang='en'            # English language
-        )
+        """Initialize Google Cloud Vision client."""
+        self.client = vision.ImageAnnotatorClient()
 
-    def extract_text(self, image: Union[Image.Image, np.ndarray]) -> List[List[Tuple]]:
+    def extract_text(self, image_bytes: bytes):
         """
-        Extract text with bounding boxes from image.
+        Extract text from image using Google Cloud Vision.
 
         Args:
-            image: PIL Image or numpy array (RGB)
+            image_bytes: Raw image bytes (JPEG, PNG, WebP)
 
         Returns:
-            List of OCR results. Each result contains:
-            - Bounding box coordinates [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-            - Tuple of (text, confidence)
+            AnnotateImageResponse with text_annotations list.
+            First annotation contains full text, subsequent ones are individual words.
 
-        Example return format:
-        [
-            [
-                [[[10, 10], [100, 10], [100, 30], [10, 30]], ("Burger", 0.95)],
-                [[[110, 10], [160, 10], [160, 30], [110, 30]], ("$12.99", 0.98)]
-            ]
-        ]
+        Raises:
+            Exception: If Vision API returns an error
         """
-        # Convert PIL Image to numpy array if needed
-        if isinstance(image, Image.Image):
-            image_array = np.array(image)
-        else:
-            image_array = image
+        image = vision.Image(content=image_bytes)
+        response = self.client.text_detection(image=image)
 
-        # PaddleOCR v3.3.2 returns a generator, convert to list
-        result_gen = self.ocr.ocr(image_array)
+        if response.error.message:
+            raise Exception(f"Vision API error: {response.error.message}")
 
-        # Consume the generator and get the first result (single image)
-        result_list = list(result_gen)
-
-        # Return the first result (dict) if available
-        return result_list[0] if result_list else None
+        return response
 
 
 # Singleton instance - initialized once, reused for all requests

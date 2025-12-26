@@ -6,14 +6,11 @@ from datetime import timedelta, datetime
 from typing import Annotated, Optional
 from pydantic import BaseModel
 import requests
-from PIL import Image
-import io
 
 import models, schemas, auth, database
 from database import engine, get_db
 from ocr.service import ocr_service
 from ocr.parser import parse_receipt_items
-from ocr.preprocessing import preprocess_image, resize_if_large
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -899,7 +896,7 @@ async def scan_receipt(
     current_user: Annotated[models.User, Depends(get_current_user)] = None
 ):
     """
-    OCR endpoint for receipt scanning.
+    OCR endpoint for receipt scanning using Google Cloud Vision.
     Accepts image upload, returns extracted items with prices.
 
     Args:
@@ -924,58 +921,16 @@ async def scan_receipt(
         raise HTTPException(status_code=400, detail="File too large (max 10MB)")
 
     try:
-        # Open image
-        print("DEBUG: Opening image...")
-        image = Image.open(io.BytesIO(contents))
-        print("DEBUG: Image opened, size:", image.size)
+        # Call Google Cloud Vision API
+        vision_response = ocr_service.extract_text(contents)
 
-        # Resize if too large (improves processing speed)
-        print("DEBUG: Resizing if large...")
-        image = resize_if_large(image, max_width=1920)
-        print("DEBUG: Image resized, new size:", image.size)
-
-        # PaddleOCR v3.3.2 expects PIL Image or numpy array with 3 channels (RGB)
-        # Skip our custom preprocessing and let PaddleOCR handle it internally
-        print("DEBUG: Starting OCR extraction...")
-        ocr_result = ocr_service.extract_text(image)
-        print("DEBUG: OCR extraction complete")
-
-        # Debug: Print OCR result structure
-        print("DEBUG: OCR Result type:", type(ocr_result))
-        print("DEBUG: OCR Result:", ocr_result)
-        if ocr_result:
-            if isinstance(ocr_result, dict):
-                print("DEBUG: OCR Result is a dict with keys:", ocr_result.keys())
-            elif isinstance(ocr_result, (list, tuple)):
-                print("DEBUG: OCR Result length:", len(ocr_result))
-                if len(ocr_result) > 0:
-                    print("DEBUG: First element type:", type(ocr_result[0]))
-                    print("DEBUG: First element:", ocr_result[0])
-
-        # Extract raw text for debugging (with error handling)
+        # Extract raw text for debugging
         raw_text = ""
-        text_lines = []
-        try:
-            if ocr_result:
-                for i, line in enumerate(ocr_result):
-                    if line:
-                        for j, word_info in enumerate(line):
-                            print(f"DEBUG: Line {i}, Word {j}:", word_info, "Type:", type(word_info))
-                            if isinstance(word_info, (list, tuple)) and len(word_info) >= 2:
-                                text_info = word_info[1]
-                                if isinstance(text_info, (list, tuple)) and len(text_info) > 0:
-                                    text = text_info[0]
-                                else:
-                                    text = str(text_info)
-                                text_lines.append(text)
-                raw_text = '\n'.join(text_lines)
-        except Exception as e:
-            print(f"DEBUG: Error extracting raw text: {e}")
-            import traceback
-            traceback.print_exc()
+        if vision_response.text_annotations:
+            raw_text = vision_response.text_annotations[0].description
 
-        # Parse items
-        items = parse_receipt_items(ocr_result)
+        # Parse items from Vision response
+        items = parse_receipt_items(vision_response)
 
         if not items:
             raise HTTPException(
