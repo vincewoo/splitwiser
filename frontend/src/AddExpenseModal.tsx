@@ -5,6 +5,7 @@ import ParticipantSelector from './ParticipantSelector';
 import ExpenseSplitTypeSelector from './components/expense/ExpenseSplitTypeSelector';
 import ExpenseItemList from './components/expense/ExpenseItemList';
 import SplitDetailsInput from './components/expense/SplitDetailsInput';
+import IconSelector from './components/expense/IconSelector';
 import { useItemizedExpense } from './hooks/useItemizedExpense';
 import { useSplitDetails } from './hooks/useSplitDetails';
 import type {
@@ -59,10 +60,11 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
     const [payerId, setPayerId] = useState<number>(user?.id || 0);
     const [payerIsGuest, setPayerIsGuest] = useState<boolean>(false);
+    const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
 
     // Use custom hooks
     const itemizedExpense = useItemizedExpense();
-    const { splitDetails, handleSplitDetailChange, removeSplitDetail } = useSplitDetails(splitType);
+    const { splitDetails, handleSplitDetailChange, removeSplitDetail } = useSplitDetails();
 
     const selectedGroup = groups.find(g => g.id === selectedGroupId);
     const groupGuests = selectedGroup?.guests || [];
@@ -162,7 +164,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             payer_is_guest: payerIsGuest,
             group_id: selectedGroupId,
             split_type: splitType,
-            splits: splits
+            splits: splits,
+            icon: selectedIcon
         };
 
         if (splitType === 'ITEMIZED') {
@@ -219,7 +222,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 group_id: selectedGroupId,
                 split_type: 'ITEMIZED',
                 items: allItems,
-                splits: []
+                splits: [],
+                icon: selectedIcon
             };
         }
 
@@ -240,6 +244,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             itemizedExpense.setItemizedItems([]);
             itemizedExpense.setTaxTipAmount('');
             setScannedItems([]);
+            setSelectedIcon(null);
         } else {
             const err = await response.json();
             alert(`Failed to add expense: ${err.detail}`);
@@ -513,14 +518,21 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                         )}
 
                         <div className="mb-4">
-                            <input
-                                type="text"
-                                placeholder="Enter a description"
-                                className="w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400"
-                                value={description}
-                                onChange={e => setDescription(e.target.value)}
-                                required
-                            />
+                            <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Description:</label>
+                            <div className="flex items-center gap-2">
+                                <IconSelector
+                                    selectedIcon={selectedIcon}
+                                    onIconSelect={setSelectedIcon}
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Enter a description"
+                                    className="flex-1 border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400"
+                                    value={description}
+                                    onChange={e => setDescription(e.target.value)}
+                                    required
+                                />
+                            </div>
                         </div>
 
                         <div className="mb-4 flex items-center space-x-2">

@@ -3,6 +3,7 @@ import ParticipantSelector from './ParticipantSelector';
 import ExpenseSplitTypeSelector from './components/expense/ExpenseSplitTypeSelector';
 import ExpenseItemList from './components/expense/ExpenseItemList';
 import SplitDetailsInput from './components/expense/SplitDetailsInput';
+import IconSelector from './components/expense/IconSelector';
 import { useItemizedExpense } from './hooks/useItemizedExpense';
 import { useSplitDetails } from './hooks/useSplitDetails';
 import type {
@@ -63,12 +64,13 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const [splitType, setSplitType] = useState<SplitType>('EQUAL');
     const [selectedParticipantKeys, setSelectedParticipantKeys] = useState<string[]>([]);
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
+    const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
 
     const currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD'];
 
     // Use custom hooks
     const itemizedExpense = useItemizedExpense();
-    const { splitDetails, setSplitDetails, handleSplitDetailChange } = useSplitDetails(splitType);
+    const { splitDetails, setSplitDetails, handleSplitDetailChange } = useSplitDetails();
 
     useEffect(() => {
         if (isOpen && expenseId) {
@@ -104,6 +106,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         setPayerId(exp.payer_id);
         setPayerIsGuest(exp.payer_is_guest);
         setSplitType(exp.split_type as SplitType || 'EQUAL');
+        setSelectedIcon(exp.icon || null);
 
         // Set selected participants from splits
         const keys = exp.splits.map(s => s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`);
@@ -301,7 +304,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             payer_id: payerId,
             payer_is_guest: payerIsGuest,
             splits,
-            split_type: splitType
+            split_type: splitType,
+            icon: selectedIcon
         };
 
         if (splitType === 'ITEMIZED') {
@@ -357,7 +361,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 payer_is_guest: payerIsGuest,
                 split_type: 'ITEMIZED',
                 items: allItems,
-                splits: []
+                splits: [],
+                icon: selectedIcon
             };
         }
 
@@ -483,13 +488,19 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                 <div className="flex-1 overflow-y-auto p-4 sm:p-5">
                                     <div className="mb-4">
                                         <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Description:</label>
-                                        <input
-                                            type="text"
-                                            className="w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 dark:bg-gray-800 dark:text-gray-100"
-                                            value={description}
-                                            onChange={e => setDescription(e.target.value)}
-                                            required
-                                        />
+                                        <div className="flex items-center gap-2">
+                                            <IconSelector
+                                                selectedIcon={selectedIcon}
+                                                onIconSelect={setSelectedIcon}
+                                            />
+                                            <input
+                                                type="text"
+                                                className="flex-1 border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 dark:bg-gray-800 dark:text-gray-100"
+                                                value={description}
+                                                onChange={e => setDescription(e.target.value)}
+                                                required
+                                            />
+                                        </div>
                                     </div>
 
                                     <div className="mb-4 flex items-center space-x-2">
@@ -676,7 +687,12 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                             <div className="flex-1 flex flex-col">
                                 <div className="flex-1 overflow-y-auto p-4 sm:p-5">
                                     <div className="mb-6">
-                                        <h3 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-1">{expense.description}</h3>
+                                        <div className="flex items-center gap-3 mb-1">
+                                            {expense.icon && (
+                                                <span className="text-3xl">{expense.icon}</span>
+                                            )}
+                                            <h3 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{expense.description}</h3>
+                                        </div>
                                         <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                                             {formatMoney(expense.amount, expense.currency)}
                                         </p>

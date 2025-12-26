@@ -54,6 +54,7 @@ export interface ExpenseWithSplits {
     splits: ExpenseSplit[];
     split_type: string;
     items?: ExpenseItemDetail[];
+    icon?: string | null;
 }
 
 export type SplitType = 'EQUAL' | 'EXACT' | 'PERCENT' | 'SHARES' | 'ITEMIZED';

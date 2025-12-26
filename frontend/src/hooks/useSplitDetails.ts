@@ -1,13 +1,7 @@
-import { useState, useEffect } from 'react';
-import type { SplitType } from '../types/expense';
+import { useState } from 'react';
 
-export const useSplitDetails = (splitType: SplitType) => {
+export const useSplitDetails = () => {
     const [splitDetails, setSplitDetails] = useState<{ [key: string]: number }>({});
-
-    // Reset split details when split type changes
-    useEffect(() => {
-        setSplitDetails({});
-    }, [splitType]);
 
     const handleSplitDetailChange = (key: string, value: string) => {
         setSplitDetails(prev => ({ ...prev, [key]: parseFloat(value) || 0 }));

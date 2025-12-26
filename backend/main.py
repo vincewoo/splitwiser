@@ -821,7 +821,8 @@ def get_group_expenses(group_id: int, current_user: Annotated[models.User, Depen
             "created_by_id": expense.created_by_id,
             "split_type": expense.split_type,
             "splits": splits_with_names,
-            "items": []
+            "items": [],
+            "icon": expense.icon
         }
         result.append(expense_dict)
 
@@ -1021,7 +1022,8 @@ def create_expense(expense: schemas.ExpenseCreate, current_user: Annotated[model
         group_id=expense.group_id,
         created_by_id=current_user.id,
         exchange_rate=str(exchange_rate),  # Store as string for SQLite compatibility
-        split_type=expense.split_type or "EQUAL"
+        split_type=expense.split_type or "EQUAL",
+        icon=expense.icon
     )
     db.add(db_expense)
     db.commit()
@@ -1176,7 +1178,8 @@ def get_expense(expense_id: int, current_user: Annotated[models.User, Depends(ge
         created_by_id=expense.created_by_id,
         splits=splits_with_names,
         split_type=split_type,
-        items=items_data
+        items=items_data,
+        icon=expense.icon
     )
 
 @app.put("/expenses/{expense_id}", response_model=schemas.Expense)
@@ -1227,6 +1230,7 @@ def update_expense(expense_id: int, expense_update: schemas.ExpenseUpdate, curre
     expense.payer_id = expense_update.payer_id
     expense.payer_is_guest = expense_update.payer_is_guest
     expense.split_type = expense_update.split_type or "EQUAL"
+    expense.icon = expense_update.icon
 
     # Delete old items and assignments first
     old_items = db.query(models.ExpenseItem).filter(

@@ -58,6 +58,7 @@ interface Expense {
     payer_is_guest: boolean;
     group_id: number | null;
     splits: ExpenseSplit[];
+    icon?: string | null;
 }
 
 interface GroupBalance {
@@ -572,6 +573,11 @@ const GroupDetailPage: React.FC = () => {
                                         <div className="text-xs text-gray-500 dark:text-gray-400 w-10 lg:w-12 flex-shrink-0">
                                             {formatDate(expense.date)}
                                         </div>
+                                        {expense.icon && (
+                                            <div className="text-xl flex-shrink-0">
+                                                {expense.icon}
+                                            </div>
+                                        )}
                                         <div className="min-w-0">
                                             <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                                 {expense.description}
