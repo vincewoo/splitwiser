@@ -7,29 +7,11 @@ import SettleUpModal from './SettleUpModal';
 import GroupDetailPage from './GroupDetailPage';
 import { AuthProvider, useAuth } from './AuthContext';
 import { ThemeProvider, useTheme } from './ThemeContext';
-
-interface Friend {
-  id: number;
-  full_name: string;
-  email: string;
-}
-
-interface Group {
-  id: number;
-  name: string;
-  created_by_id: number;
-  default_currency: string;
-}
-
-interface Balance {
-  user_id: number;
-  full_name: string;
-  amount: number;
-  currency: string;
-  is_guest?: boolean;
-  group_name?: string;
-  group_id?: number;
-}
+import type { Friend } from './types/friend';
+import type { Group } from './types/group';
+import type { Balance } from './types/balance';
+import { formatMoney } from './utils/formatters';
+import { friendsApi, groupsApi, balancesApi } from './services/api';
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -53,47 +35,35 @@ const Dashboard = () => {
   }, []);
 
   const fetchFriends = async () => {
-    const token = localStorage.getItem('token');
-    const response = await fetch('http://localhost:8000/friends', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (response.ok) {
-      setFriends(await response.json());
+    try {
+      const data = await friendsApi.getAll();
+      setFriends(data);
+    } catch (error) {
+      console.error('Failed to fetch friends:', error);
     }
   };
 
   const fetchGroups = async () => {
-    const token = localStorage.getItem('token');
-    const response = await fetch('http://localhost:8000/groups', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (response.ok) {
-      setGroups(await response.json());
+    try {
+      const data = await groupsApi.getAll();
+      setGroups(data);
+    } catch (error) {
+      console.error('Failed to fetch groups:', error);
     }
   };
 
   const fetchBalances = async () => {
-    const token = localStorage.getItem('token');
-    const response = await fetch('http://localhost:8000/balances', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (response.ok) {
-      const data = await response.json();
+    try {
+      const data = await balancesApi.getAll();
       setBalances(data.balances || []);
+    } catch (error) {
+      console.error('Failed to fetch balances:', error);
     }
   };
 
   const handleAddFriend = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem('token');
-    const response = await fetch('http://localhost:8000/friends', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ email: newFriendEmail })
-    });
+    const response = await friendsApi.add(newFriendEmail);
     if (response.ok) {
       setNewFriendEmail('');
       fetchFriends();
@@ -104,15 +74,7 @@ const Dashboard = () => {
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem('token');
-    const response = await fetch('http://localhost:8000/groups', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ name: newGroupName, default_currency: newGroupCurrency })
-    });
+    const response = await groupsApi.create(newGroupName, newGroupCurrency);
     if (response.ok) {
       setNewGroupName('');
       setNewGroupCurrency('USD');
@@ -150,9 +112,7 @@ const Dashboard = () => {
     return totalUSD;
   };
 
-  const formatMoney = (amount: number, currency: string) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency }).format(amount / 100);
-  };
+  // formatMoney now imported from utils
 
   return (
     <div className="flex h-screen bg-gray-100 dark:bg-gray-900 font-sans">
@@ -183,9 +143,15 @@ const Dashboard = () => {
           </button>
         </div>
         <nav className="mt-6 flex-1 px-4 space-y-2 overflow-y-auto">
-          <a href="/" className="flex items-center px-4 py-2 text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-md">
+          <div
+            onClick={() => {
+              navigate('/');
+              setIsSidebarOpen(false);
+            }}
+            className="flex items-center px-4 py-2 text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-md cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
             <span className="font-medium">Dashboard</span>
-          </a>
+          </div>
 
           <div className="pt-4">
             <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Groups</h3>
@@ -376,7 +342,14 @@ const Dashboard = () => {
 const ProtectedRoute: React.FC<{ element: React.ReactElement }> = ({ element }) => {
   const { user, loading } = useAuth();
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="flex flex-col items-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500"></div>
+        <p className="mt-4 text-gray-600 dark:text-gray-400">Loading...</p>
+      </div>
+    </div>
+  );
   if (!user) return <Navigate to="/login" replace />;
 
   return element;

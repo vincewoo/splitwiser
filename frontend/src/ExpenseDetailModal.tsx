@@ -1,74 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import ParticipantSelector from './ParticipantSelector';
-
-interface ExpenseSplit {
-    id: number;
-    expense_id: number;
-    user_id: number;
-    is_guest: boolean;
-    amount_owed: number;
-    percentage: number | null;
-    shares: number | null;
-    user_name: string;
-}
-
-interface ItemAssignment {
-    user_id: number;
-    is_guest: boolean;
-    user_name: string;
-}
-
-interface ExpenseItemDetail {
-    id: number;
-    expense_id: number;
-    description: string;
-    price: number;
-    is_tax_tip: boolean;
-    assignments: ItemAssignment[];
-}
-
-interface ExpenseItem {
-    description: string;
-    price: number;
-    is_tax_tip: boolean;
-    assignments: { user_id: number; is_guest: boolean }[];
-}
-
-interface ExpenseWithSplits {
-    id: number;
-    description: string;
-    amount: number;
-    currency: string;
-    date: string;
-    payer_id: number;
-    payer_is_guest: boolean;
-    group_id: number | null;
-    created_by_id: number | null;
-    splits: ExpenseSplit[];
-    split_type: string;
-    items?: ExpenseItemDetail[];
-}
-
-interface GroupMember {
-    id: number;
-    user_id: number;
-    full_name: string;
-    email: string;
-}
-
-interface GuestMember {
-    id: number;
-    group_id: number;
-    name: string;
-    created_by_id: number;
-    claimed_by_id: number | null;
-}
-
-interface Participant {
-    id: number;
-    name: string;
-    isGuest: boolean;
-}
+import ExpenseSplitTypeSelector from './components/expense/ExpenseSplitTypeSelector';
+import ExpenseItemList from './components/expense/ExpenseItemList';
+import SplitDetailsInput from './components/expense/SplitDetailsInput';
+import { useItemizedExpense } from './hooks/useItemizedExpense';
+import { useSplitDetails } from './hooks/useSplitDetails';
+import type {
+    ExpenseWithSplits,
+    GroupMember,
+    GuestMember,
+    Participant,
+    SplitType
+} from './types/expense';
+import {
+    getParticipantName as getParticipantNameUtil,
+    getParticipantKey
+} from './utils/participantHelpers';
+import {
+    calculateEqualSplit,
+    calculateExactSplit,
+    calculatePercentSplit,
+    calculateSharesSplit,
+    calculateItemizedTotal
+} from './utils/expenseCalculations';
+import { formatMoney, formatDate } from './utils/formatters';
+import { expensesApi } from './services/api';
 
 interface ExpenseDetailModalProps {
     isOpen: boolean;
@@ -104,17 +60,15 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const [expenseDate, setExpenseDate] = useState('');
     const [payerId, setPayerId] = useState<number>(0);
     const [payerIsGuest, setPayerIsGuest] = useState(false);
-    const [splitType, setSplitType] = useState('EQUAL');
-    const [splitDetails, setSplitDetails] = useState<{ [key: string]: number }>({});
+    const [splitType, setSplitType] = useState<SplitType>('EQUAL');
     const [selectedParticipantKeys, setSelectedParticipantKeys] = useState<string[]>([]);
-
-    // Itemized expense state
-    const [itemizedItems, setItemizedItems] = useState<ExpenseItem[]>([]);
-    const [taxTipAmount, setTaxTipAmount] = useState<string>('');
-    const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
 
     const currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD'];
+
+    // Use custom hooks
+    const itemizedExpense = useItemizedExpense();
+    const { splitDetails, setSplitDetails, handleSplitDetailChange } = useSplitDetails(splitType);
 
     useEffect(() => {
         if (isOpen && expenseId) {
@@ -128,28 +82,12 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         }
     }, [expense]);
 
-    useEffect(() => {
-        // Reset split details when split type changes (but only in edit mode)
-        if (isEditing) {
-            setSplitDetails({});
-        }
-    }, [splitType]);
-
     const fetchExpense = async () => {
         setIsLoading(true);
         setError(null);
-        const token = localStorage.getItem('token');
 
         try {
-            const response = await fetch(`http://localhost:8000/expenses/${expenseId}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch expense');
-            }
-
-            const data = await response.json();
+            const data = await expensesApi.getById(expenseId!);
             setExpense(data);
         } catch (err) {
             setError('Failed to load expense details');
@@ -165,7 +103,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         setExpenseDate(exp.date.split('T')[0]);
         setPayerId(exp.payer_id);
         setPayerIsGuest(exp.payer_is_guest);
-        setSplitType(exp.split_type || 'EQUAL');
+        setSplitType(exp.split_type as SplitType || 'EQUAL');
 
         // Set selected participants from splits
         const keys = exp.splits.map(s => s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`);
@@ -187,11 +125,10 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
         // Handle ITEMIZED expenses
         if (exp.split_type === 'ITEMIZED' && exp.items) {
-            // Convert ExpenseItemDetail to ExpenseItem (editable format)
             const regularItems = exp.items.filter(i => !i.is_tax_tip);
             const taxTipItems = exp.items.filter(i => i.is_tax_tip);
 
-            const editableItems: ExpenseItem[] = regularItems.map(item => ({
+            const editableItems = regularItems.map(item => ({
                 description: item.description,
                 price: item.price,
                 is_tax_tip: false,
@@ -201,28 +138,17 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 }))
             }));
 
-            setItemizedItems(editableItems);
+            itemizedExpense.setItems(editableItems);
 
-            // Sum tax/tip items
             const taxTipTotal = taxTipItems.reduce((sum, item) => sum + item.price, 0);
-            setTaxTipAmount(taxTipTotal > 0 ? (taxTipTotal / 100).toFixed(2) : '');
+            itemizedExpense.setTaxTipAmount(taxTipTotal > 0 ? (taxTipTotal / 100).toFixed(2) : '');
         } else {
-            setItemizedItems([]);
-            setTaxTipAmount('');
+            itemizedExpense.setItems([]);
+            itemizedExpense.setTaxTipAmount('');
         }
     };
 
-    const formatMoney = (amount: number, curr: string) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: curr }).format(amount / 100);
-    };
-
-    const formatDate = (dateStr: string) => {
-        return new Date(dateStr).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-    };
+    // Formatters now imported from utils
 
     const getPayerName = () => {
         if (!expense) return '';
@@ -266,89 +192,16 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         return getAllParticipants();
     };
 
+    const getParticipantName = (p: Participant): string => {
+        return getParticipantNameUtil(p, currentUserId);
+    };
+
     const toggleParticipant = (key: string) => {
         if (selectedParticipantKeys.includes(key)) {
             setSelectedParticipantKeys(selectedParticipantKeys.filter(k => k !== key));
-            const newDetails = { ...splitDetails };
-            delete newDetails[key];
-            setSplitDetails(newDetails);
         } else {
             setSelectedParticipantKeys([...selectedParticipantKeys, key]);
         }
-    };
-
-    const handleSplitDetailChange = (key: string, value: string) => {
-        setSplitDetails({ ...splitDetails, [key]: parseFloat(value) || 0 });
-    };
-
-    // Helper to determine if we should use compact mode
-    const shouldUseCompactMode = () => {
-        const participants = getAllParticipants();
-        return participants.length > 5;
-    };
-
-    // Helper to get assignment display text
-    const getAssignmentDisplayText = (assignments: { user_id: number; is_guest: boolean }[]): string => {
-        const participants = getAllParticipants();
-
-        if (assignments.length === 0) {
-            return 'No one selected';
-        }
-
-        if (assignments.length === participants.length) {
-            return `All ${participants.length} people`;
-        }
-
-        const names = assignments.map(a => {
-            const p = participants.find(p => p.id === a.user_id && p.isGuest === a.is_guest);
-            return p ? p.name : '';
-        }).filter(n => n);
-
-        if (names.length <= 2) {
-            return names.join(', ');
-        }
-
-        return `${names[0]}, ${names[1]} +${names.length - 2} more`;
-    };
-
-    const handleParticipantSelectorConfirm = (itemIdx: number, selectedParticipants: Participant[]) => {
-        setItemizedItems(prev => {
-            const updated = [...prev];
-            const item = { ...updated[itemIdx] };
-            item.assignments = selectedParticipants.map(p => ({
-                user_id: p.id,
-                is_guest: p.isGuest
-            }));
-            updated[itemIdx] = item;
-            return updated;
-        });
-        setEditingItemIndex(null);
-    };
-
-    const handleMainParticipantSelectorConfirm = (selectedParticipants: Participant[]) => {
-        // Set new selections based on selected participants
-        const keys = selectedParticipants.map(p =>
-            p.isGuest ? `guest_${p.id}` : `user_${p.id}`
-        );
-        setSelectedParticipantKeys(keys);
-        setShowParticipantSelector(false);
-    };
-
-    const getSelectedParticipantsDisplay = (): string => {
-        const total = selectedParticipantKeys.length;
-
-        if (total === 0) {
-            return 'Select people';
-        }
-
-        const participants = getAllParticipants();
-
-        if (total === 1) {
-            const p = participants[0];
-            return p?.name || 'Unknown';
-        }
-
-        return `${total} people selected`;
     };
 
     const getAvailableParticipants = (): Participant[] => {
@@ -373,149 +226,64 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         return participants;
     };
 
-    // Itemized expense helpers
-    const toggleItemAssignment = (itemIdx: number, participant: Participant) => {
-        setItemizedItems(prev => {
-            const updated = [...prev];
-            const item = { ...updated[itemIdx] };
-
-            const existingIdx = item.assignments.findIndex(
-                a => a.user_id === participant.id && a.is_guest === participant.isGuest
-            );
-
-            if (existingIdx >= 0) {
-                item.assignments = item.assignments.filter((_, i) => i !== existingIdx);
-            } else {
-                item.assignments = [...item.assignments, {
-                    user_id: participant.id,
-                    is_guest: participant.isGuest
-                }];
-            }
-
-            updated[itemIdx] = item;
-            return updated;
-        });
+    const handleMainParticipantSelectorConfirm = (selectedParticipants: Participant[]) => {
+        const keys = selectedParticipants.map(p =>
+            p.isGuest ? `guest_${p.id}` : `user_${p.id}`
+        );
+        setSelectedParticipantKeys(keys);
+        setShowParticipantSelector(false);
     };
 
-    const addManualItem = () => {
-        const itemDescription = prompt("Item description:");
-        if (!itemDescription) return;
+    const handleParticipantSelectorConfirm = (itemIdx: number, selectedParticipants: Participant[]) => {
+        itemizedExpense.updateItemAssignments(itemIdx, selectedParticipants.map(p => ({
+            user_id: p.id,
+            is_guest: p.isGuest
+        })));
+        itemizedExpense.setEditingItemIndex(null);
+    };
 
-        const priceStr = prompt("Price (in dollars, e.g., 12.99):");
-        if (!priceStr) return;
-
-        const price = Math.round(parseFloat(priceStr) * 100);
-        if (isNaN(price) || price <= 0) {
-            alert("Invalid price");
-            return;
+    const getSelectedParticipantsDisplay = (): string => {
+        const total = selectedParticipantKeys.length;
+        if (total === 0) return 'Select people';
+        const participants = getAllParticipants();
+        if (total === 1) {
+            const p = participants[0];
+            return p?.name || 'Unknown';
         }
-
-        setItemizedItems(prev => [...prev, {
-            description: itemDescription,
-            price,
-            is_tax_tip: false,
-            assignments: []
-        }]);
-    };
-
-    const removeItem = (idx: number) => {
-        setItemizedItems(prev => prev.filter((_, i) => i !== idx));
-    };
-
-    const calculateItemizedTotal = (): string => {
-        const itemsTotal = itemizedItems.reduce((sum, item) => sum + item.price, 0);
-        const taxTip = Math.round(parseFloat(taxTipAmount || '0') * 100);
-        return ((itemsTotal + taxTip) / 100).toFixed(2);
+        return `${total} people selected`;
     };
 
     const handleSave = async () => {
         const totalAmountCents = Math.round(parseFloat(amount) * 100);
         const participants = getAllParticipants();
-        let splits: { user_id: number; is_guest: boolean; amount_owed: number; percentage?: number; shares?: number }[] = [];
+        let splits: any[] = [];
 
+        // Calculate splits based on type
         if (splitType === 'EQUAL') {
-            const splitAmount = Math.floor(totalAmountCents / participants.length);
-            const remainder = totalAmountCents - (splitAmount * participants.length);
-            splits = participants.map((p, index) => ({
-                user_id: p.id,
-                is_guest: p.isGuest,
-                amount_owed: splitAmount + (index === 0 ? remainder : 0)
-            }));
+            splits = calculateEqualSplit(totalAmountCents, participants);
         } else if (splitType === 'EXACT') {
-            splits = participants.map(p => {
-                const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
-                return {
-                    user_id: p.id,
-                    is_guest: p.isGuest,
-                    amount_owed: Math.round((splitDetails[key] || 0) * 100)
-                };
-            });
-            const sum = splits.reduce((acc, s) => acc + s.amount_owed, 0);
-            if (Math.abs(sum - totalAmountCents) > 1) {
-                alert(`Amounts do not sum to total. Total: ${totalAmountCents / 100}, Sum: ${sum / 100}`);
+            const result = calculateExactSplit(totalAmountCents, participants, splitDetails);
+            if (result.error) {
+                alert(result.error);
                 return;
             }
+            splits = result.splits;
         } else if (splitType === 'PERCENT') {
-            const shares = participants.map(p => {
-                const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
-                return { participant: p, percent: splitDetails[key] || 0 };
-            });
-            const percentSum = shares.reduce((acc, s) => acc + s.percent, 0);
-            if (Math.abs(percentSum - 100) > 0.1) {
-                alert(`Percentages must sum to 100%. Current: ${percentSum}%`);
+            const result = calculatePercentSplit(totalAmountCents, participants, splitDetails);
+            if (result.error) {
+                alert(result.error);
                 return;
             }
-            let runningTotal = 0;
-            splits = shares.map((s, index) => {
-                if (index === shares.length - 1) {
-                    return {
-                        user_id: s.participant.id,
-                        is_guest: s.participant.isGuest,
-                        amount_owed: totalAmountCents - runningTotal,
-                        percentage: Math.round(s.percent)
-                    };
-                }
-                const share = Math.round(totalAmountCents * (s.percent / 100));
-                runningTotal += share;
-                return {
-                    user_id: s.participant.id,
-                    is_guest: s.participant.isGuest,
-                    amount_owed: share,
-                    percentage: Math.round(s.percent)
-                };
-            });
+            splits = result.splits;
         } else if (splitType === 'SHARES') {
-            const sharesMap = participants.map(p => {
-                const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
-                return { participant: p, shares: splitDetails[key] || 0 };
-            });
-            const totalShares = sharesMap.reduce((acc, s) => acc + s.shares, 0);
-            if (totalShares === 0) {
-                alert("Total shares cannot be zero");
+            const result = calculateSharesSplit(totalAmountCents, participants, splitDetails);
+            if (result.error) {
+                alert(result.error);
                 return;
             }
-            let runningTotal = 0;
-            splits = sharesMap.map((s, index) => {
-                if (index === sharesMap.length - 1) {
-                    return {
-                        user_id: s.participant.id,
-                        is_guest: s.participant.isGuest,
-                        amount_owed: totalAmountCents - runningTotal,
-                        shares: Math.round(s.shares)
-                    };
-                }
-                const shareAmount = Math.round(totalAmountCents * (s.shares / totalShares));
-                runningTotal += shareAmount;
-                return {
-                    user_id: s.participant.id,
-                    is_guest: s.participant.isGuest,
-                    amount_owed: shareAmount,
-                    shares: Math.round(s.shares)
-                };
-            });
+            splits = result.splits;
         }
 
-        // Build payload - handle ITEMIZED differently
         let payload: any = {
             description,
             amount: totalAmountCents,
@@ -528,8 +296,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         };
 
         if (splitType === 'ITEMIZED') {
-            // Validate all items have assignments
-            const unassigned = itemizedItems.filter(
+            const unassigned = itemizedExpense.itemizedItems.filter(
                 item => !item.is_tax_tip && item.assignments.length === 0
             );
             if (unassigned.length > 0) {
@@ -537,10 +304,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 return;
             }
 
-            // Check for participants with no items assigned
             const allParticipants = getAllParticipants();
             const participantsWithItems = new Set<string>();
-            itemizedItems.forEach(item => {
+            itemizedExpense.itemizedItems.forEach(item => {
                 item.assignments.forEach(a => {
                     const key = a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
                     participantsWithItems.add(key);
@@ -548,7 +314,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             });
 
             const participantsWithoutItems = allParticipants.filter(p => {
-                const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
+                const key = getParticipantKey(p);
                 return !participantsWithItems.has(key);
             });
 
@@ -557,14 +323,11 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 const proceed = window.confirm(
                     `Warning: The following participant(s) have no items assigned and will not be included in this expense:\n\n${names}\n\nDo you want to continue?`
                 );
-                if (!proceed) {
-                    return;
-                }
+                if (!proceed) return;
             }
 
-            // Prepare items with tax/tip
-            const allItems = [...itemizedItems];
-            const taxTip = Math.round(parseFloat(taxTipAmount || '0') * 100);
+            const allItems = [...itemizedExpense.itemizedItems];
+            const taxTip = Math.round(parseFloat(itemizedExpense.taxTipAmount || '0') * 100);
             if (taxTip > 0) {
                 allItems.push({
                     description: 'Tax/Tip',
@@ -589,15 +352,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             };
         }
 
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/expenses/${expenseId}`, {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
+        const response = await expensesApi.update(expenseId!, payload);
 
         if (response.ok) {
             setIsEditing(false);
@@ -610,11 +365,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     };
 
     const handleDelete = async () => {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/expenses/${expenseId}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` }
-        });
+        const response = await expensesApi.delete(expenseId!);
 
         if (response.ok) {
             onExpenseDeleted();
@@ -648,17 +399,17 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     itemDescription="Select participants for this expense"
                 />
             )}
-            {editingItemIndex !== null && (
+            {itemizedExpense.editingItemIndex !== null && (
                 <ParticipantSelector
                     isOpen={true}
-                    onClose={() => setEditingItemIndex(null)}
+                    onClose={() => itemizedExpense.setEditingItemIndex(null)}
                     participants={getAllParticipants()}
                     selectedParticipants={getAllParticipants().filter(p => {
-                        const item = itemizedItems[editingItemIndex];
+                        const item = itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex!];
                         return item?.assignments.some(a => a.user_id === p.id && a.is_guest === p.isGuest);
                     })}
-                    onConfirm={(selected) => handleParticipantSelectorConfirm(editingItemIndex, selected)}
-                    itemDescription={itemizedItems[editingItemIndex]?.description || ''}
+                    onConfirm={(selected) => handleParticipantSelectorConfirm(itemizedExpense.editingItemIndex!, selected)}
+                    itemDescription={itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex]?.description || ''}
                 />
             )}
             <div className="bg-white dark:bg-gray-800 w-full h-full sm:w-full sm:max-w-md sm:h-auto sm:max-h-[90vh] sm:rounded-lg shadow-xl dark:shadow-gray-900/50 overflow-y-auto flex flex-col">
@@ -744,7 +495,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             type="number"
                                             placeholder="0.00"
                                             className={`w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 text-lg dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400 ${splitType === 'ITEMIZED' ? 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400' : ''}`}
-                                            value={splitType === 'ITEMIZED' ? calculateItemizedTotal() : amount}
+                                            value={splitType === 'ITEMIZED' ? calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxTipAmount) : amount}
                                             onChange={e => setAmount(e.target.value)}
                                             disabled={splitType === 'ITEMIZED'}
                                             required={splitType !== 'ITEMIZED'}
@@ -765,21 +516,17 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                     <div className="mb-4">
                                         <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Participants:</label>
                                         {getAvailableParticipants().length > 6 ? (
-                                            /* Compact mode for large groups */
                                             <button
                                                 type="button"
                                                 onClick={() => setShowParticipantSelector(true)}
                                                 className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 text-left flex items-center justify-between min-h-[44px]"
                                             >
-                                                <span className="text-sm">
-                                                    {getSelectedParticipantsDisplay()}
-                                                </span>
+                                                <span className="text-sm">{getSelectedParticipantsDisplay()}</span>
                                                 <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path d="M9 5l7 7-7 7"></path>
                                                 </svg>
                                             </button>
                                         ) : (
-                                            /* Inline buttons for small groups */
                                             <div className="flex flex-wrap gap-2">
                                                 {groupMembers.map(member => {
                                                     const key = `user_${member.user_id}`;
@@ -788,7 +535,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                             key={key}
                                                             type="button"
                                                             onClick={() => toggleParticipant(key)}
-                                                            className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${selectedParticipantKeys.includes(key) ? 'bg-teal-100 border-teal-500 text-teal-700' : 'bg-gray-100 border-gray-300'}`}
+                                                            className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${selectedParticipantKeys.includes(key) ? 'bg-teal-100 dark:bg-teal-900/30 border-teal-500 dark:border-teal-600 text-teal-700 dark:text-teal-300' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 dark:text-gray-200'}`}
                                                         >
                                                             {member.user_id === currentUserId ? 'You' : member.full_name}
                                                         </button>
@@ -801,9 +548,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                             key={key}
                                                             type="button"
                                                             onClick={() => toggleParticipant(key)}
-                                                            className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${selectedParticipantKeys.includes(key) ? 'bg-orange-100 border-orange-500 text-orange-700' : 'bg-gray-100 border-gray-300'}`}
+                                                            className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${selectedParticipantKeys.includes(key) ? 'bg-orange-100 dark:bg-orange-900/30 border-orange-500 dark:border-orange-600 text-orange-700 dark:text-orange-300' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 dark:text-gray-200'}`}
                                                         >
-                                                            {guest.name} <span className="text-gray-400">(guest)</span>
+                                                            {guest.name} <span className="text-gray-400 dark:text-gray-500">(guest)</span>
                                                         </button>
                                                     );
                                                 })}
@@ -834,18 +581,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
                                     <div className="mb-4">
                                         <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Split by:</label>
-                                        <div className="flex flex-wrap gap-2 mb-2">
-                                            {['EQUAL', 'EXACT', 'PERCENT', 'SHARES', 'ITEMIZED'].map(type => (
-                                                <button
-                                                    key={type}
-                                                    type="button"
-                                                    onClick={() => setSplitType(type)}
-                                                    className={`px-4 py-2 text-sm rounded border min-h-[44px] ${splitType === type ? 'bg-teal-500 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-200 dark:border-gray-600'}`}
-                                                >
-                                                    {type}
-                                                </button>
-                                            ))}
-                                        </div>
+                                        <ExpenseSplitTypeSelector value={splitType} onChange={setSplitType} />
 
                                         {splitType === 'ITEMIZED' && (
                                             <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
@@ -853,85 +589,22 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                     <p className="font-semibold text-sm dark:text-gray-100">Assign Items</p>
                                                     <button
                                                         type="button"
-                                                        onClick={addManualItem}
+                                                        onClick={itemizedExpense.addManualItem}
                                                         className="text-sm text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 px-3 py-2 min-h-[44px]"
                                                     >
                                                         + Add Item
                                                     </button>
                                                 </div>
 
-                                                {itemizedItems.length === 0 ? (
-                                                    <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-                                                        No items yet. Add items manually.
-                                                    </p>
-                                                ) : (
-                                                    <div className="space-y-3">
-                                                        {itemizedItems.map((item, idx) => (
-                                                            <div key={idx} className={`bg-white dark:bg-gray-800 p-3 rounded border ${item.assignments.length === 0 ? 'border-red-300 dark:border-red-900' : 'border-gray-200 dark:border-gray-600'}`}>
-                                                                <div className="flex justify-between items-center mb-3">
-                                                                    <span className="font-medium text-sm flex-1 pr-2 dark:text-gray-100">{item.description}</span>
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="text-sm text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">
-                                                                            ${(item.price / 100).toFixed(2)}
-                                                                        </span>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => removeItem(idx)}
-                                                                            className="text-red-400 hover:text-red-600 text-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
-                                                                        >
-                                                                            ×
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-
-                                                                {/* Participant Selection - Adaptive UI */}
-                                                                {shouldUseCompactMode() ? (
-                                                                    /* Compact mode for large groups */
-                                                                    <div>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setEditingItemIndex(idx)}
-                                                                            className={`w-full px-4 py-3 rounded-lg border text-left flex items-center justify-between min-h-[44px] ${item.assignments.length === 0
-                                                                                ? 'border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
-                                                                                : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600'
-                                                                                }`}
-                                                                        >
-                                                                            <span className="text-sm">
-                                                                                {getAssignmentDisplayText(item.assignments)}
-                                                                            </span>
-                                                                            <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
-                                                                                <path d="M9 5l7 7-7 7"></path>
-                                                                            </svg>
-                                                                        </button>
-                                                                    </div>
-                                                                ) : (
-                                                                    /* Inline buttons for small groups */
-                                                                    <div className="flex flex-wrap gap-2">
-                                                                        {getAllParticipants().map(p => {
-                                                                            const isAssigned = item.assignments.some(
-                                                                                a => a.user_id === p.id && a.is_guest === p.isGuest
-                                                                            );
-
-                                                                            return (
-                                                                                <button
-                                                                                    key={p.isGuest ? `guest_${p.id}` : `user_${p.id}`}
-                                                                                    type="button"
-                                                                                    onClick={() => toggleItemAssignment(idx, p)}
-                                                                                    className={`px-3 py-2 text-sm rounded-full border min-h-[44px] ${isAssigned
-                                                                                        ? 'bg-teal-100 dark:bg-teal-900/30 border-teal-500 dark:border-teal-600 text-teal-700 dark:text-teal-300'
-                                                                                        : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
-                                                                                        }`}
-                                                                                >
-                                                                                    {p.name}
-                                                                                </button>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
+                                                <ExpenseItemList
+                                                    items={itemizedExpense.itemizedItems}
+                                                    participants={getAllParticipants()}
+                                                    onToggleAssignment={itemizedExpense.toggleItemAssignment}
+                                                    onRemoveItem={itemizedExpense.removeItem}
+                                                    onOpenSelector={itemizedExpense.setEditingItemIndex}
+                                                    getParticipantName={getParticipantName}
+                                                    currentUserId={currentUserId}
+                                                />
 
                                                 <div className="mt-3 pt-3 border-t dark:border-gray-600">
                                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -943,45 +616,28 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                                 placeholder="0.00"
                                                                 step="0.01"
                                                                 className="w-28 sm:w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"
-                                                                value={taxTipAmount}
-                                                                onChange={(e) => setTaxTipAmount(e.target.value)}
+                                                                value={itemizedExpense.taxTipAmount}
+                                                                onChange={(e) => itemizedExpense.setTaxTipAmount(e.target.value)}
                                                             />
                                                         </div>
                                                     </div>
                                                 </div>
 
                                                 <div className="mt-3 text-right text-base font-semibold dark:text-white">
-                                                    Total: {currency} {calculateItemizedTotal()}
+                                                    Total: {currency} {calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxTipAmount)}
                                                 </div>
                                             </div>
                                         )}
 
                                         {splitType !== 'EQUAL' && splitType !== 'ITEMIZED' && (
-                                            <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded space-y-3">
-                                                {getAllParticipants().map(p => {
-                                                    const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
-                                                    return (
-                                                        <div key={key} className="flex items-center justify-between gap-3">
-                                                            <span className="text-sm flex-1 dark:text-gray-100">
-                                                                {p.name}
-                                                                {p.isGuest && <span className="text-orange-500 dark:text-orange-400 ml-1">(guest)</span>}
-                                                            </span>
-                                                            <div className="flex items-center gap-2">
-                                                                <input
-                                                                    type="number"
-                                                                    className="w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"
-                                                                    placeholder="0"
-                                                                    value={splitDetails[key] || ''}
-                                                                    onChange={(e) => handleSplitDetailChange(key, e.target.value)}
-                                                                />
-                                                                <span className="text-sm text-gray-500 dark:text-gray-400 w-16">
-                                                                    {splitType === 'PERCENT' ? '%' : splitType === 'SHARES' ? 'shares' : currency}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
+                                            <SplitDetailsInput
+                                                splitType={splitType}
+                                                participants={getAllParticipants()}
+                                                splitDetails={splitDetails}
+                                                onChange={handleSplitDetailChange}
+                                                currency={currency}
+                                                getParticipantName={getParticipantName}
+                                            />
                                         )}
                                     </div>
                                 </div>
@@ -1092,7 +748,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     </>
                 ) : null}
             </div>
-        </div>
+        </div >
     );
 };
 

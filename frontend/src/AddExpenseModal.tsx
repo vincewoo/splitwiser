@@ -2,54 +2,30 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import ReceiptScanner from './ReceiptScanner';
 import ParticipantSelector from './ParticipantSelector';
-
-interface Friend {
-    id: number;
-    full_name: string;
-    email: string;
-}
-
-interface GuestMember {
-    id: number;
-    group_id: number;
-    name: string;
-    created_by_id: number;
-    claimed_by_id: number | null;
-}
-
-interface GroupMember {
-    id: number;
-    user_id: number;
-    full_name: string;
-    email: string;
-}
-
-interface Group {
-    id: number;
-    name: string;
-    created_by_id: number;
-    default_currency: string;
-    members?: GroupMember[];
-    guests?: GuestMember[];
-}
-
-interface Participant {
-    id: number;
-    name: string;
-    isGuest: boolean;
-}
-
-interface ItemAssignment {
-    user_id: number;
-    is_guest: boolean;
-}
-
-interface ExpenseItem {
-    description: string;
-    price: number;
-    is_tax_tip: boolean;
-    assignments: ItemAssignment[];
-}
+import ExpenseSplitTypeSelector from './components/expense/ExpenseSplitTypeSelector';
+import ExpenseItemList from './components/expense/ExpenseItemList';
+import SplitDetailsInput from './components/expense/SplitDetailsInput';
+import { useItemizedExpense } from './hooks/useItemizedExpense';
+import { useSplitDetails } from './hooks/useSplitDetails';
+import type {
+    Friend,
+    Group,
+    Participant,
+    SplitType
+} from './types/expense';
+import {
+    getParticipantName as getParticipantNameUtil,
+    getParticipantKey
+} from './utils/participantHelpers';
+import {
+    calculateEqualSplit,
+    calculateExactSplit,
+    calculatePercentSplit,
+    calculateSharesSplit,
+    calculateItemizedTotal
+} from './utils/expenseCalculations';
+import { formatDateForInput } from './utils/formatters';
+import { expensesApi } from './services/api';
 
 interface AddExpenseModalProps {
     isOpen: boolean;
@@ -60,7 +36,14 @@ interface AddExpenseModalProps {
     preselectedGroupId?: number | null;
 }
 
-const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onExpenseAdded, friends, groups = [], preselectedGroupId = null }) => {
+const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
+    isOpen,
+    onClose,
+    onExpenseAdded,
+    friends,
+    groups = [],
+    preselectedGroupId = null
+}) => {
     const { user } = useAuth();
     const [description, setDescription] = useState('');
     const [amount, setAmount] = useState('');
@@ -69,35 +52,22 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
     const [selectedFriendIds, setSelectedFriendIds] = useState<number[]>([]);
     const [selectedGuestIds, setSelectedGuestIds] = useState<number[]>([]);
     const [selectedGroupId, setSelectedGroupId] = useState<number | null>(preselectedGroupId);
-    const [splitType, setSplitType] = useState('EQUAL');
+    const [splitType, setSplitType] = useState<SplitType>('EQUAL');
     const [showScanner, setShowScanner] = useState(false);
     const [scannedItems, setScannedItems] = useState<{ description: string, price: number }[]>([]);
-    const [expenseDate, setExpenseDate] = useState<string>(new Date().toISOString().split('T')[0]);
-
-    // Itemized expense state
-    const [itemizedItems, setItemizedItems] = useState<ExpenseItem[]>([]);
-    const [taxTipAmount, setTaxTipAmount] = useState<string>('');
-    const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+    const [expenseDate, setExpenseDate] = useState<string>(formatDateForInput());
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
-
-    // Payer state - can be user or guest
     const [payerId, setPayerId] = useState<number>(user?.id || 0);
     const [payerIsGuest, setPayerIsGuest] = useState<boolean>(false);
 
-    // Split details state - keyed by "user_<id>" or "guest_<id>"
-    const [splitDetails, setSplitDetails] = useState<{ [key: string]: number }>({});
+    // Use custom hooks
+    const itemizedExpense = useItemizedExpense();
+    const { splitDetails, handleSplitDetailChange, removeSplitDetail } = useSplitDetails(splitType);
 
-    // Get current selected group
     const selectedGroup = groups.find(g => g.id === selectedGroupId);
     const groupGuests = selectedGroup?.guests || [];
 
     useEffect(() => {
-        // Reset split details when split type changes
-        setSplitDetails({});
-    }, [splitType]);
-
-    useEffect(() => {
-        // Update currency when selected group changes
         if (selectedGroup?.default_currency) {
             setCurrency(selectedGroup.default_currency);
         }
@@ -107,46 +77,47 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
         setScannedItems(items);
         setShowScanner(false);
 
-        // Convert scanned items to itemized format
-        const newItems: ExpenseItem[] = items.map(item => ({
+        const newItems = items.map(item => ({
             description: item.description,
             price: item.price,
             is_tax_tip: false,
             assignments: []
         }));
 
-        setItemizedItems(prev => [...prev, ...newItems]);
+        itemizedExpense.setItemizedItems(prev => [...prev, ...newItems]);
         setSplitType('ITEMIZED');
 
-        // Update total
-        const total = [...itemizedItems, ...newItems].reduce((acc, item) => acc + item.price, 0);
-        const taxTip = Math.round(parseFloat(taxTipAmount || '0') * 100);
+        const total = [...itemizedExpense.itemizedItems, ...newItems].reduce((acc, item) => acc + item.price, 0);
+        const taxTip = Math.round(parseFloat(itemizedExpense.taxTipAmount || '0') * 100);
         setAmount(((total + taxTip) / 100).toFixed(2));
         setDescription("Receipt Scan");
     };
 
     if (!isOpen) return null;
 
-    // Build list of all participants (users + guests)
     const getAllParticipants = (): Participant[] => {
         const participants: Participant[] = [];
-        // Add current user
         participants.push({ id: user!.id, name: 'You', isGuest: false });
-        // Add selected friends
+
         selectedFriendIds.forEach(fid => {
             const friend = friends.find(f => f.id === fid);
             if (friend) {
                 participants.push({ id: friend.id, name: friend.full_name, isGuest: false });
             }
         });
-        // Add selected guests
+
         selectedGuestIds.forEach(gid => {
             const guest = groupGuests.find(g => g.id === gid);
             if (guest) {
                 participants.push({ id: guest.id, name: guest.name, isGuest: true });
             }
         });
+
         return participants;
+    };
+
+    const getParticipantName = (p: Participant): string => {
+        return getParticipantNameUtil(p, user?.id);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -154,104 +125,34 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
 
         const totalAmountCents = Math.round(parseFloat(amount) * 100);
         const participants = getAllParticipants();
-        let splits: { user_id: number; is_guest: boolean; amount_owed: number; percentage?: number; shares?: number }[] = [];
+        let splits: any[] = [];
 
+        // Calculate splits based on type
         if (splitType === 'EQUAL') {
-            const splitAmount = Math.floor(totalAmountCents / participants.length);
-            const remainder = totalAmountCents - (splitAmount * participants.length);
-            splits = participants.map((p, index) => ({
-                user_id: p.id,
-                is_guest: p.isGuest,
-                amount_owed: splitAmount + (index === 0 ? remainder : 0)
-            }));
+            splits = calculateEqualSplit(totalAmountCents, participants);
         } else if (splitType === 'EXACT') {
-            splits = participants.map(p => {
-                const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
-                return {
-                    user_id: p.id,
-                    is_guest: p.isGuest,
-                    amount_owed: Math.round(parseFloat(splitDetails[key]?.toString() || '0') * 100)
-                };
-            });
-            // Verify sum
-            const sum = splits.reduce((acc, s) => acc + s.amount_owed, 0);
-            if (Math.abs(sum - totalAmountCents) > 1) {
-                alert(`Amounts do not sum to total. Total: ${totalAmountCents / 100}, Sum: ${sum / 100}`);
+            const result = calculateExactSplit(totalAmountCents, participants, splitDetails);
+            if (result.error) {
+                alert(result.error);
                 return;
             }
+            splits = result.splits;
         } else if (splitType === 'PERCENT') {
-            let runningTotal = 0;
-            // Get all percentages
-            const shares = participants.map(p => {
-                const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
-                return {
-                    participant: p,
-                    percent: parseFloat(splitDetails[key]?.toString() || '0')
-                };
-            });
-
-            // Verify percent sum
-            const percentSum = shares.reduce((acc, s) => acc + s.percent, 0);
-            if (Math.abs(percentSum - 100) > 0.1) {
-                alert(`Percentages must sum to 100%. Current: ${percentSum}%`);
+            const result = calculatePercentSplit(totalAmountCents, participants, splitDetails);
+            if (result.error) {
+                alert(result.error);
                 return;
             }
-
-            splits = shares.map((s, index) => {
-                if (index === shares.length - 1) {
-                    // Last person gets the remainder to avoid rounding issues
-                    return {
-                        user_id: s.participant.id,
-                        is_guest: s.participant.isGuest,
-                        amount_owed: totalAmountCents - runningTotal,
-                        percentage: Math.round(s.percent)
-                    };
-                }
-                const share = Math.round(totalAmountCents * (s.percent / 100));
-                runningTotal += share;
-                return {
-                    user_id: s.participant.id,
-                    is_guest: s.participant.isGuest,
-                    amount_owed: share,
-                    percentage: Math.round(s.percent)
-                };
-            });
+            splits = result.splits;
         } else if (splitType === 'SHARES') {
-            const sharesMap = participants.map(p => {
-                const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
-                return {
-                    participant: p,
-                    shares: parseFloat(splitDetails[key]?.toString() || '0')
-                };
-            });
-
-            const totalShares = sharesMap.reduce((acc, s) => acc + s.shares, 0);
-            if (totalShares === 0) {
-                alert("Total shares cannot be zero");
+            const result = calculateSharesSplit(totalAmountCents, participants, splitDetails);
+            if (result.error) {
+                alert(result.error);
                 return;
             }
-            let runningTotal = 0;
-            splits = sharesMap.map((s, index) => {
-                if (index === sharesMap.length - 1) {
-                    return {
-                        user_id: s.participant.id,
-                        is_guest: s.participant.isGuest,
-                        amount_owed: totalAmountCents - runningTotal,
-                        shares: Math.round(s.shares)
-                    };
-                }
-                const shareAmount = Math.round(totalAmountCents * (s.shares / totalShares));
-                runningTotal += shareAmount;
-                return {
-                    user_id: s.participant.id,
-                    is_guest: s.participant.isGuest,
-                    amount_owed: shareAmount,
-                    shares: Math.round(s.shares)
-                };
-            });
+            splits = result.splits;
         }
 
-        // Build payload - for ITEMIZED, include items
         let payload: any = {
             description,
             amount: totalAmountCents,
@@ -265,8 +166,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
         };
 
         if (splitType === 'ITEMIZED') {
-            // Validate all items have assignments
-            const unassigned = itemizedItems.filter(
+            const unassigned = itemizedExpense.itemizedItems.filter(
                 item => !item.is_tax_tip && item.assignments.length === 0
             );
             if (unassigned.length > 0) {
@@ -274,10 +174,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                 return;
             }
 
-            // Check for participants with no items assigned
             const allParticipants = getAllParticipants();
             const participantsWithItems = new Set<string>();
-            itemizedItems.forEach(item => {
+            itemizedExpense.itemizedItems.forEach(item => {
                 item.assignments.forEach(a => {
                     const key = a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
                     participantsWithItems.add(key);
@@ -285,7 +184,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
             });
 
             const participantsWithoutItems = allParticipants.filter(p => {
-                const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
+                const key = getParticipantKey(p);
                 return !participantsWithItems.has(key);
             });
 
@@ -294,14 +193,11 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                 const proceed = window.confirm(
                     `Warning: The following participant(s) have no items assigned and will not be included in this expense:\n\n${names}\n\nDo you want to continue?`
                 );
-                if (!proceed) {
-                    return;
-                }
+                if (!proceed) return;
             }
 
-            // Prepare items with tax/tip
-            const allItems = [...itemizedItems];
-            const taxTip = Math.round(parseFloat(taxTipAmount || '0') * 100);
+            const allItems = [...itemizedExpense.itemizedItems];
+            const taxTip = Math.round(parseFloat(itemizedExpense.taxTipAmount || '0') * 100);
             if (taxTip > 0) {
                 allItems.push({
                     description: 'Tax/Tip',
@@ -323,35 +219,26 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                 group_id: selectedGroupId,
                 split_type: 'ITEMIZED',
                 items: allItems,
-                splits: []  // Backend will calculate
+                splits: []
             };
         }
 
-        const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:8000/expenses', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
+        const response = await expensesApi.create(payload);
 
         if (response.ok) {
             onExpenseAdded();
             onClose();
-            // Reset
+            // Reset state
             setDescription('');
             setAmount('');
             setSelectedFriendIds([]);
             setSelectedGuestIds([]);
-            setSplitDetails({});
             setSelectedGroupId(preselectedGroupId);
             setPayerId(user?.id || 0);
             setPayerIsGuest(false);
-            setExpenseDate(new Date().toISOString().split('T')[0]);
-            setItemizedItems([]);
-            setTaxTipAmount('');
+            setExpenseDate(formatDateForInput());
+            itemizedExpense.setItemizedItems([]);
+            itemizedExpense.setTaxTipAmount('');
             setScannedItems([]);
         } else {
             const err = await response.json();
@@ -362,10 +249,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
     const toggleFriend = (id: number) => {
         if (selectedFriendIds.includes(id)) {
             setSelectedFriendIds(selectedFriendIds.filter(fid => fid !== id));
-            // Cleanup split details
-            const newDetails = { ...splitDetails };
-            delete newDetails[`user_${id}`];
-            setSplitDetails(newDetails);
+            removeSplitDetail(`user_${id}`);
         } else {
             setSelectedFriendIds([...selectedFriendIds, id]);
         }
@@ -374,208 +258,75 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
     const toggleGuest = (id: number) => {
         if (selectedGuestIds.includes(id)) {
             setSelectedGuestIds(selectedGuestIds.filter(gid => gid !== id));
-            // Cleanup split details
-            const newDetails = { ...splitDetails };
-            delete newDetails[`guest_${id}`];
-            setSplitDetails(newDetails);
+            removeSplitDetail(`guest_${id}`);
         } else {
             setSelectedGuestIds([...selectedGuestIds, id]);
         }
     };
 
-    const handleSplitDetailChange = (key: string, value: string) => {
-        setSplitDetails({ ...splitDetails, [key]: parseFloat(value) });
-    };
-
-    const getParticipantName = (p: Participant) => {
-        if (!p.isGuest && p.id === user?.id) return "You";
-        return p.name;
-    };
-
-    // Helper to determine if we should use compact mode
-    const shouldUseCompactMode = () => {
-        const participants = getAllParticipants();
-        return participants.length > 5;
-    };
-
-    // Helper to get assignment display text
-    const getAssignmentDisplayText = (assignments: ItemAssignment[]): string => {
-        const participants = getAllParticipants();
-
-        if (assignments.length === 0) {
-            return 'No one selected';
-        }
-
-        if (assignments.length === participants.length) {
-            return `All ${participants.length} people`;
-        }
-
-        const names = assignments.map(a => {
-            const p = participants.find(p => p.id === a.user_id && p.isGuest === a.is_guest);
-            return p ? getParticipantName(p) : '';
-        }).filter(n => n);
-
-        if (names.length <= 2) {
-            return names.join(', ');
-        }
-
-        return `${names[0]}, ${names[1]} +${names.length - 2} more`;
-    };
-
-    const handleParticipantSelectorConfirm = (itemIdx: number, selectedParticipants: Participant[]) => {
-        setItemizedItems(prev => {
-            const updated = [...prev];
-            const item = { ...updated[itemIdx] };
-            item.assignments = selectedParticipants.map(p => ({
-                user_id: p.id,
-                is_guest: p.isGuest
-            }));
-            updated[itemIdx] = item;
-            return updated;
-        });
-        setEditingItemIndex(null);
-    };
-
-    const handleMainParticipantSelectorConfirm = (selectedParticipants: Participant[]) => {
-        // Clear existing selections
-        setSelectedFriendIds([]);
-        setSelectedGuestIds([]);
-
-        // Set new selections
-        selectedParticipants.forEach(p => {
-            if (p.isGuest) {
-                setSelectedGuestIds(prev => [...prev, p.id]);
-            } else if (p.id !== user?.id) {
-                // Don't add current user to selectedFriendIds
-                setSelectedFriendIds(prev => [...prev, p.id]);
-            }
-        });
-
-        setShowParticipantSelector(false);
-    };
-
-    const getSelectedParticipantsDisplay = (): string => {
-        const total = selectedFriendIds.length + selectedGuestIds.length;
-
-        if (total === 0) {
-            return 'Select people';
-        }
-
-        if (total === 1) {
-            const friend = friends.find(f => selectedFriendIds.includes(f.id));
-            if (friend) return `You and ${friend.full_name}`;
-
-            const guest = groupGuests.find(g => selectedGuestIds.includes(g.id));
-            if (guest) return `You and ${guest.name}`;
-        }
-
-        return `You and ${total} other${total === 1 ? '' : 's'}`;
-    };
-
-    // Get list of available participants for main selector (includes current user)
     const getAvailableParticipants = (): Participant[] => {
         const participants: Participant[] = [];
-
-        // Add current user
         participants.push({ id: user!.id, name: 'You', isGuest: false });
-
-        // Add friends
         friends.forEach(f => {
             participants.push({ id: f.id, name: f.full_name, isGuest: false });
         });
-
-        // Add guests if group is selected
         groupGuests.forEach(g => {
             participants.push({ id: g.id, name: g.name, isGuest: true });
         });
-
         return participants;
     };
 
-    // Get currently selected participants for main selector
     const getCurrentlySelectedParticipants = (): Participant[] => {
         const selected: Participant[] = [];
-
-        // Always include current user
         selected.push({ id: user!.id, name: 'You', isGuest: false });
-
-        // Add selected friends
         selectedFriendIds.forEach(fid => {
             const friend = friends.find(f => f.id === fid);
             if (friend) {
                 selected.push({ id: friend.id, name: friend.full_name, isGuest: false });
             }
         });
-
-        // Add selected guests
         selectedGuestIds.forEach(gid => {
             const guest = groupGuests.find(g => g.id === gid);
             if (guest) {
                 selected.push({ id: guest.id, name: guest.name, isGuest: true });
             }
         });
-
         return selected;
     };
 
-    // Itemized expense helpers
-    const toggleItemAssignment = (itemIdx: number, participant: Participant) => {
-        setItemizedItems(prev => {
-            const updated = [...prev];
-            const item = { ...updated[itemIdx] };
-
-            const existingIdx = item.assignments.findIndex(
-                a => a.user_id === participant.id && a.is_guest === participant.isGuest
-            );
-
-            if (existingIdx >= 0) {
-                // Remove assignment
-                item.assignments = item.assignments.filter((_, i) => i !== existingIdx);
-            } else {
-                // Add assignment
-                item.assignments = [...item.assignments, {
-                    user_id: participant.id,
-                    is_guest: participant.isGuest
-                }];
+    const handleMainParticipantSelectorConfirm = (selectedParticipants: Participant[]) => {
+        setSelectedFriendIds([]);
+        setSelectedGuestIds([]);
+        selectedParticipants.forEach(p => {
+            if (p.isGuest) {
+                setSelectedGuestIds(prev => [...prev, p.id]);
+            } else if (p.id !== user?.id) {
+                setSelectedFriendIds(prev => [...prev, p.id]);
             }
-
-            updated[itemIdx] = item;
-            return updated;
         });
+        setShowParticipantSelector(false);
     };
 
-    const addManualItem = () => {
-        const description = prompt("Item description:");
-        if (!description) return;
+    const handleParticipantSelectorConfirm = (itemIdx: number, selectedParticipants: Participant[]) => {
+        itemizedExpense.updateItemAssignments(itemIdx, selectedParticipants.map(p => ({
+            user_id: p.id,
+            is_guest: p.isGuest
+        })));
+        itemizedExpense.setEditingItemIndex(null);
+    };
 
-        const priceStr = prompt("Price (in dollars, e.g., 12.99):");
-        if (!priceStr) return;
-
-        const price = Math.round(parseFloat(priceStr) * 100);
-        if (isNaN(price) || price <= 0) {
-            alert("Invalid price");
-            return;
+    const getSelectedParticipantsDisplay = (): string => {
+        const total = selectedFriendIds.length + selectedGuestIds.length;
+        if (total === 0) return 'Select people';
+        if (total === 1) {
+            const friend = friends.find(f => selectedFriendIds.includes(f.id));
+            if (friend) return `You and ${friend.full_name}`;
+            const guest = groupGuests.find(g => selectedGuestIds.includes(g.id));
+            if (guest) return `You and ${guest.name}`;
         }
-
-        setItemizedItems(prev => [...prev, {
-            description,
-            price,
-            is_tax_tip: false,
-            assignments: []
-        }]);
+        return `You and ${total} other${total === 1 ? '' : 's'}`;
     };
 
-    const removeItem = (idx: number) => {
-        setItemizedItems(prev => prev.filter((_, i) => i !== idx));
-    };
-
-    const calculateItemizedTotal = (): string => {
-        const itemsTotal = itemizedItems.reduce((sum, item) => sum + item.price, 0);
-        const taxTip = Math.round(parseFloat(taxTipAmount || '0') * 100);
-        return ((itemsTotal + taxTip) / 100).toFixed(2);
-    };
-
-    // Build list of all potential payers (current user, selected friends, selected guests)
     const getPotentialPayers = (): Participant[] => {
         const payers: Participant[] = [];
         payers.push({ id: user!.id, name: 'You', isGuest: false });
@@ -612,17 +363,17 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                     itemDescription="Select people for this expense"
                 />
             )}
-            {editingItemIndex !== null && (
+            {itemizedExpense.editingItemIndex !== null && (
                 <ParticipantSelector
                     isOpen={true}
-                    onClose={() => setEditingItemIndex(null)}
+                    onClose={() => itemizedExpense.setEditingItemIndex(null)}
                     participants={getAllParticipants()}
                     selectedParticipants={getAllParticipants().filter(p => {
-                        const item = itemizedItems[editingItemIndex];
+                        const item = itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex!];
                         return item?.assignments.some(a => a.user_id === p.id && a.is_guest === p.isGuest);
                     })}
-                    onConfirm={(selected) => handleParticipantSelectorConfirm(editingItemIndex, selected)}
-                    itemDescription={itemizedItems[editingItemIndex]?.description || ''}
+                    onConfirm={(selected) => handleParticipantSelectorConfirm(itemizedExpense.editingItemIndex!, selected)}
+                    itemDescription={itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex]?.description || ''}
                 />
             )}
             <div className="bg-white dark:bg-gray-800 w-full h-full sm:w-full sm:max-w-md sm:h-auto sm:max-h-[90vh] sm:rounded-lg shadow-xl dark:shadow-gray-900/50 overflow-y-auto flex flex-col">
@@ -648,6 +399,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                                 </ul>
                             </div>
                         )}
+
                         {groups.length > 0 && (
                             <div className="mb-4">
                                 <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Group (optional):</label>
@@ -667,26 +419,21 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                         <div className="mb-4">
                             <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">With you and:</label>
                             {friends.length === 0 && groupGuests.length === 0 ? (
-                                /* No participants available */
                                 <div className="text-sm text-gray-500 dark:text-gray-400 italic py-2">
                                     Add friends or select a group with members to split expenses
                                 </div>
                             ) : getAvailableParticipants().length > 6 ? (
-                                /* Compact mode for large groups */
                                 <button
                                     type="button"
                                     onClick={() => setShowParticipantSelector(true)}
                                     className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 text-left flex items-center justify-between min-h-[44px]"
                                 >
-                                    <span className="text-sm">
-                                        {getSelectedParticipantsDisplay()}
-                                    </span>
+                                    <span className="text-sm">{getSelectedParticipantsDisplay()}</span>
                                     <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
                                         <path d="M9 5l7 7-7 7"></path>
                                     </svg>
                                 </button>
                             ) : (
-                                /* Inline buttons for small groups */
                                 <div className="flex flex-wrap gap-2">
                                     {friends.map(friend => (
                                         <button
@@ -698,7 +445,6 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                                             {friend.full_name}
                                         </button>
                                     ))}
-                                    {/* Show guests if a group is selected */}
                                     {groupGuests.map(guest => (
                                         <button
                                             key={`guest-${guest.id}`}
@@ -713,7 +459,6 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                             )}
                         </div>
 
-                        {/* Payer selection */}
                         {(selectedFriendIds.length > 0 || selectedGuestIds.length > 0) && (
                             <div className="mb-4">
                                 <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Paid by:</label>
@@ -758,7 +503,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                                 type="number"
                                 placeholder="0.00"
                                 className={`w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 text-lg dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400 ${splitType === 'ITEMIZED' ? 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400' : ''}`}
-                                value={splitType === 'ITEMIZED' ? calculateItemizedTotal() : amount}
+                                value={splitType === 'ITEMIZED' ? calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxTipAmount) : amount}
                                 onChange={e => setAmount(e.target.value)}
                                 disabled={splitType === 'ITEMIZED'}
                                 required={splitType !== 'ITEMIZED'}
@@ -778,18 +523,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
 
                         <div className="mb-4">
                             <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Split by:</label>
-                            <div className="flex flex-wrap gap-2 mb-2">
-                                {['EQUAL', 'EXACT', 'PERCENT', 'SHARES', 'ITEMIZED'].map(type => (
-                                    <button
-                                        key={type}
-                                        type="button"
-                                        onClick={() => setSplitType(type)}
-                                        className={`px-4 py-2 text-sm rounded border min-h-[44px] ${splitType === type ? 'bg-teal-500 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-200 dark:border-gray-600'}`}
-                                    >
-                                        {type}
-                                    </button>
-                                ))}
-                            </div>
+                            <ExpenseSplitTypeSelector value={splitType} onChange={setSplitType} />
 
                             {splitType === 'ITEMIZED' && (
                                 <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
@@ -805,7 +539,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={addManualItem}
+                                                onClick={itemizedExpense.addManualItem}
                                                 className="text-sm text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 px-3 py-2 min-h-[44px]"
                                             >
                                                 + Add
@@ -813,80 +547,16 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                                         </div>
                                     </div>
 
-                                    {itemizedItems.length === 0 ? (
-                                        <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-                                            No items yet. Scan a receipt or add items manually.
-                                        </p>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {itemizedItems.map((item, idx) => (
-                                                <div key={idx} className={`bg-white dark:bg-gray-800 p-3 rounded border ${item.assignments.length === 0 ? 'border-red-300 dark:border-red-900' : 'border-gray-200 dark:border-gray-600'}`}>
-                                                    <div className="flex justify-between items-center mb-3">
-                                                        <span className="font-medium text-sm flex-1 pr-2 dark:text-gray-100">{item.description}</span>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-sm text-gray-600 dark:text-gray-400 font-semibold whitespace-nowrap">
-                                                                ${(item.price / 100).toFixed(2)}
-                                                            </span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => removeItem(idx)}
-                                                                className="text-red-400 hover:text-red-600 text-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
-                                                            >
-                                                                ×
-                                                            </button>
-                                                        </div>
-                                                    </div>
+                                    <ExpenseItemList
+                                        items={itemizedExpense.itemizedItems}
+                                        participants={getAllParticipants()}
+                                        onToggleAssignment={itemizedExpense.toggleItemAssignment}
+                                        onRemoveItem={itemizedExpense.removeItem}
+                                        onOpenSelector={itemizedExpense.setEditingItemIndex}
+                                        getParticipantName={getParticipantName}
+                                        currentUserId={user?.id}
+                                    />
 
-                                                    {/* Participant Selection - Adaptive UI */}
-                                                    {shouldUseCompactMode() ? (
-                                                        /* Compact mode for large groups */
-                                                        <div>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setEditingItemIndex(idx)}
-                                                                className={`w-full px-4 py-3 rounded-lg border text-left flex items-center justify-between min-h-[44px] ${item.assignments.length === 0
-                                                                    ? 'border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
-                                                                    : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600'
-                                                                    }`}
-                                                            >
-                                                                <span className="text-sm">
-                                                                    {getAssignmentDisplayText(item.assignments)}
-                                                                </span>
-                                                                <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path d="M9 5l7 7-7 7"></path>
-                                                                </svg>
-                                                            </button>
-                                                        </div>
-                                                    ) : (
-                                                        /* Inline buttons for small groups */
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {getAllParticipants().map(p => {
-                                                                const isAssigned = item.assignments.some(
-                                                                    a => a.user_id === p.id && a.is_guest === p.isGuest
-                                                                );
-
-                                                                return (
-                                                                    <button
-                                                                        key={p.isGuest ? `guest_${p.id}` : `user_${p.id}`}
-                                                                        type="button"
-                                                                        onClick={() => toggleItemAssignment(idx, p)}
-                                                                        className={`px-3 py-2 text-sm rounded-full border min-h-[44px] ${isAssigned
-                                                                            ? 'bg-teal-100 dark:bg-teal-900/30 border-teal-500 dark:border-teal-600 text-teal-700 dark:text-teal-300'
-                                                                            : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
-                                                                            }`}
-                                                                    >
-                                                                        {getParticipantName(p)}
-                                                                    </button>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Tax/Tip Section */}
                                     <div className="mt-3 pt-3 border-t dark:border-gray-600">
                                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                             <span className="text-sm text-gray-600 dark:text-gray-400">Tax/Tip (split proportionally)</span>
@@ -897,45 +567,28 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ isOpen, onClose, onEx
                                                     placeholder="0.00"
                                                     step="0.01"
                                                     className="w-28 sm:w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"
-                                                    value={taxTipAmount}
-                                                    onChange={(e) => setTaxTipAmount(e.target.value)}
+                                                    value={itemizedExpense.taxTipAmount}
+                                                    onChange={(e) => itemizedExpense.setTaxTipAmount(e.target.value)}
                                                 />
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Running Total */}
                                     <div className="mt-3 text-right text-base font-semibold dark:text-white">
-                                        Total: {currency} {calculateItemizedTotal()}
+                                        Total: {currency} {calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxTipAmount)}
                                     </div>
                                 </div>
                             )}
 
                             {splitType !== 'EQUAL' && splitType !== 'ITEMIZED' && (
-                                <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded space-y-3">
-                                    {getAllParticipants().map(p => {
-                                        const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
-                                        return (
-                                            <div key={key} className="flex items-center justify-between gap-3">
-                                                <span className="text-sm flex-1 dark:text-gray-100">
-                                                    {getParticipantName(p)}
-                                                    {p.isGuest && <span className="text-orange-500 dark:text-orange-400 ml-1">(guest)</span>}
-                                                </span>
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        type="number"
-                                                        className="w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"
-                                                        placeholder="0"
-                                                        onChange={(e) => handleSplitDetailChange(key, e.target.value)}
-                                                    />
-                                                    <span className="text-sm text-gray-500 dark:text-gray-400 w-16">
-                                                        {splitType === 'PERCENT' ? '%' : splitType === 'SHARES' ? 'shares' : currency}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                <SplitDetailsInput
+                                    splitType={splitType}
+                                    participants={getAllParticipants()}
+                                    splitDetails={splitDetails}
+                                    onChange={handleSplitDetailChange}
+                                    currency={currency}
+                                    getParticipantName={getParticipantName}
+                                />
                             )}
                         </div>
                     </div>
