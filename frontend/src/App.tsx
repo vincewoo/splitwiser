@@ -22,6 +22,7 @@ interface Group {
 
 interface Balance {
   user_id: number;
+  full_name: string;
   amount: number;
   currency: string;
 }
@@ -38,6 +39,7 @@ const Dashboard = () => {
   const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD']);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isSettleUpModalOpen, setIsSettleUpModalOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     fetchFriends();
@@ -119,7 +121,7 @@ const Dashboard = () => {
       fetchBalances();
   };
 
-  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({ USD: 1 });
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number> | null>(null);
 
   useEffect(() => {
       fetch('http://localhost:8000/exchange_rates')
@@ -128,6 +130,9 @@ const Dashboard = () => {
   }, []);
 
   const calculateTotalBalance = () => {
+      // Don't calculate if exchange rates haven't loaded yet
+      if (!exchangeRates) return 0;
+
       // Convert all to USD for display
       let totalUSD = 0;
       balances.forEach(b => {
@@ -146,11 +151,33 @@ const Dashboard = () => {
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
-      <div className="w-64 bg-white shadow-md flex flex-col">
-        <div className="p-6 border-b">
+      {/* Mobile overlay */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div className={`
+        fixed lg:static inset-y-0 left-0 z-30
+        w-64 bg-white shadow-md flex flex-col
+        transform transition-transform duration-300 ease-in-out
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
+        <div className="p-6 border-b flex justify-between items-center">
           <h1 className="text-2xl font-bold text-teal-600">SplitClone</h1>
+          <button
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden text-gray-500 hover:text-gray-700"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        <nav className="mt-6 flex-1 px-4 space-y-2">
+        <nav className="mt-6 flex-1 px-4 space-y-2 overflow-y-auto">
           <a href="/" className="flex items-center px-4 py-2 text-gray-700 bg-gray-100 rounded-md">
              <span className="font-medium">Dashboard</span>
           </a>
@@ -162,7 +189,10 @@ const Dashboard = () => {
                     <li
                         key={group.id}
                         className="text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 px-2 py-1 cursor-pointer rounded"
-                        onClick={() => navigate(`/groups/${group.id}`)}
+                        onClick={() => {
+                          navigate(`/groups/${group.id}`);
+                          setIsSidebarOpen(false);
+                        }}
                     >
                         {group.name}
                     </li>
@@ -214,41 +244,64 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="flex justify-between items-center p-6 bg-white shadow-sm">
-            <h2 className="text-2xl font-semibold text-gray-800">Dashboard</h2>
-            <div className="flex space-x-4">
-                <button onClick={() => setIsExpenseModalOpen(true)} className="bg-orange-500 text-white px-4 py-2 rounded shadow hover:bg-orange-600 text-sm font-medium">Add an expense</button>
-                <button onClick={() => setIsSettleUpModalOpen(true)} className="bg-teal-500 text-white px-4 py-2 rounded shadow hover:bg-teal-600 text-sm font-medium">Settle up</button>
+        <header className="flex justify-between items-center p-4 lg:p-6 bg-white shadow-sm">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsSidebarOpen(true)}
+                className="lg:hidden text-gray-500 hover:text-gray-700"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <h2 className="text-xl lg:text-2xl font-semibold text-gray-800">Dashboard</h2>
+            </div>
+            <div className="flex gap-2">
+                <button
+                  onClick={() => setIsExpenseModalOpen(true)}
+                  className="bg-orange-500 text-white px-3 py-2 lg:px-4 rounded shadow hover:bg-orange-600 text-xs lg:text-sm font-medium whitespace-nowrap"
+                >
+                  <span className="hidden sm:inline">Add expense</span>
+                  <span className="sm:hidden">+</span>
+                </button>
+                <button
+                  onClick={() => setIsSettleUpModalOpen(true)}
+                  className="bg-teal-500 text-white px-3 py-2 lg:px-4 rounded shadow hover:bg-teal-600 text-xs lg:text-sm font-medium whitespace-nowrap"
+                >
+                  <span className="hidden sm:inline">Settle up</span>
+                  <span className="sm:hidden">$</span>
+                </button>
             </div>
         </header>
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded shadow-sm">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Total Balance</h3>
-                    <div className={`text-3xl font-bold ${calculateTotalBalance() >= 0 ? 'text-teal-500' : 'text-red-500'}`}>
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-4 lg:p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
+                <div className="bg-white p-4 lg:p-6 rounded shadow-sm">
+                    <h3 className="text-base lg:text-lg font-medium text-gray-900 mb-2 lg:mb-4">Total Balance</h3>
+                    <div className={`text-2xl lg:text-3xl font-bold ${calculateTotalBalance() >= 0 ? 'text-teal-500' : 'text-red-500'}`}>
                         {formatMoney(calculateTotalBalance(), 'USD')}
                     </div>
                 </div>
-                <div className="bg-white p-6 rounded shadow-sm">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">You owe</h3>
+                <div className="bg-white p-4 lg:p-6 rounded shadow-sm">
+                    <h3 className="text-base lg:text-lg font-medium text-gray-900 mb-2 lg:mb-4">You owe</h3>
                      <ul className="space-y-2">
-                         {balances.filter(b => b.amount < 0).length === 0 && <li className="text-gray-500 italic">No debts</li>}
+                         {balances.filter(b => b.amount < 0).length === 0 && <li className="text-gray-500 italic text-sm">No debts</li>}
                          {balances.filter(b => b.amount < 0).map(b => (
-                             <li key={`${b.user_id}-${b.currency}`} className="text-red-500 flex justify-between">
-                                 <span>User {b.user_id}</span>
+                             <li key={`${b.user_id}-${b.currency}`} className="text-red-500 flex justify-between text-sm">
+                                 <span>{b.full_name}</span>
                                  <span>{formatMoney(Math.abs(b.amount), b.currency)}</span>
                              </li>
                          ))}
                      </ul>
                 </div>
-                <div className="bg-white p-6 rounded shadow-sm">
-                     <h3 className="text-lg font-medium text-gray-900 mb-4">You are owed</h3>
+                <div className="bg-white p-4 lg:p-6 rounded shadow-sm md:col-span-2">
+                     <h3 className="text-base lg:text-lg font-medium text-gray-900 mb-2 lg:mb-4">You are owed</h3>
                      <ul className="space-y-2">
-                         {balances.filter(b => b.amount > 0).length === 0 && <li className="text-gray-500 italic">No one owes you</li>}
+                         {balances.filter(b => b.amount > 0).length === 0 && <li className="text-gray-500 italic text-sm">No one owes you</li>}
                          {balances.filter(b => b.amount > 0).map(b => (
-                             <li key={`${b.user_id}-${b.currency}`} className="text-teal-500 flex justify-between">
-                                 <span>User {b.user_id}</span>
+                             <li key={`${b.user_id}-${b.currency}`} className="text-teal-500 flex justify-between text-sm">
+                                 <span>{b.full_name}</span>
                                  <span>{formatMoney(b.amount, b.currency)}</span>
                              </li>
                          ))}

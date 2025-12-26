@@ -79,8 +79,9 @@ const GroupDetailPage: React.FC = () => {
     const [selectedExpenseId, setSelectedExpenseId] = useState<number | null>(null);
     const [isExpenseDetailOpen, setIsExpenseDetailOpen] = useState(false);
 
-    const [showInGroupCurrency, setShowInGroupCurrency] = useState(false);
+    const [showInGroupCurrency, setShowInGroupCurrency] = useState(true);
     const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({ USD: 1 });
+    const [isMembersExpanded, setIsMembersExpanded] = useState(false);
 
     const fetchGroupData = async () => {
         const token = localStorage.getItem('token');
@@ -420,28 +421,28 @@ const GroupDetailPage: React.FC = () => {
         <div className="min-h-screen bg-gray-100">
             {/* Header */}
             <header className="bg-white shadow-sm">
-                <div className="max-w-5xl mx-auto px-6 py-4">
+                <div className="max-w-5xl mx-auto px-4 lg:px-6 py-4">
                     <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
+                        <div className="flex items-center gap-2 lg:gap-4 min-w-0">
                             <button
                                 onClick={() => navigate('/')}
-                                className="text-gray-500 hover:text-gray-700"
+                                className="text-gray-500 hover:text-gray-700 flex-shrink-0"
                             >
-                                &larr; Back
+                                &larr;
                             </button>
-                            <h1 className="text-2xl font-bold text-gray-900">{group.name}</h1>
+                            <h1 className="text-lg lg:text-2xl font-bold text-gray-900 truncate">{group.name}</h1>
                         </div>
                         {isOwner && (
-                            <div className="flex space-x-2">
+                            <div className="flex gap-1 lg:gap-2 flex-shrink-0">
                                 <button
                                     onClick={() => setIsEditModalOpen(true)}
-                                    className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded"
+                                    className="px-2 lg:px-3 py-1 text-xs lg:text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded"
                                 >
                                     Edit
                                 </button>
                                 <button
                                     onClick={() => setIsDeleteConfirmOpen(true)}
-                                    className="px-3 py-1 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                                    className="px-2 lg:px-3 py-1 text-xs lg:text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
                                 >
                                     Delete
                                 </button>
@@ -451,167 +452,65 @@ const GroupDetailPage: React.FC = () => {
                 </div>
             </header>
 
-            <main className="max-w-5xl mx-auto px-6 py-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    {/* Members Section */}
-                    <div className="bg-white rounded shadow-sm p-6">
-                        <h2 className="text-lg font-medium text-gray-900 mb-4">
-                            Members ({group.members.length + (group.guests?.length || 0)})
-                        </h2>
-                        <ul className="space-y-3 mb-4">
-                            {group.members.map(member => (
-                                <li key={member.id} className="flex items-center justify-between">
-                                    <div>
-                                        <div className="text-sm font-medium text-gray-900">
-                                            {member.full_name}
-                                            {member.user_id === group.created_by_id && (
-                                                <span className="ml-2 text-xs text-gray-500">(owner)</span>
-                                            )}
-                                            {member.user_id === user?.id && (
-                                                <span className="ml-2 text-xs text-teal-600">(you)</span>
-                                            )}
-                                        </div>
-                                        <div className="text-xs text-gray-500">{member.email}</div>
-                                    </div>
-                                    {/* Show remove button if owner (can remove others) or if it's yourself (can leave) */}
-                                    {member.user_id !== group.created_by_id && (isOwner || member.user_id === user?.id) && (
-                                        <button
-                                            onClick={() => handleRemoveMember(member.user_id)}
-                                            className="text-xs text-red-500 hover:text-red-700"
-                                        >
-                                            {member.user_id === user?.id ? 'Leave' : 'Remove'}
-                                        </button>
-                                    )}
-                                </li>
-                            ))}
-                            {/* Guest members */}
-                            {group.guests?.map(guest => (
-                                <li key={`guest-${guest.id}`} className="flex items-center justify-between">
-                                    <div>
-                                        <div className="text-sm font-medium text-gray-900">
-                                            {guest.name}
-                                            <span className="ml-2 text-xs text-orange-500">(guest)</span>
-                                        </div>
-                                        <div className="text-xs text-gray-400">No account</div>
-                                    </div>
-                                    <div className="flex space-x-2">
-                                        <button
-                                            onClick={() => handleClaimGuest(guest.id)}
-                                            className="text-xs text-teal-500 hover:text-teal-700"
-                                        >
-                                            Claim
-                                        </button>
-                                        <button
-                                            onClick={() => handleRemoveGuest(guest.id)}
-                                            className="text-xs text-red-500 hover:text-red-700"
-                                        >
-                                            Remove
-                                        </button>
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
-
-                        <form onSubmit={handleAddMember} className="mt-4">
-                            <div className="flex space-x-2">
-                                <input
-                                    type="email"
-                                    placeholder="Add member by email"
-                                    className="flex-1 text-sm p-2 border rounded focus:outline-none focus:border-teal-500"
-                                    value={newMemberEmail}
-                                    onChange={(e) => setNewMemberEmail(e.target.value)}
-                                    required
-                                />
-                                <button
-                                    type="submit"
-                                    className="px-3 py-2 bg-teal-500 text-white text-sm rounded hover:bg-teal-600"
-                                >
-                                    Add
-                                </button>
-                            </div>
-                            {addMemberError && (
-                                <p className="mt-2 text-xs text-red-500">{addMemberError}</p>
-                            )}
-                        </form>
-
-                        <form onSubmit={handleAddGuest} className="mt-2">
-                            <div className="flex space-x-2">
-                                <input
-                                    type="text"
-                                    placeholder="Add guest by name"
-                                    className="flex-1 text-sm p-2 border rounded focus:outline-none focus:border-orange-500"
-                                    value={newGuestName}
-                                    onChange={(e) => setNewGuestName(e.target.value)}
-                                    required
-                                />
-                                <button
-                                    type="submit"
-                                    className="px-3 py-2 bg-orange-500 text-white text-sm rounded hover:bg-orange-600"
-                                >
-                                    Add Guest
-                                </button>
-                            </div>
-                            {addGuestError && (
-                                <p className="mt-2 text-xs text-red-500">{addGuestError}</p>
-                            )}
-                        </form>
-                    </div>
-
-                    {/* Balances Section */}
-                    <div className="bg-white rounded shadow-sm p-6">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-lg font-medium text-gray-900">Group Balances</h2>
-                            {group?.default_currency && balances.length > 0 && (
-                                <button
-                                    onClick={() => setShowInGroupCurrency(!showInGroupCurrency)}
-                                    className="text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
-                                >
-                                    {showInGroupCurrency
-                                        ? `Show by currency`
-                                        : `Show in ${group.default_currency}`}
-                                </button>
-                            )}
-                        </div>
-
-                        {balances.length === 0 ? (
-                            <p className="text-gray-500 italic text-sm">No balances yet</p>
-                        ) : (
-                            <div>
-                                {!showInGroupCurrency && renderBalancesByCurrency()}
-                                {showInGroupCurrency && renderBalancesConverted()}
-                            </div>
+            <main className="max-w-5xl mx-auto px-4 lg:px-6 py-4 lg:py-6">
+                {/* Balances Section - Priority #1 */}
+                <div className="bg-white rounded shadow-sm p-4 lg:p-6 mb-4">
+                    <div className="flex justify-between items-center mb-3 lg:mb-4 gap-2">
+                        <h2 className="text-base lg:text-lg font-medium text-gray-900">Group Balances</h2>
+                        {group?.default_currency && balances.length > 0 && (
+                            <button
+                                onClick={() => setShowInGroupCurrency(!showInGroupCurrency)}
+                                className="text-xs px-2 lg:px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 whitespace-nowrap"
+                            >
+                                {showInGroupCurrency
+                                    ? `By currency`
+                                    : `In ${group.default_currency}`}
+                            </button>
                         )}
                     </div>
+
+                    {balances.length === 0 ? (
+                        <p className="text-gray-500 italic text-sm">No balances yet</p>
+                    ) : (
+                        <div>
+                            {!showInGroupCurrency && renderBalancesByCurrency()}
+                            {showInGroupCurrency && renderBalancesConverted()}
+                        </div>
+                    )}
                 </div>
 
-                {/* Expenses Section */}
-                <div className="bg-white rounded shadow-sm p-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-medium text-gray-900">Group Expenses</h2>
-                        <button
-                            onClick={() => setIsExpenseModalOpen(true)}
-                            className="px-4 py-2 bg-orange-500 text-white text-sm rounded hover:bg-orange-600"
-                        >
-                            Add Expense
-                        </button>
-                    </div>
+                {/* Quick Action - Add Expense */}
+                <div className="mb-4">
+                    <button
+                        onClick={() => setIsExpenseModalOpen(true)}
+                        className="w-full px-4 py-3 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 shadow-sm active:bg-orange-700"
+                    >
+                        Add Expense
+                    </button>
+                </div>
+
+                {/* Expenses Section - Priority #2 */}
+                <div className="bg-white rounded shadow-sm p-4 lg:p-6 mb-4">
+                    <h2 className="text-base lg:text-lg font-medium text-gray-900 mb-3 lg:mb-4">
+                        Recent Expenses
+                    </h2>
 
                     {expenses.length === 0 ? (
                         <p className="text-gray-500 italic text-sm">No expenses yet</p>
                     ) : (
                         <div className="divide-y">
-                            {expenses.map(expense => (
+                            {expenses.slice(0, 5).map(expense => (
                                 <div
                                     key={expense.id}
-                                    className="py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50 -mx-2 px-2 rounded"
+                                    className="py-3 flex items-start lg:items-center justify-between cursor-pointer hover:bg-gray-50 -mx-2 px-2 rounded gap-2"
                                     onClick={() => handleExpenseClick(expense.id)}
                                 >
-                                    <div className="flex items-center space-x-4">
-                                        <div className="text-xs text-gray-500 w-12">
+                                    <div className="flex items-start lg:items-center gap-2 lg:gap-4 min-w-0 flex-1">
+                                        <div className="text-xs text-gray-500 w-10 lg:w-12 flex-shrink-0">
                                             {formatDate(expense.date)}
                                         </div>
-                                        <div>
-                                            <div className="text-sm font-medium text-gray-900">
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-medium text-gray-900 truncate">
                                                 {expense.description}
                                             </div>
                                             <div className="text-xs text-gray-500">
@@ -619,11 +518,134 @@ const GroupDetailPage: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="text-sm font-medium text-gray-900">
+                                    <div className="text-xs lg:text-sm font-medium text-gray-900 flex-shrink-0">
                                         {formatMoney(expense.amount, expense.currency)}
                                     </div>
                                 </div>
                             ))}
+                            {expenses.length > 5 && (
+                                <div className="pt-3 text-center">
+                                    <span className="text-xs text-gray-500">
+                                        +{expenses.length - 5} more expenses
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Members Section - Collapsible */}
+                <div className="bg-white rounded shadow-sm">
+                    <button
+                        onClick={() => setIsMembersExpanded(!isMembersExpanded)}
+                        className="w-full p-4 lg:p-6 flex items-center justify-between text-left hover:bg-gray-50"
+                    >
+                        <h2 className="text-base lg:text-lg font-medium text-gray-900">
+                            Members ({group.members.length + (group.guests?.length || 0)})
+                        </h2>
+                        <span className="text-gray-400 text-xl">
+                            {isMembersExpanded ? '−' : '+'}
+                        </span>
+                    </button>
+
+                    {isMembersExpanded && (
+                        <div className="px-4 lg:px-6 pb-4 lg:pb-6 border-t">
+                            <ul className="space-y-2 lg:space-y-3 mb-4 mt-4">
+                                {group.members.map(member => (
+                                    <li key={member.id} className="flex items-center justify-between">
+                                        <div>
+                                            <div className="text-sm font-medium text-gray-900">
+                                                {member.full_name}
+                                                {member.user_id === group.created_by_id && (
+                                                    <span className="ml-2 text-xs text-gray-500">(owner)</span>
+                                                )}
+                                                {member.user_id === user?.id && (
+                                                    <span className="ml-2 text-xs text-teal-600">(you)</span>
+                                                )}
+                                            </div>
+                                            <div className="text-xs text-gray-500">{member.email}</div>
+                                        </div>
+                                        {member.user_id !== group.created_by_id && (isOwner || member.user_id === user?.id) && (
+                                            <button
+                                                onClick={() => handleRemoveMember(member.user_id)}
+                                                className="text-xs text-red-500 hover:text-red-700"
+                                            >
+                                                {member.user_id === user?.id ? 'Leave' : 'Remove'}
+                                            </button>
+                                        )}
+                                    </li>
+                                ))}
+                                {group.guests?.map(guest => (
+                                    <li key={`guest-${guest.id}`} className="flex items-center justify-between">
+                                        <div>
+                                            <div className="text-sm font-medium text-gray-900">
+                                                {guest.name}
+                                                <span className="ml-2 text-xs text-orange-500">(guest)</span>
+                                            </div>
+                                            <div className="text-xs text-gray-400">No account</div>
+                                        </div>
+                                        <div className="flex space-x-2">
+                                            <button
+                                                onClick={() => handleClaimGuest(guest.id)}
+                                                className="text-xs text-teal-500 hover:text-teal-700"
+                                            >
+                                                Claim
+                                            </button>
+                                            <button
+                                                onClick={() => handleRemoveGuest(guest.id)}
+                                                className="text-xs text-red-500 hover:text-red-700"
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+
+                            <form onSubmit={handleAddMember} className="mt-4">
+                                <div className="flex gap-2">
+                                    <input
+                                        type="email"
+                                        placeholder="Add member by email"
+                                        className="flex-1 text-xs lg:text-sm p-2 border rounded focus:outline-none focus:border-teal-500"
+                                        value={newMemberEmail}
+                                        onChange={(e) => setNewMemberEmail(e.target.value)}
+                                        required
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="px-2 lg:px-3 py-2 bg-teal-500 text-white text-xs lg:text-sm rounded hover:bg-teal-600 whitespace-nowrap"
+                                    >
+                                        Add
+                                    </button>
+                                </div>
+                                {addMemberError && (
+                                    <p className="mt-2 text-xs text-red-500">{addMemberError}</p>
+                                )}
+                            </form>
+
+                            <form onSubmit={handleAddGuest} className="mt-2">
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        placeholder="Add guest by name"
+                                        className="flex-1 text-xs lg:text-sm p-2 border rounded focus:outline-none focus:border-orange-500"
+                                        value={newGuestName}
+                                        onChange={(e) => setNewGuestName(e.target.value)}
+                                        required
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="px-2 lg:px-3 py-2 bg-orange-500 text-white text-xs lg:text-sm rounded hover:bg-orange-600 whitespace-nowrap"
+                                    >
+                                        <span className="hidden sm:inline">Add Guest</span>
+                                        <span className="sm:hidden">+Guest</span>
+                                    </button>
+                                </div>
+                                {addGuestError && (
+                                    <p className="mt-2 text-xs text-red-500">{addGuestError}</p>
+                                )}
+                            </form>
                         </div>
                     )}
                 </div>

@@ -65,3 +65,20 @@ class ExpenseSplit(Base):
     amount_owed = Column(Integer) # The amount this user owes
     percentage = Column(Integer, nullable=True) # For percentage splits
     shares = Column(Integer, nullable=True) # For share splits
+
+class ExpenseItem(Base):
+    __tablename__ = "expense_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    expense_id = Column(Integer, nullable=False)
+    description = Column(String, nullable=False)
+    price = Column(Integer, nullable=False)  # In cents
+    is_tax_tip = Column(Boolean, default=False)
+
+class ExpenseItemAssignment(Base):
+    __tablename__ = "expense_item_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    expense_item_id = Column(Integer, nullable=False)
+    user_id = Column(Integer, nullable=False)
+    is_guest = Column(Boolean, default=False)

@@ -137,6 +137,75 @@ def convert_to_usd(amount: float, currency: str) -> float:
         return amount
     return amount / EXCHANGE_RATES[currency]
 
+def calculate_itemized_splits(items: list[schemas.ExpenseItemCreate]) -> list[schemas.ExpenseSplitBase]:
+    """
+    Calculate each person's share based on assigned items.
+
+    Algorithm:
+    1. Sum each person's assigned items (shared items split equally)
+    2. Calculate subtotal for all non-tax/tip items
+    3. Distribute tax/tip proportionally to each person's subtotal
+    4. Return final splits
+    """
+    # Track each person's subtotal (key: "user_<id>" or "guest_<id>")
+    person_subtotals = {}
+
+    # Separate regular items from tax/tip
+    regular_items = [i for i in items if not i.is_tax_tip]
+    tax_tip_items = [i for i in items if i.is_tax_tip]
+
+    # Process regular items
+    for item in regular_items:
+        if not item.assignments:
+            continue
+
+        # Equal split among assignees
+        num_assignees = len(item.assignments)
+        share_per_person = item.price // num_assignees
+        remainder = item.price % num_assignees
+
+        for idx, assignment in enumerate(item.assignments):
+            key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+            # First assignee gets the remainder cents
+            amount = share_per_person + (1 if idx < remainder else 0)
+            person_subtotals[key] = person_subtotals.get(key, 0) + amount
+
+    # Calculate total of regular items for proportional distribution
+    regular_total = sum(person_subtotals.values())
+    tax_tip_total = sum(i.price for i in tax_tip_items)
+
+    # Distribute tax/tip proportionally
+    person_totals = {}
+    remaining_tax_tip = tax_tip_total
+
+    sorted_keys = sorted(person_subtotals.keys())
+    for idx, key in enumerate(sorted_keys):
+        subtotal = person_subtotals[key]
+        person_totals[key] = subtotal
+
+        if regular_total > 0 and tax_tip_total > 0:
+            if idx == len(sorted_keys) - 1:
+                # Last person gets remainder to avoid rounding errors
+                tax_tip_share = remaining_tax_tip
+            else:
+                tax_tip_share = int((subtotal / regular_total) * tax_tip_total)
+                remaining_tax_tip -= tax_tip_share
+
+            person_totals[key] += tax_tip_share
+
+    # Convert to ExpenseSplitBase list
+    splits = []
+    for key, amount in person_totals.items():
+        is_guest = key.startswith("guest_")
+        user_id = int(key.split("_")[1])
+        splits.append(schemas.ExpenseSplitBase(
+            user_id=user_id,
+            is_guest=is_guest,
+            amount_owed=amount
+        ))
+
+    return splits
+
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -520,6 +589,22 @@ def read_friends(current_user: Annotated[models.User, Depends(get_current_user)]
 
 @app.post("/expenses", response_model=schemas.Expense)
 def create_expense(expense: schemas.ExpenseCreate, current_user: Annotated[models.User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    # Handle ITEMIZED split type
+    if expense.split_type == "ITEMIZED":
+        if not expense.items:
+            raise HTTPException(status_code=400, detail="Items required for ITEMIZED split type")
+
+        # Validate all non-tax items have at least one assignment
+        for item in expense.items:
+            if not item.is_tax_tip and not item.assignments:
+                raise HTTPException(status_code=400, detail=f"Item '{item.description}' must have at least one assignee")
+
+        # Calculate splits from items
+        expense.splits = calculate_itemized_splits(expense.items)
+
+        # Recalculate total from items
+        expense.amount = sum(item.price for item in expense.items)
+
     # Validate total amount vs splits
     total_split = sum(split.amount_owed for split in expense.splits)
     if total_split != expense.amount:
@@ -559,6 +644,28 @@ def create_expense(expense: schemas.ExpenseCreate, current_user: Annotated[model
             shares=split.shares
         )
         db.add(db_split)
+
+    # Store items if ITEMIZED
+    if expense.split_type == "ITEMIZED" and expense.items:
+        for item in expense.items:
+            db_item = models.ExpenseItem(
+                expense_id=db_expense.id,
+                description=item.description,
+                price=item.price,
+                is_tax_tip=item.is_tax_tip
+            )
+            db.add(db_item)
+            db.commit()
+            db.refresh(db_item)
+
+            # Store assignments
+            for assignment in item.assignments:
+                db_assignment = models.ExpenseItemAssignment(
+                    expense_item_id=db_item.id,
+                    user_id=assignment.user_id,
+                    is_guest=assignment.is_guest
+                )
+                db.add(db_assignment)
 
     db.commit()
     return db_expense
@@ -621,17 +728,58 @@ def get_expense(expense_id: int, current_user: Annotated[models.User, Depends(ge
             user_name=user_name
         ))
 
-    # Determine split type from splits (check if percentage/shares set)
-    split_type = "EQUAL"
-    if splits and splits[0].percentage is not None:
-        split_type = "PERCENT"
-    elif splits and splits[0].shares is not None:
-        split_type = "SHARES"
-    elif splits:
-        # Check if amounts are equal (within 1 cent tolerance)
-        amounts = [s.amount_owed for s in splits]
-        if len(amounts) > 1 and max(amounts) - min(amounts) > 1:
-            split_type = "EXACT"
+    # Check for ITEMIZED type by looking for expense_items
+    expense_items = db.query(models.ExpenseItem).filter(
+        models.ExpenseItem.expense_id == expense_id
+    ).all()
+
+    items_data = []
+    if expense_items:
+        split_type = "ITEMIZED"
+        for item in expense_items:
+            assignments = db.query(models.ExpenseItemAssignment).filter(
+                models.ExpenseItemAssignment.expense_item_id == item.id
+            ).all()
+
+            assignment_details = []
+            for a in assignments:
+                if a.is_guest:
+                    guest = db.query(models.GuestMember).filter(
+                        models.GuestMember.id == a.user_id
+                    ).first()
+                    name = guest.name if guest else "Unknown Guest"
+                else:
+                    user = db.query(models.User).filter(
+                        models.User.id == a.user_id
+                    ).first()
+                    name = (user.full_name or user.email) if user else "Unknown"
+
+                assignment_details.append(schemas.ExpenseItemAssignmentDetail(
+                    user_id=a.user_id,
+                    is_guest=a.is_guest,
+                    user_name=name
+                ))
+
+            items_data.append(schemas.ExpenseItemDetail(
+                id=item.id,
+                expense_id=item.expense_id,
+                description=item.description,
+                price=item.price,
+                is_tax_tip=item.is_tax_tip,
+                assignments=assignment_details
+            ))
+    else:
+        # Determine split type from splits (check if percentage/shares set)
+        split_type = "EQUAL"
+        if splits and splits[0].percentage is not None:
+            split_type = "PERCENT"
+        elif splits and splits[0].shares is not None:
+            split_type = "SHARES"
+        elif splits:
+            # Check if amounts are equal (within 1 cent tolerance)
+            amounts = [s.amount_owed for s in splits]
+            if len(amounts) > 1 and max(amounts) - min(amounts) > 1:
+                split_type = "EXACT"
 
     return schemas.ExpenseWithSplits(
         id=expense.id,
@@ -644,7 +792,8 @@ def get_expense(expense_id: int, current_user: Annotated[models.User, Depends(ge
         group_id=expense.group_id,
         created_by_id=expense.created_by_id,
         splits=splits_with_names,
-        split_type=split_type
+        split_type=split_type,
+        items=items_data
     )
 
 @app.put("/expenses/{expense_id}", response_model=schemas.Expense)
@@ -656,6 +805,22 @@ def update_expense(expense_id: int, expense_update: schemas.ExpenseUpdate, curre
     # Only the creator can edit the expense
     if expense.created_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the expense creator can edit this expense")
+
+    # Handle ITEMIZED split type
+    if expense_update.split_type == "ITEMIZED":
+        if not expense_update.items:
+            raise HTTPException(status_code=400, detail="Items required for ITEMIZED split type")
+
+        # Validate all non-tax items have at least one assignment
+        for item in expense_update.items:
+            if not item.is_tax_tip and not item.assignments:
+                raise HTTPException(status_code=400, detail=f"Item '{item.description}' must have at least one assignee")
+
+        # Calculate splits from items
+        expense_update.splits = calculate_itemized_splits(expense_update.items)
+
+        # Recalculate total from items
+        expense_update.amount = sum(item.price for item in expense_update.items)
 
     # Validate total amount vs splits
     total_split = sum(split.amount_owed for split in expense_update.splits)
@@ -669,6 +834,18 @@ def update_expense(expense_id: int, expense_update: schemas.ExpenseUpdate, curre
     expense.date = expense_update.date
     expense.payer_id = expense_update.payer_id
     expense.payer_is_guest = expense_update.payer_is_guest
+
+    # Delete old items and assignments first
+    old_items = db.query(models.ExpenseItem).filter(
+        models.ExpenseItem.expense_id == expense_id
+    ).all()
+    for old_item in old_items:
+        db.query(models.ExpenseItemAssignment).filter(
+            models.ExpenseItemAssignment.expense_item_id == old_item.id
+        ).delete()
+    db.query(models.ExpenseItem).filter(
+        models.ExpenseItem.expense_id == expense_id
+    ).delete()
 
     # Delete old splits
     db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense_id).delete()
@@ -685,6 +862,28 @@ def update_expense(expense_id: int, expense_update: schemas.ExpenseUpdate, curre
         )
         db.add(db_split)
 
+    # Create new items if ITEMIZED
+    if expense_update.split_type == "ITEMIZED" and expense_update.items:
+        for item in expense_update.items:
+            db_item = models.ExpenseItem(
+                expense_id=expense_id,
+                description=item.description,
+                price=item.price,
+                is_tax_tip=item.is_tax_tip
+            )
+            db.add(db_item)
+            db.commit()
+            db.refresh(db_item)
+
+            # Store assignments
+            for assignment in item.assignments:
+                db_assignment = models.ExpenseItemAssignment(
+                    expense_item_id=db_item.id,
+                    user_id=assignment.user_id,
+                    is_guest=assignment.is_guest
+                )
+                db.add(db_assignment)
+
     db.commit()
     db.refresh(expense)
     return expense
@@ -699,7 +898,21 @@ def delete_expense(expense_id: int, current_user: Annotated[models.User, Depends
     if expense.created_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the expense creator can delete this expense")
 
-    # Delete associated splits first
+    # Delete item assignments first
+    items = db.query(models.ExpenseItem).filter(
+        models.ExpenseItem.expense_id == expense_id
+    ).all()
+    for item in items:
+        db.query(models.ExpenseItemAssignment).filter(
+            models.ExpenseItemAssignment.expense_item_id == item.id
+        ).delete()
+
+    # Delete items
+    db.query(models.ExpenseItem).filter(
+        models.ExpenseItem.expense_id == expense_id
+    ).delete()
+
+    # Delete associated splits
     db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense_id).delete()
 
     # Delete the expense
@@ -710,6 +923,7 @@ def delete_expense(expense_id: int, current_user: Annotated[models.User, Depends
 
 class Balance(BaseModel):
     user_id: int
+    full_name: str
     amount: float # Positive means you are owed, negative means you owe
     currency: str
 
@@ -785,7 +999,10 @@ def get_balances(current_user: Annotated[models.User, Depends(get_current_user)]
 
     for (uid, currency), amount in balances.items():
         if amount != 0:
-            result["balances"].append(Balance(user_id=uid, amount=amount, currency=currency))
+            # Get user's full name
+            user = db.query(models.User).filter(models.User.id == uid).first()
+            full_name = user.full_name if user else f"User {uid}"
+            result["balances"].append(Balance(user_id=uid, full_name=full_name, amount=amount, currency=currency))
 
     return result
 

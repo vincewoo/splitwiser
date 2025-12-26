@@ -22,6 +22,33 @@ class ExpenseSplitBase(BaseModel):
     percentage: Optional[int] = None
     shares: Optional[int] = None
 
+# Itemized expense schemas
+class ItemAssignment(BaseModel):
+    user_id: int
+    is_guest: bool = False
+
+class ExpenseItemCreate(BaseModel):
+    description: str
+    price: int  # In cents
+    is_tax_tip: bool = False
+    assignments: list[ItemAssignment] = []
+
+class ExpenseItemAssignmentDetail(BaseModel):
+    user_id: int
+    is_guest: bool
+    user_name: str
+
+class ExpenseItemDetail(BaseModel):
+    id: int
+    expense_id: int
+    description: str
+    price: int
+    is_tax_tip: bool
+    assignments: list[ExpenseItemAssignmentDetail]
+
+    class Config:
+        from_attributes = True
+
 class ExpenseCreate(BaseModel):
     description: str
     amount: int
@@ -31,7 +58,8 @@ class ExpenseCreate(BaseModel):
     payer_is_guest: bool = False
     group_id: Optional[int] = None
     splits: list[ExpenseSplitBase]
-    split_type: str # EQUAL, EXACT, PERCENT, SHARES
+    split_type: str  # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
+    items: Optional[list[ExpenseItemCreate]] = None  # Only for ITEMIZED type
 
 class Expense(BaseModel):
     id: int
@@ -63,6 +91,7 @@ class ExpenseSplitDetail(BaseModel):
 class ExpenseWithSplits(Expense):
     splits: list[ExpenseSplitDetail]
     split_type: Optional[str] = None
+    items: list[ExpenseItemDetail] = []  # Only populated for ITEMIZED type
 
 class ExpenseUpdate(BaseModel):
     description: str
@@ -72,7 +101,8 @@ class ExpenseUpdate(BaseModel):
     payer_id: int
     payer_is_guest: bool = False
     splits: list[ExpenseSplitBase]
-    split_type: str
+    split_type: str  # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
+    items: Optional[list[ExpenseItemCreate]] = None  # Only for ITEMIZED type
 
 class Token(BaseModel):
     access_token: str
