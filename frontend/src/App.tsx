@@ -165,7 +165,10 @@ const Dashboard = () => {
                     setIsSidebarOpen(false);
                   }}
                 >
-                  {group.name}
+                  <div className="flex items-center gap-2">
+                    {group.icon && <span className="text-lg">{group.icon}</span>}
+                    <span>{group.name}</span>
+                  </div>
                 </li>
               ))}
             </ul>

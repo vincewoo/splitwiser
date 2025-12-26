@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import IconSelector from './components/expense/IconSelector';
 
 interface AddGroupModalProps {
     isOpen: boolean;
@@ -10,6 +11,7 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
     const [name, setName] = useState('');
     const [currency, setCurrency] = useState('USD');
     const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD']);
+    const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -17,6 +19,7 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
         if (isOpen) {
             setName('');
             setCurrency('USD');
+            setSelectedIcon(null);
             setError(null);
         }
     }, [isOpen]);
@@ -42,7 +45,7 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ name: name.trim(), default_currency: currency })
+                body: JSON.stringify({ name: name.trim(), default_currency: currency, icon: selectedIcon })
             });
 
             if (response.ok) {
@@ -91,15 +94,21 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
                         <label className="block text-gray-700 dark:text-gray-300 text-sm font-semibold mb-2">
                             Group Name
                         </label>
-                        <input
-                            type="text"
-                            className="w-full px-4 py-3 text-base border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-teal-500 dark:focus:border-teal-400 dark:bg-gray-700 dark:text-gray-100 transition-colors"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="e.g., Weekend Trip, Roommates"
-                            autoFocus
-                            required
-                        />
+                        <div className="flex items-center gap-2">
+                            <IconSelector
+                                selectedIcon={selectedIcon}
+                                onIconSelect={setSelectedIcon}
+                            />
+                            <input
+                                type="text"
+                                className="flex-1 px-4 py-3 text-base border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-teal-500 dark:focus:border-teal-400 dark:bg-gray-700 dark:text-gray-100 transition-colors"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                placeholder="e.g., Weekend Trip, Roommates"
+                                autoFocus
+                                required
+                            />
+                        </div>
                     </div>
 
                     <div className="mb-6">

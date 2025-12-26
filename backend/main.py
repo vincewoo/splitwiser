@@ -408,7 +408,7 @@ async def read_users_me(current_user: Annotated[models.User, Depends(get_current
 
 @app.post("/groups", response_model=schemas.Group)
 def create_group(group: schemas.GroupCreate, current_user: Annotated[models.User, Depends(get_current_user)], db: Session = Depends(get_db)):
-    db_group = models.Group(name=group.name, created_by_id=current_user.id, default_currency=group.default_currency)
+    db_group = models.Group(name=group.name, created_by_id=current_user.id, default_currency=group.default_currency, icon=group.icon)
     db.add(db_group)
     db.commit()
     db.refresh(db_group)
@@ -482,6 +482,7 @@ def get_group(group_id: int, current_user: Annotated[models.User, Depends(get_cu
         name=group.name,
         created_by_id=group.created_by_id,
         default_currency=group.default_currency,
+        icon=group.icon,
         members=members,
         guests=guests_with_manager_names
     )
@@ -491,6 +492,7 @@ def update_group(group_id: int, group_update: schemas.GroupUpdate, current_user:
     group = verify_group_ownership(db, group_id, current_user.id)
     group.name = group_update.name
     group.default_currency = group_update.default_currency
+    group.icon = group_update.icon
     db.commit()
     db.refresh(group)
     return group

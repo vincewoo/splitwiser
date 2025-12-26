@@ -32,6 +32,7 @@ export interface Group {
     name: string;
     created_by_id: number;
     default_currency: string;
+    icon?: string | null;
     members?: GroupMember[];
     guests?: GuestMember[];
 }

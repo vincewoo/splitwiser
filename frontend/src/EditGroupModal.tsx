@@ -1,22 +1,25 @@
 import React, { useState, useEffect } from 'react';
+import IconSelector from './components/expense/IconSelector';
 
 interface Group {
     id: number;
     name: string;
     created_by_id: number;
     default_currency: string;
+    icon?: string | null;
 }
 
 interface EditGroupModalProps {
     isOpen: boolean;
     onClose: () => void;
     group: Group;
-    onGroupUpdated: (group: { id: number; name: string; created_by_id: number; default_currency: string }) => void;
+    onGroupUpdated: (group: { id: number; name: string; created_by_id: number; default_currency: string; icon?: string | null }) => void;
 }
 
 const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group, onGroupUpdated }) => {
     const [name, setName] = useState(group.name);
     const [currency, setCurrency] = useState(group.default_currency || 'USD');
+    const [selectedIcon, setSelectedIcon] = useState<string | null>(group.icon || null);
     const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD']);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -24,6 +27,7 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group,
     useEffect(() => {
         setName(group.name);
         setCurrency(group.default_currency || 'USD');
+        setSelectedIcon(group.icon || null);
         setError(null);
     }, [group, isOpen]);
 
@@ -41,7 +45,7 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group,
                 Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ name, default_currency: currency })
+            body: JSON.stringify({ name, default_currency: currency, icon: selectedIcon })
         });
 
         setIsSubmitting(false);
@@ -64,13 +68,19 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group,
                         <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">
                             Group Name
                         </label>
-                        <input
-                            type="text"
-                            className="w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 dark:bg-gray-800 dark:text-gray-100"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            required
-                        />
+                        <div className="flex items-center gap-2">
+                            <IconSelector
+                                selectedIcon={selectedIcon}
+                                onIconSelect={setSelectedIcon}
+                            />
+                            <input
+                                type="text"
+                                className="flex-1 border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 dark:bg-gray-800 dark:text-gray-100"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                required
+                            />
+                        </div>
                     </div>
 
                     <div className="mb-4">

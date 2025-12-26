@@ -18,6 +18,7 @@ class Group(Base):
     name = Column(String)
     created_by_id = Column(Integer)
     default_currency = Column(String, default="USD")
+    icon = Column(String, nullable=True)  # Optional emoji icon for group
 
 class GroupMember(Base):
     __tablename__ = "group_members"

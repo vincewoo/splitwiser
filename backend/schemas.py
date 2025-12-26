@@ -117,6 +117,7 @@ class TokenData(BaseModel):
 class GroupBase(BaseModel):
     name: str
     default_currency: str = "USD"
+    icon: Optional[str] = None
 
     @field_validator('default_currency')
     @classmethod
@@ -178,6 +179,7 @@ class GuestMember(BaseModel):
 class GroupUpdate(BaseModel):
     name: str
     default_currency: str = "USD"
+    icon: Optional[str] = None
 
     @field_validator('default_currency')
     @classmethod

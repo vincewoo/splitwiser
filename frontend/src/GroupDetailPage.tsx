@@ -33,6 +33,7 @@ interface Group {
     name: string;
     created_by_id: number;
     default_currency: string;
+    icon?: string | null;
     members: GroupMember[];
     guests: GuestMember[];
 }
@@ -508,7 +509,10 @@ const GroupDetailPage: React.FC = () => {
                             >
                                 &larr;
                             </button>
-                            <h1 className="text-lg lg:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate">{group.name}</h1>
+                            <h1 className="text-lg lg:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate flex items-center gap-2">
+                                {group.icon && <span>{group.icon}</span>}
+                                <span>{group.name}</span>
+                            </h1>
                         </div>
                         {isOwner && (
                             <div className="flex gap-1 lg:gap-2 flex-shrink-0">
