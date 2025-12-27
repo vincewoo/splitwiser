@@ -260,7 +260,16 @@ const GroupDetailPage: React.FC = () => {
     };
 
     const formatDate = (dateStr: string) => {
-        return new Date(dateStr).toLocaleDateString('en-US', {
+        // Parse date string to avoid timezone issues
+        // If it's a plain YYYY-MM-DD, parse as local date not UTC
+        let date: Date;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            const [year, month, day] = dateStr.split('-').map(Number);
+            date = new Date(year, month - 1, day);
+        } else {
+            date = new Date(dateStr);
+        }
+        return date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric'
         });
@@ -387,32 +396,32 @@ const GroupDetailPage: React.FC = () => {
                     });
 
                     return (
-                    <div key={currency}>
-                        <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">
-                            {currency}
-                        </h3>
-                        <ul className="space-y-2">
-                            {sortedList.map((balance, idx) => (
-                                <li key={`${balance.user_id}_${balance.is_guest}_${idx}`}
-                                    className="flex items-center justify-between py-2">
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                            {balance.full_name}
-                                        </span>
-                                        {balance.managed_guests && balance.managed_guests.length > 0 && (
-                                            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                                Includes: {balance.managed_guests.join(', ')}
+                        <div key={currency}>
+                            <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">
+                                {currency}
+                            </h3>
+                            <ul className="space-y-2">
+                                {sortedList.map((balance, idx) => (
+                                    <li key={`${balance.user_id}_${balance.is_guest}_${idx}`}
+                                        className="flex items-center justify-between py-2">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                {balance.full_name}
                                             </span>
-                                        )}
-                                    </div>
-                                    <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                        {balance.amount >= 0 ? '+' : ''}
-                                        {formatMoney(balance.amount, balance.currency)}
-                                    </span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
+                                            {balance.managed_guests && balance.managed_guests.length > 0 && (
+                                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                                    Includes: {balance.managed_guests.join(', ')}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                            {balance.amount >= 0 ? '+' : ''}
+                                            {formatMoney(balance.amount, balance.currency)}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
                     );
                 })}
             </div>
