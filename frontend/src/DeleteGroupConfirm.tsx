@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getApiUrl } from './api';
 
 interface Group {
     id: number;
@@ -24,7 +25,7 @@ const DeleteGroupConfirm: React.FC<DeleteGroupConfirmProps> = ({ isOpen, onClose
         setError(null);
 
         const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/groups/${group.id}`, {
+        const response = await fetch(getApiUrl(`groups/${group.id}`), {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` }
         });

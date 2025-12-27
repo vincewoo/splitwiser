@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getApiUrl } from './api';
 
 interface ReceiptScannerProps {
     onItemsDetected: (items: { description: string, price: number }[]) => void;
@@ -33,7 +34,7 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
                 setProgress(prev => Math.min(prev + 10, 90));
             }, 300);
 
-            const response = await fetch('http://localhost:8000/ocr/scan-receipt', {
+            const response = await fetch(getApiUrl('ocr/scan-receipt'), {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`

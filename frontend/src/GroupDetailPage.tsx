@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { usePageTitle } from './hooks/usePageTitle';
+import { getApiUrl } from './api';
 import EditGroupModal from './EditGroupModal';
 import DeleteGroupConfirm from './DeleteGroupConfirm';
 import AddExpenseModal from './AddExpenseModal';
@@ -117,16 +118,16 @@ const GroupDetailPage: React.FC = () => {
 
         try {
             const [groupRes, expensesRes, balancesRes, friendsRes] = await Promise.all([
-                fetch(`http://localhost:8000/groups/${groupId}`, {
+                fetch(getApiUrl(`groups/${groupId}`), {
                     headers: { Authorization: `Bearer ${token}` }
                 }),
-                fetch(`http://localhost:8000/groups/${groupId}/expenses`, {
+                fetch(getApiUrl(`groups/${groupId}/expenses`), {
                     headers: { Authorization: `Bearer ${token}` }
                 }),
-                fetch(`http://localhost:8000/groups/${groupId}/balances`, {
+                fetch(getApiUrl(`groups/${groupId}/balances`), {
                     headers: { Authorization: `Bearer ${token}` }
                 }),
-                fetch('http://localhost:8000/friends', {
+                fetch(getApiUrl('friends'), {
                     headers: { Authorization: `Bearer ${token}` }
                 })
             ]);
@@ -164,7 +165,7 @@ const GroupDetailPage: React.FC = () => {
     useEffect(() => {
         fetchGroupData();
         // Fetch exchange rates
-        fetch('http://localhost:8000/exchange_rates')
+        fetch(getApiUrl('exchange_rates'))
             .then(res => res.json())
             .then(data => setExchangeRates(data))
             .catch(err => console.error('Failed to fetch exchange rates:', err));
@@ -176,7 +177,7 @@ const GroupDetailPage: React.FC = () => {
 
     const handleRemoveMember = async (userId: number) => {
         const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/groups/${groupId}/members/${userId}`, {
+        const response = await fetch(getApiUrl(`groups/${groupId}/members/${userId}`), {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` }
         });
@@ -200,7 +201,7 @@ const GroupDetailPage: React.FC = () => {
 
     const handleRemoveGuest = async (guestId: number) => {
         const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/groups/${groupId}/guests/${guestId}`, {
+        const response = await fetch(getApiUrl(`groups/${groupId}/guests/${guestId}`), {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` }
         });
@@ -215,7 +216,7 @@ const GroupDetailPage: React.FC = () => {
 
     const handleClaimGuest = async (guestId: number) => {
         const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/groups/${groupId}/guests/${guestId}/claim`, {
+        const response = await fetch(getApiUrl(`groups/${groupId}/guests/${guestId}/claim`), {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` }
         });

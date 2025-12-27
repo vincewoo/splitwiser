@@ -1,7 +1,15 @@
 // API configuration with automatic token refresh
 import { refreshAccessToken } from './AuthContext';
 
-const API_BASE_URL = 'http://localhost:8000';
+// Use relative URL in production (goes through nginx proxy), absolute in development
+const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000';
+
+// Helper to get full API URL for a path
+export const getApiUrl = (path: string): string => {
+    // Remove leading slash if present for consistency
+    const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+    return `${API_BASE_URL}/${cleanPath}`;
+};
 
 // Create a fetch wrapper with automatic token refresh
 export const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {

@@ -2,7 +2,8 @@
  * Centralized API service for all backend communications
  */
 
-const API_BASE_URL = 'http://localhost:8000';
+// Use relative URL in production (goes through nginx proxy), absolute in development
+const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000';
 
 /**
  * Get the authentication token from localStorage

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiUrl } from './api';
 import IconSelector from './components/expense/IconSelector';
 
 interface AddGroupModalProps {
@@ -39,7 +40,7 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
 
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:8000/groups', {
+            const response = await fetch(getApiUrl('groups'), {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${token}`,

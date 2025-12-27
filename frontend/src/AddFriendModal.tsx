@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiUrl } from './api';
 
 interface AddFriendModalProps {
     isOpen: boolean;
@@ -40,7 +41,7 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose, onFrie
 
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:8000/friends', {
+            const response = await fetch(getApiUrl('friends'), {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${token}`,

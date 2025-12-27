@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { getApiUrl } from './api';
 
 interface User {
   id: number;
@@ -20,7 +21,7 @@ export const refreshAccessToken = async (): Promise<string | null> => {
   if (!refreshToken) return null;
 
   try {
-    const response = await fetch('http://localhost:8000/auth/refresh', {
+    const response = await fetch(getApiUrl('auth/refresh'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -51,7 +52,7 @@ const fetchUserWithRefresh = async (): Promise<User | null> => {
   if (!token) return null;
 
   try {
-    const response = await fetch('http://localhost:8000/users/me', {
+    const response = await fetch(getApiUrl('users/me'), {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -67,7 +68,7 @@ const fetchUserWithRefresh = async (): Promise<User | null> => {
       if (!token) return null;
 
       // Retry with new token
-      const retryResponse = await fetch('http://localhost:8000/users/me', {
+      const retryResponse = await fetch(getApiUrl('users/me'), {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -105,7 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Revoke refresh token on server
     if (refreshToken) {
       try {
-        await fetch('http://localhost:8000/auth/logout', {
+        await fetch(getApiUrl('auth/logout'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

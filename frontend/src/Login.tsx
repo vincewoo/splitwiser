@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePageTitle } from './hooks/usePageTitle';
+import { getApiUrl } from './api';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -17,7 +18,7 @@ const Login = () => {
       formData.append('username', email);
       formData.append('password', password);
 
-      const response = await fetch('http://localhost:8000/token', {
+      const response = await fetch(getApiUrl('token'), {
         method: 'POST',
         body: formData,
       });

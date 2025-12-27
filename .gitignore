@@ -12,3 +12,6 @@ frontend/node_modules/
 frontend/dist/
 backend/venv/
 backend/__pycache__/
+
+# Secrets (Google Cloud credentials, etc.)
+secrets/

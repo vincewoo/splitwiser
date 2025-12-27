@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from './AuthContext';
+import { getApiUrl } from './api';
 
 interface Friend {
     id: number;
@@ -57,7 +58,7 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({ isOpen, onClose, onSettle
         };
 
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:8000/expenses', {
+        const response = await fetch(getApiUrl('expenses'), {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,

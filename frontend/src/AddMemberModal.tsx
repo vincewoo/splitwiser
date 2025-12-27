@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiUrl } from './api';
 
 interface Friend {
     id: number;
@@ -44,7 +45,7 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ isOpen, onClose, onMemb
 
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/groups/${groupId}/members`, {
+            const response = await fetch(getApiUrl(`groups/${groupId}/members`), {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${token}`,

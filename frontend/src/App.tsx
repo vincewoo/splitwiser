@@ -15,6 +15,7 @@ import type { Balance } from './types/balance';
 import { formatMoney } from './utils/formatters';
 import { friendsApi, groupsApi, balancesApi } from './services/api';
 import { usePageTitle } from './hooks/usePageTitle';
+import { getApiUrl } from './api';
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -80,7 +81,7 @@ const Dashboard = () => {
   const [exchangeRates, setExchangeRates] = useState<Record<string, number> | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/exchange_rates')
+    fetch(getApiUrl('exchange_rates'))
       .then(res => res.json())
       .then(data => setExchangeRates(data));
   }, []);

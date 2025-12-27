@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiUrl } from './api';
 import IconSelector from './components/expense/IconSelector';
 
 interface Group {
@@ -39,7 +40,7 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group,
         setError(null);
 
         const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/groups/${group.id}`, {
+        const response = await fetch(getApiUrl(`groups/${group.id}`), {
             method: 'PUT',
             headers: {
                 Authorization: `Bearer ${token}`,

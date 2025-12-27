@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePageTitle } from './hooks/usePageTitle';
+import { getApiUrl } from './api';
 
 const Register = () => {
   const [email, setEmail] = useState('');
@@ -14,7 +15,7 @@ const Register = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:8000/register', {
+      const response = await fetch(getApiUrl('register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

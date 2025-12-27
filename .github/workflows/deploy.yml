@@ -1,0 +1,158 @@
+name: Deploy to Synology
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.SYNOLOGY_SSH_KEY }}
+          SYNOLOGY_PORT: ${{ secrets.SYNOLOGY_SSH_PORT }}
+          SYNOLOGY_IP: ${{ secrets.SYNOLOGY_TAILSCALE_IP }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/synology_key
+          chmod 600 ~/.ssh/synology_key
+
+          # Add host key with retries (ssh-keyscan can be flaky)
+          for i in 1 2 3; do
+            echo "Attempt $i: Scanning SSH host keys..."
+            if ssh-keyscan -T 10 -H -p ${SYNOLOGY_PORT} ${SYNOLOGY_IP} >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "Successfully obtained host keys"
+              break
+            fi
+            if [ $i -lt 3 ]; then
+              echo "Failed, retrying in 5 seconds..."
+              sleep 5
+            else
+              echo "Failed after 3 attempts, continuing anyway (strict host checking will be disabled)"
+            fi
+          done
+
+      - name: Setup Google Cloud credentials
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          # Create secrets directory and write credentials file
+          mkdir -p secrets
+          if [ -n "$GOOGLE_CREDENTIALS" ]; then
+            echo "$GOOGLE_CREDENTIALS" > secrets/google-credentials.json
+            echo "Google Cloud credentials configured"
+          else
+            echo "No Google Cloud credentials found - OCR will be disabled"
+            echo "{}" > secrets/google-credentials.json
+          fi
+
+      - name: Copy files to Synology
+        env:
+          SYNOLOGY_IP: ${{ secrets.SYNOLOGY_TAILSCALE_IP }}
+          SYNOLOGY_USER: ${{ secrets.SYNOLOGY_USER }}
+          SYNOLOGY_PORT: ${{ secrets.SYNOLOGY_SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.SYNOLOGY_DEPLOY_PATH }}
+        run: |
+          # Create deployment directory if it doesn't exist
+          ssh -i ~/.ssh/synology_key -p ${SYNOLOGY_PORT} -o StrictHostKeyChecking=accept-new ${SYNOLOGY_USER}@${SYNOLOGY_IP} "mkdir -p ${DEPLOY_PATH}/secrets"
+
+          # Copy application files
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/synology_key -p ${SYNOLOGY_PORT} -o StrictHostKeyChecking=accept-new" \
+            --exclude 'node_modules' \
+            --exclude '.git' \
+            --exclude 'frontend/node_modules' \
+            --exclude 'backend/venv' \
+            --exclude 'backend/__pycache__' \
+            --exclude 'backend/db.sqlite3' \
+            --exclude '.env' \
+            ./ ${SYNOLOGY_USER}@${SYNOLOGY_IP}:${DEPLOY_PATH}/
+
+      - name: Deploy with Docker Compose
+        env:
+          SYNOLOGY_IP: ${{ secrets.SYNOLOGY_TAILSCALE_IP }}
+          SYNOLOGY_USER: ${{ secrets.SYNOLOGY_USER }}
+          SYNOLOGY_PORT: ${{ secrets.SYNOLOGY_SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.SYNOLOGY_DEPLOY_PATH }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          ssh -i ~/.ssh/synology_key -p ${SYNOLOGY_PORT} -o StrictHostKeyChecking=accept-new ${SYNOLOGY_USER}@${SYNOLOGY_IP} << EOF
+            cd ${DEPLOY_PATH}
+
+            # Create .env file with Tailscale auth key
+            echo "TS_AUTHKEY=${TS_AUTHKEY}" > .env
+
+            # Pull latest images and rebuild
+            sudo docker-compose pull
+            sudo docker-compose build --no-cache
+
+            # Stop and remove old containers
+            sudo docker-compose down
+
+            # Start new containers (docker-compose will read .env automatically)
+            sudo docker-compose up -d
+
+            # Wait for Tailscale to authenticate
+            echo "Waiting for Tailscale to authenticate..."
+            sleep 10
+
+            # Enable Tailscale Funnel for public HTTPS access
+            echo "Setting up Tailscale Funnel on port 443..."
+            # Funnel will handle HTTPS termination and proxy to nginx's HTTP on port 80
+
+            echo "Enabling Tailscale Funnel for public HTTPS access..."
+            sudo docker-compose exec -T tailscale tailscale funnel --bg --https=443 localhost:80
+
+            echo "Verifying funnel status..."
+            sudo docker-compose exec -T tailscale tailscale funnel status
+
+            echo "Deployment complete!"
+
+            # Remove .env file for security
+            rm -f .env
+
+            # Show status
+            sudo docker-compose ps
+
+            # Show logs (last 20 lines)
+            sudo docker-compose logs --tail=20
+          EOF
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/synology_key
+
+      - name: Deployment complete
+        run: |
+          echo "Deployment completed successfully!"
+          echo "Application should be running on your Synology"

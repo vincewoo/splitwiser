@@ -1,8 +1,11 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./db.sqlite3"
+# Use DATABASE_PATH env var for Docker, default to local path for development
+DATABASE_PATH = os.environ.get("DATABASE_PATH", "./db.sqlite3")
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}

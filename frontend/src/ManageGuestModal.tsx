@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiUrl } from './api';
 
 interface GroupMember {
     id: number;
@@ -60,7 +61,7 @@ const ManageGuestModal: React.FC<ManageGuestModalProps> = ({
         try {
             const token = localStorage.getItem('token');
             const response = await fetch(
-                `http://localhost:8000/groups/${groupId}/guests/${guest.id}/manage`,
+                getApiUrl(`groups/${groupId}/guests/${guest.id}/manage`),
                 {
                     method: 'POST',
                     headers: {
@@ -95,7 +96,7 @@ const ManageGuestModal: React.FC<ManageGuestModalProps> = ({
         try {
             const token = localStorage.getItem('token');
             const response = await fetch(
-                `http://localhost:8000/groups/${groupId}/guests/${guest.id}/manage`,
+                getApiUrl(`groups/${groupId}/guests/${guest.id}/manage`),
                 {
                     method: 'DELETE',
                     headers: {
