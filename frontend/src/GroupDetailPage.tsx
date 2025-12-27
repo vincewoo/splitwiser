@@ -283,8 +283,61 @@ const GroupDetailPage: React.FC = () => {
                 setGroup(prev => prev ? { ...prev, ...updatedGroup } : updatedGroup);
 
                 const shareUrl = `${window.location.origin}/share/${updatedGroup.share_link_id}`;
-                navigator.clipboard.writeText(shareUrl);
-                alert('Public share link copied to clipboard!');
+                const shareTitle = `Join "${group.name}" on Splitwiser`;
+                const shareText = `View expenses and balances for ${group.name}`;
+
+                // Try Web Share API first (works great on iOS)
+                if (navigator.share) {
+                    try {
+                        await navigator.share({
+                            title: shareTitle,
+                            text: shareText,
+                            url: shareUrl
+                        });
+                        return; // Success - no alert needed
+                    } catch (shareErr: any) {
+                        // User cancelled or share failed, fall through to clipboard
+                        if (shareErr.name === 'AbortError') {
+                            return; // User cancelled, don't show error
+                        }
+                    }
+                }
+
+                // Fallback: Try modern clipboard API
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    try {
+                        await navigator.clipboard.writeText(shareUrl);
+                        alert('Public share link copied to clipboard!');
+                        return;
+                    } catch (clipErr) {
+                        // Clipboard failed, fall through to legacy method
+                        console.warn('Clipboard API failed:', clipErr);
+                    }
+                }
+
+                // Final fallback: Use legacy execCommand (works on older iOS)
+                const textarea = document.createElement('textarea');
+                textarea.value = shareUrl;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        alert('Public share link copied to clipboard!');
+                    } else {
+                        // If all methods fail, show the URL
+                        alert(`Share this link:\n${shareUrl}`);
+                    }
+                } catch (execErr) {
+                    // Show the URL as last resort
+                    alert(`Share this link:\n${shareUrl}`);
+                } finally {
+                    document.body.removeChild(textarea);
+                }
             } else {
                 alert('Failed to enable sharing');
             }
