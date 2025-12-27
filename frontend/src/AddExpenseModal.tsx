@@ -347,6 +347,18 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     };
 
     const getPotentialPayers = (): Participant[] => {
+        // If a group is selected, any member/guest of the group can be the payer
+        if (selectedGroup) {
+            const participants = getAvailableParticipants();
+            // Sort: "You" first, then alphabetically
+            return participants.sort((a, b) => {
+                if (a.id === user!.id && !a.isGuest) return -1;
+                if (b.id === user!.id && !b.isGuest) return 1;
+                return a.name.localeCompare(b.name);
+            });
+        }
+
+        // For non-group expenses (friends only), restrict to selected participants
         const payers: Participant[] = [];
         payers.push({ id: user!.id, name: 'You', isGuest: false });
 
@@ -358,19 +370,10 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             }
         });
 
-        const guestPayers: Participant[] = [];
-        selectedGuestIds.forEach(gid => {
-            const guest = groupGuests.find(g => g.id === gid);
-            if (guest) {
-                guestPayers.push({ id: guest.id, name: guest.name, isGuest: true });
-            }
-        });
-
-        // Sort friends and guests alphabetically, then add them
+        // Sort friends alphabetically
         friendPayers.sort((a, b) => a.name.localeCompare(b.name));
-        guestPayers.sort((a, b) => a.name.localeCompare(b.name));
 
-        return [...payers, ...friendPayers, ...guestPayers];
+        return [...payers, ...friendPayers];
     };
 
     return (
@@ -480,13 +483,12 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                     key={key}
                                                     type="button"
                                                     onClick={toggleFn}
-                                                    className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${
-                                                        isSelected
-                                                            ? participant.isGuest
-                                                                ? 'bg-orange-100 dark:bg-orange-900/30 border-orange-500 dark:border-orange-600 text-orange-700 dark:text-orange-300'
-                                                                : 'bg-teal-100 dark:bg-teal-900/30 border-teal-500 dark:border-teal-600 text-teal-700 dark:text-teal-300'
-                                                            : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 dark:text-gray-200'
-                                                    }`}
+                                                    className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${isSelected
+                                                        ? participant.isGuest
+                                                            ? 'bg-orange-100 dark:bg-orange-900/30 border-orange-500 dark:border-orange-600 text-orange-700 dark:text-orange-300'
+                                                            : 'bg-teal-100 dark:bg-teal-900/30 border-teal-500 dark:border-teal-600 text-teal-700 dark:text-teal-300'
+                                                        : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 dark:text-gray-200'
+                                                        }`}
                                                 >
                                                     {participant.name}
                                                 </button>
@@ -496,7 +498,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                             )}
                         </div>
 
-                        {(selectedFriendIds.length > 0 || selectedGuestIds.length > 0) && (
+                        {getPotentialPayers().length > 1 && (
                             <div className="mb-4">
                                 <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Paid by:</label>
                                 <select

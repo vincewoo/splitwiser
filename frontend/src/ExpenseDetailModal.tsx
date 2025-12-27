@@ -196,7 +196,19 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     };
 
     const getPotentialPayers = (): Participant[] => {
-        return getAllParticipants();
+        // If we have group members, return all available participants (sorted)
+        if (groupMembers.length > 0 || groupGuests.length > 0) {
+            return getAvailableParticipants();
+        }
+
+        // Otherwise (friend expense), only return selected participants
+        // (Though in this app version, maybe we only have group expenses or friend expenses behave effectively as groups of 2. 
+        //  The logic in AddExpenseModal was stricter for friends, so let's stick to valid logic.)
+        return getAllParticipants().sort((a, b) => {
+            if (a.name === 'You') return -1;
+            if (b.name === 'You') return 1;
+            return a.name.localeCompare(b.name);
+        });
     };
 
     const getParticipantName = (p: Participant): string => {
@@ -578,7 +590,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                         )}
                                     </div>
 
-                                    {selectedParticipantKeys.length > 0 && (
+                                    {getPotentialPayers().length > 1 && (
                                         <div className="mb-4">
                                             <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Paid by:</label>
                                             <select
