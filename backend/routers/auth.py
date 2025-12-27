@@ -17,7 +17,7 @@ from utils.validation import get_user_by_email
 router = APIRouter(tags=["auth"])
 
 
-@router.post("/register", response_model=schemas.User)
+@router.post("/register", response_model=schemas.Token)
 def register_user(
     user: schemas.UserCreate, 
     db: Session = Depends(get_db)
@@ -124,7 +124,50 @@ def register_user(
                 db.commit()
                 print(f"Successfully claimed guest {user.claim_guest_id} for user {db_user.id}")
 
-    return db_user
+    # Create access token
+    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = auth.create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    
+    # Create refresh token
+    refresh_token = auth.create_refresh_token()
+    refresh_token_hash = auth.hash_token(refresh_token)
+    
+    # Store refresh token in database
+    db_refresh_token = models.RefreshToken(
+        user_id=db_user.id,
+        token_hash=refresh_token_hash,
+        expires_at=auth.get_refresh_token_expiry()
+    )
+    db.add(db_refresh_token)
+    db.commit()
+
+    response_data = {
+        "access_token": access_token, 
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
+    if user.claim_guest_id and user.share_link_id:
+        # Check if user is now a member of the group associated with the share link
+        # We can find the group by share_link_id first
+        group = db.query(models.Group).filter(
+            models.Group.share_link_id == user.share_link_id,
+            models.Group.is_public == True
+        ).first()
+
+        if group:
+            # Check if user is a member
+            member = db.query(models.GroupMember).filter(
+                models.GroupMember.group_id == group.id,
+                models.GroupMember.user_id == db_user.id
+            ).first()
+            
+            if member:
+                response_data["claimed_group_id"] = group.id
+
+    return response_data
 
 
 @router.post("/token")

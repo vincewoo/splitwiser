@@ -121,6 +121,8 @@ class ExpenseUpdate(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    refresh_token: str
+    claimed_group_id: Optional[int] = None
 
 class TokenData(BaseModel):
     email: Optional[str] = None

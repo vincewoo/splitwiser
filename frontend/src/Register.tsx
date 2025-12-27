@@ -38,7 +38,15 @@ const Register = () => {
         throw new Error('Registration failed');
       }
 
-      window.location.href = '/login';
+      const data = await response.json();
+      localStorage.setItem('token', data.access_token);
+      localStorage.setItem('refreshToken', data.refresh_token);
+
+      if (data.claimed_group_id) {
+        window.location.href = `/groups/${data.claimed_group_id}`;
+      } else {
+        window.location.href = '/';
+      }
     } catch (err) {
       setError('Registration failed. Email might be taken.');
     }
