@@ -64,14 +64,29 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
     };
 
     return (
-        <div className="fixed inset-0 bg-gray-600 dark:bg-gray-900/75 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow-xl dark:shadow-gray-900/50 w-96">
+        <div className="fixed inset-0 bg-gray-600 dark:bg-gray-900/75 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl dark:shadow-gray-900/50 w-full max-w-md">
                 <h2 className="text-xl font-bold mb-4 dark:text-gray-100">Scan Receipt</h2>
 
                 <div className="mb-4">
-                    <input type="file" accept="image/*" onChange={handleImageChange} className="mb-2 w-full dark:text-gray-100" />
+                    <label className="block w-full">
+                        <span className="sr-only">Choose receipt</span>
+                        <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageChange}
+                            className="block w-full text-sm text-gray-500 dark:text-gray-400
+                                file:mr-4 file:py-2 file:px-4
+                                file:rounded-full file:border-0
+                                file:text-sm file:font-semibold
+                                file:bg-teal-50 file:text-teal-700
+                                hover:file:bg-teal-100
+                                dark:file:bg-teal-900/30 dark:file:text-teal-300
+                                cursor-pointer file:cursor-pointer"
+                        />
+                    </label>
                     {image && (
-                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Selected: {image.name}</div>
+                        <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">Selected: {image.name}</div>
                     )}
                 </div>
 
