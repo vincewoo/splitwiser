@@ -1,38 +1,9 @@
 import pytest
 from unittest.mock import patch
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from main import app
-from database import Base, get_db
+from conftest import client, db_session
 import models
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_currency.db"
-
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db] = override_get_db
-
-client = TestClient(app)
-
-@pytest.fixture(autouse=True)
-def run_around_tests():
-    # Use the Base that models are attached to
-    Base.metadata.create_all(bind=engine)
-    yield
-    Base.metadata.drop_all(bind=engine)
-
-def test_update_expense_updates_exchange_rate():
+def test_update_expense_updates_exchange_rate(client, db_session):
     # Register and login
     client.post("/register", json={"email": "u1@example.com", "password": "pass", "full_name": "U1"})
     token = client.post("/token", data={"username": "u1@example.com", "password": "pass"}).json()["access_token"]
@@ -72,16 +43,17 @@ def test_update_expense_updates_exchange_rate():
         client.put(f"/expenses/{expense_id}", json=update_data, headers=headers)
         
         # Verify directly in DB
-        db = TestingSessionLocal()
-        exp = db.query(models.Expense).filter(models.Expense.id == expense_id).first()
+        # Use the passed db_session fixture which is same session/db as app uses (if scoped correctly)
+        # Note: conftest's client overrides get_db to yield db_session.
+        # So we can query db_session directly.
+        exp = db_session.query(models.Expense).filter(models.Expense.id == expense_id).first()
         
         # Currently bugs: Rate stays 1.5
         # We expect 2.0
         print(f"Stored rate: {exp.exchange_rate}")
         assert float(exp.exchange_rate) == 2.0, f"Expected 2.0, got {exp.exchange_rate}"
-        db.close()
 
-def test_simplify_debts_uses_stored_rate():
+def test_simplify_debts_uses_stored_rate(client):
      # Register users
     client.post("/register", json={"email": "uA@example.com", "password": "pass", "full_name": "A"})
     client.post("/register", json={"email": "uB@example.com", "password": "pass", "full_name": "B"})
