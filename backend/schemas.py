@@ -212,3 +212,24 @@ class GroupBalance(BaseModel):
     amount: float
     currency: str
     managed_guests: list[str] = []  # Names of managed guests included in this balance
+
+
+# Request/Response models previously inline in main.py
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class ManageGuestRequest(BaseModel):
+    user_id: int
+    is_guest: bool = False  # Set to True if manager is a guest
+
+
+class Balance(BaseModel):
+    """Balance representing what a user owes or is owed."""
+    user_id: int
+    full_name: str
+    amount: float  # Positive means you are owed, negative means you owe
+    currency: str
+    is_guest: bool = False
+    group_name: Optional[str] = None
+    group_id: Optional[int] = None

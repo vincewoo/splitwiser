@@ -3,10 +3,8 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-# Import from top-level module names to match how they are imported inside main.py
-# This requires PYTHONPATH=backend
-from main import app, get_db
-from database import Base
+from main import app
+from database import Base, get_db
 import models
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_currency.db"
@@ -41,7 +39,7 @@ def test_update_expense_updates_exchange_rate():
     headers = {"Authorization": f"Bearer {token}"}
 
     # Mock the exchange rate fetcher
-    with patch('main.fetch_historical_exchange_rate') as mock_rate:
+    with patch('utils.currency.fetch_historical_exchange_rate') as mock_rate:
         # 1. Create expense with Rate 1.5
         mock_rate.return_value = 1.5
         expense_data = {
@@ -97,7 +95,7 @@ def test_simplify_debts_uses_stored_rate():
     client.post(f"/groups/{gid}/members", json={"email": "uB@example.com"}, headers=hA)
 
     # Mock rate: 1 EUR = 2.0 USD
-    with patch('main.fetch_historical_exchange_rate') as mock_rate:
+    with patch('utils.currency.fetch_historical_exchange_rate') as mock_rate:
         mock_rate.return_value = 2.0
         
         expense_data = {
