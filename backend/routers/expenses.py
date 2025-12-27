@@ -22,6 +22,19 @@ RECEIPT_DIR = os.path.join(DATA_DIR, "receipts")
 router = APIRouter(tags=["expenses"])
 
 
+def normalize_date(date_str: str) -> str:
+    """Normalize date string to YYYY-MM-DD format for consistent sorting."""
+    if not date_str:
+        return date_str
+    # If it's already YYYY-MM-DD format, return as-is
+    if len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-':
+        return date_str
+    # Handle ISO format with time component (e.g., 2025-12-27T00:00:00.000Z)
+    if 'T' in date_str:
+        return date_str.split('T')[0]
+    return date_str
+
+
 @router.post("/expenses", response_model=schemas.Expense)
 def create_expense(
     expense: schemas.ExpenseCreate, 
@@ -69,7 +82,7 @@ def create_expense(
         description=expense.description,
         amount=expense.amount,
         currency=expense.currency,
-        date=expense.date,
+        date=normalize_date(expense.date),
         payer_id=expense.payer_id,
         payer_is_guest=expense.payer_is_guest,
         group_id=expense.group_id,
@@ -305,7 +318,7 @@ def update_expense(
     expense.description = expense_update.description
     expense.amount = expense_update.amount
     expense.currency = expense_update.currency
-    expense.date = expense_update.date
+    expense.date = normalize_date(expense_update.date)
     expense.payer_id = expense_update.payer_id
     expense.payer_is_guest = expense_update.payer_is_guest
     expense.split_type = expense_update.split_type or "EQUAL"
@@ -429,7 +442,7 @@ def get_group_expenses(
 
     expenses = db.query(models.Expense).filter(
         models.Expense.group_id == group_id
-    ).order_by(models.Expense.date.desc()).all()
+    ).order_by(models.Expense.date.desc(), models.Expense.id.desc()).all()
 
     # Include splits for each expense
     result = []
