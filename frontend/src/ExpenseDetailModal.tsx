@@ -59,6 +59,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const [description, setDescription] = useState('');
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('USD');
+    const [notes, setNotes] = useState('');
     const [expenseDate, setExpenseDate] = useState('');
     const [payerId, setPayerId] = useState<number>(0);
     const [payerIsGuest, setPayerIsGuest] = useState(false);
@@ -108,6 +109,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         setPayerIsGuest(exp.payer_is_guest);
         setSplitType(exp.split_type as SplitType || 'EQUAL');
         setSelectedIcon(exp.icon || null);
+        setNotes(exp.notes || '');
 
         // Set selected participants from splits
         const keys = exp.splits.map(s => s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`);
@@ -318,7 +320,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             payer_is_guest: payerIsGuest,
             splits,
             split_type: splitType,
-            icon: selectedIcon
+            icon: selectedIcon,
+            notes
         };
 
         if (splitType === 'ITEMIZED') {
@@ -375,7 +378,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 split_type: 'ITEMIZED',
                 items: allItems,
                 splits: [],
-                icon: selectedIcon
+                icon: selectedIcon,
+                notes
             };
         }
 
@@ -543,6 +547,17 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             value={expenseDate}
                                             onChange={(e) => setExpenseDate(e.target.value)}
                                             required
+                                        />
+                                    </div>
+
+                                    <div className="mb-4">
+                                        <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Notes:</label>
+                                        <textarea
+                                            className="w-full border rounded-lg p-2 text-sm focus:outline-none focus:border-teal-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
+                                            placeholder="Add notes (optional)"
+                                            rows={2}
+                                            value={notes}
+                                            onChange={(e) => setNotes(e.target.value)}
                                         />
                                     </div>
 
@@ -725,6 +740,13 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             <span className="text-gray-900 dark:text-gray-100">{expense.split_type}</span>
                                         </div>
                                     </div>
+
+                                    {expense.notes && (
+                                        <div className="mb-6 bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                                            <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Notes</h4>
+                                            <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{expense.notes}</p>
+                                        </div>
+                                    )}
 
                                     {/* Itemized breakdown for ITEMIZED expenses */}
                                     {expense.split_type === 'ITEMIZED' && expense.items && expense.items.length > 0 && (

@@ -61,7 +61,9 @@ class ExpenseCreate(BaseModel):
     split_type: str  # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
     items: Optional[list[ExpenseItemCreate]] = None  # Only for ITEMIZED type
     icon: Optional[str] = None  # Optional emoji icon
+    icon: Optional[str] = None  # Optional emoji icon
     receipt_image_path: Optional[str] = None
+    notes: Optional[str] = None
 
 class Expense(BaseModel):
     id: int
@@ -74,7 +76,9 @@ class Expense(BaseModel):
     group_id: Optional[int]
     created_by_id: Optional[int] = None
     icon: Optional[str] = None
+    icon: Optional[str] = None
     receipt_image_path: Optional[str] = None
+    notes: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -108,7 +112,9 @@ class ExpenseUpdate(BaseModel):
     split_type: str  # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
     items: Optional[list[ExpenseItemCreate]] = None  # Only for ITEMIZED type
     icon: Optional[str] = None  # Optional emoji icon
+    icon: Optional[str] = None  # Optional emoji icon
     receipt_image_path: Optional[str] = None
+    notes: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str

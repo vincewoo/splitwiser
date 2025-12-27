@@ -61,6 +61,7 @@ class Expense(Base):
     split_type = Column(String, default="EQUAL") # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
     receipt_image_path = Column(String, nullable=True) # Path to stored receipt image
     icon = Column(String, nullable=True) # Optional emoji icon for categorization
+    notes = Column(String, nullable=True) # Freeform text notes
 
 class ExpenseSplit(Base):
     __tablename__ = "expense_splits"

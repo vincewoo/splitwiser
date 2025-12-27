@@ -62,6 +62,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [payerId, setPayerId] = useState<number>(user?.id || 0);
     const [payerIsGuest, setPayerIsGuest] = useState<boolean>(false);
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
+    const [notes, setNotes] = useState('');
 
     // Use custom hooks
     const itemizedExpense = useItemizedExpense();
@@ -94,6 +95,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setScannedItems([]);
         setSelectedIcon(null);
         setReceiptImagePath(null);
+        setNotes('');
         itemizedExpense.setItemizedItems([]);
         itemizedExpense.setTaxTipAmount('');
         setSplitDetails({});
@@ -198,7 +200,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             split_type: splitType,
             splits: splits,
             icon: selectedIcon,
-            receipt_image_path: receiptImagePath
+            receipt_image_path: receiptImagePath,
+            notes: notes
         };
 
         if (splitType === 'ITEMIZED') {
@@ -257,7 +260,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 items: allItems,
                 splits: [],
                 icon: selectedIcon,
-                receipt_image_path: receiptImagePath
+                receipt_image_path: receiptImagePath,
+                notes: notes
             };
         }
 
@@ -587,6 +591,17 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                 value={expenseDate}
                                 onChange={(e) => setExpenseDate(e.target.value)}
                                 required
+                            />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Notes:</label>
+                            <textarea
+                                className="w-full border rounded-lg p-2 text-sm focus:outline-none focus:border-teal-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
+                                placeholder="Add notes (optional)"
+                                rows={2}
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
                             />
                         </div>
 

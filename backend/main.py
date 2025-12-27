@@ -838,7 +838,8 @@ def get_group_expenses(group_id: int, current_user: Annotated[models.User, Depen
             "split_type": expense.split_type,
             "splits": splits_with_names,
             "items": [],
-            "icon": expense.icon
+            "icon": expense.icon,
+            "notes": expense.notes
         }
         result.append(expense_dict)
 
@@ -1040,7 +1041,8 @@ def create_expense(expense: schemas.ExpenseCreate, current_user: Annotated[model
         exchange_rate=str(exchange_rate),  # Store as string for SQLite compatibility
         split_type=expense.split_type or "EQUAL",
         icon=expense.icon,
-        receipt_image_path=expense.receipt_image_path
+        receipt_image_path=expense.receipt_image_path,
+        notes=expense.notes
     )
     db.add(db_expense)
     db.commit()
@@ -1197,7 +1199,8 @@ def get_expense(expense_id: int, current_user: Annotated[models.User, Depends(ge
         split_type=split_type,
         items=items_data,
         icon=expense.icon,
-        receipt_image_path=expense.receipt_image_path
+        receipt_image_path=expense.receipt_image_path,
+        notes=expense.notes
     )
 
 @app.put("/expenses/{expense_id}", response_model=schemas.Expense)
@@ -1249,6 +1252,7 @@ def update_expense(expense_id: int, expense_update: schemas.ExpenseUpdate, curre
     expense.payer_is_guest = expense_update.payer_is_guest
     expense.split_type = expense_update.split_type or "EQUAL"
     expense.icon = expense_update.icon
+    expense.notes = expense_update.notes
     if expense_update.receipt_image_path is not None:
          expense.receipt_image_path = expense_update.receipt_image_path
 
