@@ -22,14 +22,29 @@ export const formatDate = (dateStr: string, options?: Intl.DateTimeFormatOptions
         day: 'numeric'
     };
 
-    return new Date(dateStr).toLocaleDateString('en-US', options || defaultOptions);
+    // Parse date string to avoid timezone issues
+    // If it's a plain YYYY-MM-DD, parse as local date not UTC
+    let date: Date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        date = new Date(year, month - 1, day);
+    } else {
+        // For ISO strings with time, still use local display
+        date = new Date(dateStr);
+    }
+
+    return date.toLocaleDateString('en-US', options || defaultOptions);
 };
 
 /**
  * Format a date for input fields (YYYY-MM-DD)
  */
 export const formatDateForInput = (date: Date = new Date()): string => {
-    return date.toISOString().split('T')[0];
+    // Use local date components to avoid timezone issues
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 };
 
 /**

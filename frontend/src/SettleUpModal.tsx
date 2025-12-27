@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from './AuthContext';
 import { getApiUrl } from './api';
+import { formatDateForInput } from './utils/formatters';
 
 interface Friend {
     id: number;
@@ -45,7 +46,7 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({ isOpen, onClose, onSettle
             description: "Settle Up",
             amount: totalAmountCents,
             currency,
-            date: new Date().toISOString(),
+            date: formatDateForInput(new Date()),
             payer_id: payerId, // Who is paying the money physically
             group_id: null,
             split_type: 'EXACT',
