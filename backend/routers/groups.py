@@ -474,6 +474,40 @@ def get_public_group_balances(
     return result
 
 
+@router.post("/public/{share_link_id}/join")
+def join_public_group(
+    share_link_id: str,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Allow a logged-in user to join a public group via share link"""
+    group = db.query(models.Group).filter(
+        models.Group.share_link_id == share_link_id,
+        models.Group.is_public == True
+    ).first()
+
+    if not group:
+        raise HTTPException(status_code=404, detail="Public group not found")
+
+    # Check if already a member
+    existing = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group.id,
+        models.GroupMember.user_id == current_user.id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="You are already a member of this group")
+
+    # Add user as member
+    new_member = models.GroupMember(group_id=group.id, user_id=current_user.id)
+    db.add(new_member)
+    db.commit()
+
+    return {
+        "message": "Successfully joined group",
+        "group_id": group.id
+    }
+
+
 @router.get("/public/{share_link_id}/expenses/{expense_id}", response_model=schemas.ExpenseWithSplits)
 def get_public_expense_detail(
     share_link_id: str,
