@@ -772,6 +772,70 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                         )}
 
                         <div className="mb-4">
+                            <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Description:</label>
+                            <div className="flex items-center gap-2">
+                                <IconSelector
+                                    selectedIcon={selectedIcon}
+                                    onIconSelect={setSelectedIcon}
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Enter a description"
+                                    className="flex-1 border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400"
+                                    value={description}
+                                    onChange={e => setDescription(e.target.value)}
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mb-4 flex items-center space-x-2">
+                            <select
+                                value={currency}
+                                onChange={(e) => setCurrency(e.target.value)}
+                                className="border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 bg-transparent text-gray-700 dark:text-gray-200 dark:bg-gray-700"
+                            >
+                                {sortedCurrencies.map(c => (
+                                    <option key={c.code} value={c.code}>
+                                        {formatCurrencyDisplay(c.code)}
+                                    </option>
+                                ))}
+                            </select>
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0.00"
+                                className={`w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 text-lg dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400 ${splitType === 'ITEMIZED' ? 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400' : ''}`}
+                                value={splitType === 'ITEMIZED' ? calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxAmount, itemizedExpense.tipAmount) : amount}
+                                onChange={e => setAmount(e.target.value)}
+                                disabled={splitType === 'ITEMIZED'}
+                                required={splitType !== 'ITEMIZED'}
+                            />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Date:</label>
+                            <input
+                                type="date"
+                                className="w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 dark:bg-gray-800 dark:text-gray-100"
+                                value={expenseDate}
+                                onChange={(e) => setExpenseDate(e.target.value)}
+                                required
+                            />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Notes:</label>
+                            <textarea
+                                className="w-full border rounded-lg p-2 text-sm focus:outline-none focus:border-teal-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
+                                placeholder="Add notes (optional)"
+                                rows={2}
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="mb-4">
                             <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Split by:</label>
                             <ExpenseSplitTypeSelector value={splitType} onChange={setSplitType} />
 
