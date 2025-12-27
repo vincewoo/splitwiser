@@ -9,48 +9,72 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 ## Architecture
 
 ### Backend (FastAPI + SQLAlchemy)
-- `backend/main.py` - API endpoints and core business logic (expenses, groups, friends, balances, debt simplification, exchange rate caching, guest management)
+
+**Main Application:**
+- `backend/main.py` - FastAPI app initialization and router registration
 - `backend/models.py` - SQLAlchemy models: User, Group, GroupMember, Friendship, Expense, ExpenseSplit, GuestMember, RefreshToken, ExpenseItem, ExpenseItemAssignment
-  - Group model includes `default_currency` field for group-level currency preference
-  - Expense model includes `exchange_rate` field for caching historical exchange rates
-  - GuestMember model for non-registered users with claiming and management support
-  - RefreshToken model for secure long-lived authentication tokens
-  - ExpenseItem and ExpenseItemAssignment for itemized expense splitting
-- `backend/schemas.py` - Pydantic schemas for request/response validation with currency validation
-- `backend/auth.py` - JWT authentication with bcrypt password hashing and refresh token support
+- `backend/schemas.py` - Pydantic schemas for request/response validation
+- `backend/auth.py` - JWT token creation and password hashing
 - `backend/database.py` - SQLite database configuration
-- `backend/ocr/` - Google Cloud Vision OCR integration for receipt scanning
-  - `service.py` - Vision API client (singleton pattern)
-  - `parser.py` - Receipt text parsing and item extraction
-- Uses OAuth2 with Bearer tokens; all authenticated endpoints require `Authorization: Bearer <token>` header
-- Refresh tokens provide automatic token renewal without re-authentication
+- `backend/dependencies.py` - Shared FastAPI dependencies (auth, database session)
+
+**Routers (Modular API Endpoints):**
+- `backend/routers/auth.py` - Authentication (login, register, refresh tokens, logout)
+- `backend/routers/groups.py` - Group CRUD, public share links
+- `backend/routers/members.py` - Member and guest management, claiming
+- `backend/routers/expenses.py` - Expense CRUD, split calculations
+- `backend/routers/balances.py` - Balance calculations, debt simplification
+- `backend/routers/friends.py` - Friend management
+- `backend/routers/receipts.py` - OCR receipt scanning
+
+**Utilities:**
+- `backend/utils/currency.py` - Exchange rate fetching (Frankfurter API), caching
+- `backend/utils/validation.py` - Split validation, participant verification
+- `backend/utils/splits.py` - Split calculation logic (equal, exact, percentage, shares, itemized)
+
+**OCR Integration:**
+- `backend/ocr/service.py` - Google Cloud Vision API client (singleton)
+- `backend/ocr/parser.py` - Receipt text parsing and item extraction
+
+**Key Database Fields:**
+- Group: `default_currency`, `icon`, `share_link_id`, `is_public`
+- Expense: `exchange_rate`, `split_type`, `receipt_image_path`, `icon`, `notes`
+- GuestMember: `claimed_by_id`, `managed_by_id`, `managed_by_type`
 
 ### Frontend (React + TypeScript + Vite)
-- `frontend/src/App.tsx` - Main app with Dashboard, routing, protected routes, group creation, and dark mode toggle
-- `frontend/src/AuthContext.tsx` - Authentication context provider with automatic refresh token handling
-- `frontend/src/ThemeContext.tsx` - Dark mode context with localStorage persistence and system preference detection
-- `frontend/src/AddExpenseModal.tsx` - Expense creation with split type selection (equal, exact, percentage, shares, itemized) and automatic currency pre-fill
-- `frontend/src/components/expense/ExpenseItemList.tsx` - Itemized expense UI with per-item assignment and tax/tip distribution
-- `frontend/src/hooks/useItemizedExpense.ts` - Custom hook for itemized expense state management
-- `frontend/src/ReceiptScanner.tsx` - OCR receipt scanning (calls backend Google Cloud Vision API)
-- `frontend/src/SettleUpModal.tsx` - Settlement modal
-- `frontend/src/GroupDetailPage.tsx` - Group detail view with balance grouping by currency and conversion toggle
-- `frontend/src/EditGroupModal.tsx` - Group editing with default currency management
-- `frontend/src/ManageGuestModal.tsx` - Guest user management and balance aggregation
-- `frontend/src/AddGuestModal.tsx` - Add non-registered users to groups
-- Styling with Tailwind CSS v4 with comprehensive dark mode support using `dark:` variants
-- Mobile-responsive design with touch-optimized UI
+
+**Core Components:**
+- `frontend/src/App.tsx` - Main app with Dashboard, routing, protected routes
+- `frontend/src/AuthContext.tsx` - Authentication with automatic token refresh
+- `frontend/src/ThemeContext.tsx` - Dark mode with localStorage persistence
+- `frontend/src/GroupDetailPage.tsx` - Group detail, balances, public share links
+- `frontend/src/ExpenseDetailModal.tsx` - Expense viewing/editing with notes
+- `frontend/src/AddExpenseModal.tsx` - Expense creation (5 split types)
+
+**Services & Types:**
+- `frontend/src/services/api.ts` - Centralized API client with auth handling
+- `frontend/src/types/` - TypeScript definitions (group.ts, expense.ts, balance.ts, friend.ts)
+- `frontend/src/utils/formatters.ts` - Money, date, and name formatting
+- `frontend/src/utils/expenseCalculations.ts` - Frontend split calculations
+- `frontend/src/utils/participantHelpers.ts` - Participant data helpers
+
+**Feature Components:**
+- `frontend/src/ReceiptScanner.tsx` - OCR receipt scanning
+- `frontend/src/ManageGuestModal.tsx` - Guest management and balance aggregation
+- `frontend/src/AddGuestModal.tsx` - Add non-registered users
+- `frontend/src/components/expense/ExpenseItemList.tsx` - Itemized expense UI
+- `frontend/src/hooks/useItemizedExpense.ts` - Itemized expense state management
 
 ### Key Patterns
 - Money stored in cents (integer) to avoid floating-point issues
 - Balance calculation: positive = owed to you, negative = you owe
-- Debt simplification algorithm converts all currencies to USD for settlement
-- Historical exchange rates cached at expense creation using Frankfurter API
-- Group-level default currency for expense pre-filling and balance display preferences
-- Guest users support claiming (merge to registered account) and management (balance aggregation)
-- Refresh tokens stored hashed (SHA-256) in database for security
-- Dark mode preferences persist to localStorage with system preference fallback
-- Itemized expenses use proportional tax/tip distribution based on subtotal shares
+- Debt simplification converts all currencies to USD using cached exchange rates
+- Historical exchange rates cached at expense creation (Frankfurter API)
+- Group-level default currency for expense pre-filling and balance display
+- Guest users support claiming (merge history) and management (balance aggregation)
+- Refresh tokens stored hashed (SHA-256) in database
+- Public share links allow read-only group viewing without login
+- Itemized expenses use proportional tax/tip distribution
 
 ## Development Commands
 
@@ -116,16 +140,20 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 
 ### Friends & Expenses
 - `POST /friends`, `GET /friends` - Friend management
-- `POST /expenses` - Create expense (supports split_type: EQUAL, EXACT, PERCENTAGE, SHARES, ITEMIZED; automatically caches historical exchange rate)
+- `POST /expenses` - Create expense (supports split_type: EQUAL, EXACT, PERCENTAGE, SHARES, ITEMIZED; caches historical exchange rate)
 - `GET /expenses` - List expenses
 - `GET /expenses/{expense_id}` - Get expense details (includes items for ITEMIZED type)
-- `PUT /expenses/{expense_id}` - Update expense
+- `PUT /expenses/{expense_id}` - Update expense (updates cached exchange rate if date/currency changes)
 - `DELETE /expenses/{expense_id}` - Delete expense
 
+### Public Access
+- `GET /public/groups/{share_link_id}` - Get group details via public share link (no auth required)
+- `GET /public/groups/{share_link_id}/expenses/{expense_id}` - Get expense details via public link
+
 ### Balances & Currency
-- `GET /balances` - User balance summary across all groups
-- `GET /simplify_debts/{group_id}` - Debt simplification for a group
-- `GET /exchange_rates` - Current currency exchange rates (fetched from Frankfurter API)
+- `GET /balances` - User balance summary across all groups (includes managed guest balances)
+- `GET /simplify_debts/{group_id}` - Debt simplification using cached exchange rates
+- `GET /exchange_rates` - Current exchange rates (Frankfurter API)
 
 ## Feature Details
 
@@ -375,6 +403,43 @@ Non-registered users can participate in expenses and later claim their profiles.
 - `ManageGuestModal.tsx` - UI for linking guests to managers
 - `AddGuestModal.tsx` - Simple form to add guest by name
 - Visual indicators show managed guest relationships in balance view
+
+## Public Share Links
+
+Enable read-only group sharing without requiring authentication.
+
+### Database Schema
+
+**Group Model Additions:**
+- `share_link_id` - Unique UUID for the public share link (nullable)
+- `is_public` - Boolean flag indicating if public sharing is enabled (default: false)
+
+### How It Works
+
+**Enabling Public Sharing:**
+1. Group owner opens group settings
+2. Toggles "Enable public sharing"
+3. Backend generates unique `share_link_id` (UUID)
+4. Frontend displays shareable URL
+
+**Accessing Public Links:**
+1. Anyone with the link can view group balances and expenses
+2. No login required
+3. Read-only access (no modifications allowed)
+4. Expense details accessible via modal
+
+### API Endpoints
+
+- `PUT /groups/{group_id}` - Toggle `is_public` flag, generates `share_link_id`
+- `GET /public/groups/{share_link_id}` - Get group details (no auth)
+- `GET /public/groups/{share_link_id}/expenses/{expense_id}` - Get expense details (no auth)
+
+### Frontend Implementation
+
+- `GroupDetailPage.tsx` - Handles both authenticated and public views
+- Uses `isPublicView` prop to toggle between edit/read-only modes
+- Share button copies public URL to clipboard
+- All edit buttons hidden in public view
 
 ## Refresh Token Authentication
 
@@ -689,4 +754,14 @@ ALTER TABLE expenses ADD COLUMN exchange_rate TEXT;
 -- Guest user support in expenses
 ALTER TABLE expenses ADD COLUMN payer_is_guest BOOLEAN DEFAULT FALSE;
 ALTER TABLE expense_splits ADD COLUMN is_guest BOOLEAN DEFAULT FALSE;
+
+-- Receipt images and notes
+ALTER TABLE expenses ADD COLUMN receipt_image_path TEXT;
+ALTER TABLE expenses ADD COLUMN icon TEXT;
+ALTER TABLE expenses ADD COLUMN notes TEXT;
+
+-- Group icons and public sharing
+ALTER TABLE groups ADD COLUMN icon TEXT;
+ALTER TABLE groups ADD COLUMN share_link_id TEXT UNIQUE;
+ALTER TABLE groups ADD COLUMN is_public BOOLEAN DEFAULT FALSE;
 ```

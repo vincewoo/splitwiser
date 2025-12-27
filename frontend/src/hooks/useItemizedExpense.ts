@@ -3,8 +3,21 @@ import type { Participant, ExpenseItem, ItemAssignment } from '../types/expense'
 
 export const useItemizedExpense = () => {
     const [itemizedItems, setItemizedItems] = useState<ExpenseItem[]>([]);
-    const [taxTipAmount, setTaxTipAmount] = useState<string>('');
+    const [taxAmount, setTaxAmount] = useState<string>('');
+    const [tipAmount, setTipAmount] = useState<string>('');
     const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+
+    // Calculate subtotal (before tax/tip) in cents
+    const getSubtotalCents = () => {
+        return itemizedItems.reduce((sum, item) => sum + item.price, 0);
+    };
+
+    // Set tip based on percentage of subtotal (before tax)
+    const setTipFromPercentage = (percent: number) => {
+        const subtotalCents = getSubtotalCents();
+        const tipCents = Math.round(subtotalCents * (percent / 100));
+        setTipAmount((tipCents / 100).toFixed(2));
+    };
 
     const addManualItem = () => {
         const description = prompt("Item description:");
@@ -68,10 +81,14 @@ export const useItemizedExpense = () => {
 
     return {
         itemizedItems,
-        taxTipAmount,
+        taxAmount,
+        tipAmount,
         editingItemIndex,
         setItemizedItems,
-        setTaxTipAmount,
+        setTaxAmount,
+        setTipAmount,
+        setTipFromPercentage,
+        getSubtotalCents,
         setEditingItemIndex,
         addManualItem,
         removeItem,

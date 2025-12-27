@@ -97,7 +97,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setReceiptImagePath(null);
         setNotes('');
         itemizedExpense.setItemizedItems([]);
-        itemizedExpense.setTaxTipAmount('');
+        itemizedExpense.setTaxAmount('');
+        itemizedExpense.setTipAmount('');
         setSplitDetails({});
     };
 
@@ -124,8 +125,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setSplitType('ITEMIZED');
 
         const total = [...itemizedExpense.itemizedItems, ...newItems].reduce((acc, item) => acc + item.price, 0);
-        const taxTip = Math.round(parseFloat(itemizedExpense.taxTipAmount || '0') * 100);
-        setAmount(((total + taxTip) / 100).toFixed(2));
+        const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
+        const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
+        setAmount(((total + tax + tip) / 100).toFixed(2));
         setDescription("Receipt Scan");
     };
 
@@ -236,11 +238,24 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             }
 
             const allItems = [...itemizedExpense.itemizedItems];
-            const taxTip = Math.round(parseFloat(itemizedExpense.taxTipAmount || '0') * 100);
-            if (taxTip > 0) {
+            const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
+            const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
+
+            // Add Tax as a separate item if present
+            if (tax > 0) {
                 allItems.push({
-                    description: 'Tax/Tip',
-                    price: taxTip,
+                    description: 'Tax',
+                    price: tax,
+                    is_tax_tip: true,
+                    assignments: []
+                });
+            }
+
+            // Add Tip as a separate item if present
+            if (tip > 0) {
+                allItems.push({
+                    description: 'Tip',
+                    price: tip,
                     is_tax_tip: true,
                     assignments: []
                 });
@@ -576,7 +591,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                 type="number"
                                 placeholder="0.00"
                                 className={`w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 text-lg dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400 ${splitType === 'ITEMIZED' ? 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400' : ''}`}
-                                value={splitType === 'ITEMIZED' ? calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxTipAmount) : amount}
+                                value={splitType === 'ITEMIZED' ? calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxAmount, itemizedExpense.tipAmount) : amount}
                                 onChange={e => setAmount(e.target.value)}
                                 disabled={splitType === 'ITEMIZED'}
                                 required={splitType !== 'ITEMIZED'}
@@ -641,9 +656,10 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                         currentUserId={user?.id}
                                     />
 
-                                    <div className="mt-3 pt-3 border-t dark:border-gray-600">
+                                    <div className="mt-3 pt-3 border-t dark:border-gray-600 space-y-3">
+                                        {/* Tax Input */}
                                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                                            <span className="text-sm text-gray-600 dark:text-gray-400">Tax/Tip (split proportionally)</span>
+                                            <span className="text-sm text-gray-600 dark:text-gray-400">Tax (split proportionally)</span>
                                             <div className="flex items-center">
                                                 <span className="text-sm mr-2 dark:text-gray-300">{currency}</span>
                                                 <input
@@ -651,15 +667,45 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                     placeholder="0.00"
                                                     step="0.01"
                                                     className="w-28 sm:w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"
-                                                    value={itemizedExpense.taxTipAmount}
-                                                    onChange={(e) => itemizedExpense.setTaxTipAmount(e.target.value)}
+                                                    value={itemizedExpense.taxAmount}
+                                                    onChange={(e) => itemizedExpense.setTaxAmount(e.target.value)}
                                                 />
+                                            </div>
+                                        </div>
+
+                                        {/* Tip Input with percentage buttons */}
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                                <span className="text-sm text-gray-600 dark:text-gray-400">Tip (split proportionally)</span>
+                                                <div className="flex items-center">
+                                                    <span className="text-sm mr-2 dark:text-gray-300">{currency}</span>
+                                                    <input
+                                                        type="number"
+                                                        placeholder="0.00"
+                                                        step="0.01"
+                                                        className="w-28 sm:w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"
+                                                        value={itemizedExpense.tipAmount}
+                                                        onChange={(e) => itemizedExpense.setTipAmount(e.target.value)}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2 justify-end">
+                                                {[15, 18, 20].map(percent => (
+                                                    <button
+                                                        key={percent}
+                                                        type="button"
+                                                        onClick={() => itemizedExpense.setTipFromPercentage(percent)}
+                                                        className="px-3 py-1 text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 rounded hover:bg-teal-200 dark:hover:bg-teal-900/50 transition-colors"
+                                                    >
+                                                        {percent}%
+                                                    </button>
+                                                ))}
                                             </div>
                                         </div>
                                     </div>
 
                                     <div className="mt-3 text-right text-base font-semibold dark:text-white">
-                                        Total: {currency} {calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxTipAmount)}
+                                        Total: {currency} {calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxAmount, itemizedExpense.tipAmount)}
                                     </div>
                                 </div>
                             )}

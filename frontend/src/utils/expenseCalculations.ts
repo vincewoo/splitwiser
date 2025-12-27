@@ -152,9 +152,11 @@ export const calculateSharesSplit = (
  */
 export const calculateItemizedTotal = (
     items: ExpenseItem[],
-    taxTipAmount: string
+    taxAmount: string,
+    tipAmount: string
 ): string => {
     const itemsTotal = items.reduce((sum, item) => sum + item.price, 0);
-    const taxTip = Math.round(parseFloat(taxTipAmount || '0') * 100);
-    return ((itemsTotal + taxTip) / 100).toFixed(2);
+    const tax = Math.round(parseFloat(taxAmount || '0') * 100);
+    const tip = Math.round(parseFloat(tipAmount || '0') * 100);
+    return ((itemsTotal + tax + tip) / 100).toFixed(2);
 };

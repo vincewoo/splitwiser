@@ -19,6 +19,9 @@ A full-featured expense splitting application built with FastAPI and React, insp
 - 🎯 **Smart Currency Grouping** - View balances grouped by currency or converted to group default
 - 📸 **OCR Receipt Scanning** - Extract expense details from receipt photos using Google Cloud Vision API
 - 👻 **Guest Members** - Add non-registered users with claiming and balance aggregation
+- 🔗 **Public Share Links** - Share read-only group views without requiring login
+- 📝 **Notes on Expenses** - Add freeform text notes to expense entries
+- 🏷️ **Icons/Categories** - Emoji icons for groups and expense categorization
 - 🌙 **Dark Mode** - System-wide dark theme with preference persistence
 - 🔑 **Secure Authentication** - Refresh tokens with server-side revocation
 
@@ -97,31 +100,56 @@ Once the backend is running, visit:
 ## Project Structure
 
 ```
-splitwiser/
+splitwise/
 ├── backend/
-│   ├── main.py                      # API endpoints and business logic
-│   ├── models.py                    # Database models
-│   ├── schemas.py                   # Pydantic schemas
-│   ├── auth.py                      # Authentication logic (refresh tokens)
+│   ├── main.py                      # FastAPI app initialization
+│   ├── models.py                    # SQLAlchemy database models
+│   ├── schemas.py                   # Pydantic schemas for validation
+│   ├── auth.py                      # JWT token creation and hashing
 │   ├── database.py                  # Database configuration
-│   ├── ocr/
-│   │   ├── service.py              # Google Cloud Vision client
-│   │   └── parser.py               # Receipt text parsing
+│   ├── dependencies.py              # Shared FastAPI dependencies
+│   ├── routers/                     # API route handlers
+│   │   ├── auth.py                  # Authentication endpoints
+│   │   ├── groups.py                # Group management endpoints
+│   │   ├── members.py               # Member/guest management
+│   │   ├── expenses.py              # Expense CRUD operations
+│   │   ├── balances.py              # Balance calculations
+│   │   ├── friends.py               # Friend management
+│   │   └── receipts.py              # OCR receipt scanning
+│   ├── utils/                       # Utility modules
+│   │   ├── currency.py              # Exchange rate handling
+│   │   ├── validation.py            # Input validation helpers
+│   │   └── splits.py                # Split calculation logic
+│   ├── ocr/                         # OCR integration
+│   │   ├── service.py               # Google Cloud Vision client
+│   │   └── parser.py                # Receipt text parsing
 │   ├── requirements.txt             # Python dependencies
-│   └── db.sqlite3                  # SQLite database (generated)
+│   └── db.sqlite3                   # SQLite database (generated)
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx                  # Main app component
-│   │   ├── AuthContext.tsx          # Auth context provider (auto-refresh)
+│   │   ├── App.tsx                  # Main app component with routing
+│   │   ├── AuthContext.tsx          # Auth context (auto-refresh tokens)
 │   │   ├── ThemeContext.tsx         # Dark mode context
 │   │   ├── GroupDetailPage.tsx      # Group detail view
+│   │   ├── ExpenseDetailModal.tsx   # Expense viewing/editing
 │   │   ├── AddExpenseModal.tsx      # Expense creation (5 split types)
-│   │   ├── EditGroupModal.tsx       # Group editing
+│   │   ├── EditGroupModal.tsx       # Group settings editor
 │   │   ├── SettleUpModal.tsx        # Settlement UI
 │   │   ├── ReceiptScanner.tsx       # OCR receipt scanning
 │   │   ├── ManageGuestModal.tsx     # Guest management UI
 │   │   ├── AddGuestModal.tsx        # Add guest users
+│   │   ├── services/
+│   │   │   └── api.ts               # Centralized API client
+│   │   ├── types/                   # TypeScript type definitions
+│   │   │   ├── group.ts
+│   │   │   ├── expense.ts
+│   │   │   ├── balance.ts
+│   │   │   └── friend.ts
+│   │   ├── utils/                   # Utility functions
+│   │   │   ├── formatters.ts        # Money/date formatting
+│   │   │   ├── expenseCalculations.ts
+│   │   │   └── participantHelpers.ts
 │   │   ├── components/
 │   │   │   └── expense/
 │   │   │       └── ExpenseItemList.tsx  # Itemized expense UI
@@ -130,9 +158,10 @@ splitwiser/
 │   ├── package.json                 # npm dependencies
 │   └── vite.config.ts               # Vite configuration
 │
-├── CLAUDE.md                       # Development guide for Claude Code
-├── CHANGELOG.md                    # Version history and changes
-└── README.md                      # This file
+├── CLAUDE.md                        # Development guide for Claude Code
+├── CHANGELOG.md                     # Version history and changes
+├── DEPLOYMENT.md                    # Deployment instructions
+└── README.md                        # This file
 ```
 
 ## Currency Features
