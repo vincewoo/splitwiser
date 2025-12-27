@@ -240,6 +240,14 @@ export const expensesApi = {
         return response.json();
     },
 
+    getPublicById: async (shareLinkId: string, expenseId: number) => {
+        // Assuming getApiUrl and fetchWithAuth are defined elsewhere or need to be added.
+        // For now, using direct fetch and API_BASE_URL.
+        const response = await fetch(`${API_BASE_URL}/groups/public/${shareLinkId}/expenses/${expenseId}`);
+        if (!response.ok) throw new Error('Failed to fetch public expense');
+        return response.json();
+    },
+
     create: async (expenseData: any) => {
         const response = await apiFetch('/expenses', {
             method: 'POST',

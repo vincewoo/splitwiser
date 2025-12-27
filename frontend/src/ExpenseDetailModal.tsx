@@ -37,6 +37,8 @@ interface ExpenseDetailModalProps {
     groupMembers: GroupMember[];
     groupGuests: GuestMember[];
     currentUserId: number;
+    shareLinkId?: string;
+    readOnly?: boolean;
 }
 
 const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
@@ -47,7 +49,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     onExpenseDeleted,
     groupMembers,
     groupGuests,
-    currentUserId
+    currentUserId,
+    shareLinkId,
+    readOnly = false
 }) => {
     const [expense, setExpense] = useState<ExpenseWithSplits | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -91,7 +95,12 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         setError(null);
 
         try {
-            const data = await expensesApi.getById(expenseId!);
+            let data;
+            if (shareLinkId) {
+                data = await expensesApi.getPublicById(shareLinkId, expenseId!);
+            } else {
+                data = await expensesApi.getById(expenseId!);
+            }
             setExpense(data);
         } catch (err) {
             setError('Failed to load expense details');
@@ -416,7 +425,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
     if (!isOpen) return null;
 
-    const canEdit = expense?.created_by_id === currentUserId;
+    const canEdit = !readOnly && expense?.created_by_id === currentUserId;
 
     return (
         <div className="fixed inset-0 bg-gray-600 dark:bg-gray-900/75 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-40 p-0 sm:p-4">

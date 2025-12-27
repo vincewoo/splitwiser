@@ -560,12 +560,14 @@ const GroupDetailPage: React.FC = () => {
                 <div className="max-w-5xl mx-auto px-4 lg:px-6 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 lg:gap-4 min-w-0">
-                            <button
-                                onClick={() => navigate('/')}
-                                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
-                            >
-                                &larr;
-                            </button>
+                            {!isPublicView && (
+                                <button
+                                    onClick={() => navigate('/')}
+                                    className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
+                                >
+                                    &larr;
+                                </button>
+                            )}
                             <h1 className="text-lg lg:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate flex items-center gap-2">
                                 {group.icon && <span>{group.icon}</span>}
                                 <span>{group.name}</span>
@@ -884,8 +886,10 @@ const GroupDetailPage: React.FC = () => {
                 onExpenseUpdated={handleExpenseUpdated}
                 onExpenseDeleted={handleExpenseDeleted}
                 groupMembers={group.members}
-                groupGuests={group.guests || []}
+                groupGuests={(group.guests || [])}
                 currentUserId={user?.id || 0}
+                shareLinkId={isPublicView ? shareLinkId : undefined}
+                readOnly={isPublicView}
             />
 
             <AddMemberModal

@@ -467,3 +467,106 @@ def get_public_group_balances(
 
     return result
 
+
+@router.get("/public/{share_link_id}/expenses/{expense_id}", response_model=schemas.ExpenseWithSplits)
+def get_public_expense_detail(
+    share_link_id: str,
+    expense_id: int,
+    db: Session = Depends(get_db)
+):
+    group = db.query(models.Group).filter(
+        models.Group.share_link_id == share_link_id,
+        models.Group.is_public == True
+    ).first()
+    
+    if not group:
+        raise HTTPException(status_code=404, detail="Public group not found")
+
+    expense = db.query(models.Expense).filter(
+        models.Expense.id == expense_id,
+        models.Expense.group_id == group.id
+    ).first()
+
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    # Fetch splits
+    splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+
+    splits_with_names = []
+    for split in splits:
+        if split.is_guest:
+            guest = db.query(models.GuestMember).filter(models.GuestMember.id == split.user_id).first()
+            user_name = guest.name if guest else "Unknown Guest"
+        else:
+            user = db.query(models.User).filter(models.User.id == split.user_id).first()
+            user_name = (user.full_name or user.email) if user else "Unknown User"
+
+        splits_with_names.append(schemas.ExpenseSplitDetail(
+            id=split.id,
+            expense_id=split.expense_id,
+            user_id=split.user_id,
+            is_guest=split.is_guest,
+            amount_owed=split.amount_owed,
+            percentage=split.percentage,
+            shares=split.shares,
+            user_name=user_name
+        ))
+
+    # Fetch items if itemized
+    items_data = []
+    if expense.split_type == "ITEMIZED":
+        expense_items = db.query(models.ExpenseItem).filter(
+            models.ExpenseItem.expense_id == expense.id
+        ).all()
+
+        for item in expense_items:
+            assignments = db.query(models.ExpenseItemAssignment).filter(
+                models.ExpenseItemAssignment.expense_item_id == item.id
+            ).all()
+
+            assignment_details = []
+            for a in assignments:
+                if a.is_guest:
+                    guest = db.query(models.GuestMember).filter(
+                        models.GuestMember.id == a.user_id
+                    ).first()
+                    name = guest.name if guest else "Unknown Guest"
+                else:
+                    user = db.query(models.User).filter(
+                        models.User.id == a.user_id
+                    ).first()
+                    name = (user.full_name or user.email) if user else "Unknown"
+
+                assignment_details.append(schemas.ExpenseItemAssignmentDetail(
+                    user_id=a.user_id,
+                    is_guest=a.is_guest,
+                    user_name=name
+                ))
+
+            items_data.append(schemas.ExpenseItemDetail(
+                id=item.id,
+                expense_id=item.expense_id,
+                description=item.description,
+                price=item.price,
+                is_tax_tip=item.is_tax_tip,
+                assignments=assignment_details
+            ))
+
+    return schemas.ExpenseWithSplits(
+        id=expense.id,
+        description=expense.description,
+        amount=expense.amount,
+        currency=expense.currency,
+        date=expense.date,
+        payer_id=expense.payer_id,
+        payer_is_guest=expense.payer_is_guest,
+        group_id=expense.group_id,
+        created_by_id=expense.created_by_id,
+        split_type=expense.split_type,
+        splits=splits_with_names,
+        items=items_data,
+        icon=expense.icon,
+        receipt_image_path=expense.receipt_image_path,
+        notes=expense.notes
+    )

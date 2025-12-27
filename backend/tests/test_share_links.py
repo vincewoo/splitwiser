@@ -81,6 +81,15 @@ def test_share_group_flow(client, auth_headers):
     expenses = res.json()
     assert len(expenses) == 1
     assert expenses[0]["description"] == "Lunch"
+    expense_id = expenses[0]["id"]
+
+    # 4b. Access Public Expense Detail
+    res = client.get(f"/groups/public/{share_link_id}/expenses/{expense_id}")
+    assert res.status_code == 200
+    detail = res.json()
+    assert detail["description"] == "Lunch"
+    assert detail["amount"] == 1000
+    assert len(detail["splits"]) == 1
 
     # 5. Access Public Balances
     res = client.get(f"/groups/public/{share_link_id}/balances")
