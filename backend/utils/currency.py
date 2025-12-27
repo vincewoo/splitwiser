@@ -10,7 +10,9 @@ EXCHANGE_RATES = {
     "EUR": 0.92,
     "GBP": 0.79,
     "JPY": 149.5,
-    "CAD": 1.38
+    "CAD": 1.38,
+    "CNY": 7.2,
+    "HKD": 7.8
 }
 
 # Currency symbols for formatting
@@ -19,7 +21,9 @@ CURRENCY_SYMBOLS = {
     "EUR": "€",
     "GBP": "£",
     "JPY": "¥",
-    "CAD": "CA$"
+    "CAD": "CA$",
+    "CNY": "¥",
+    "HKD": "HK$"
 }
 
 
@@ -141,7 +145,7 @@ def get_current_exchange_rates() -> dict:
         url = "https://api.frankfurter.app/latest"
         params = {
             "from": "USD",
-            "to": "EUR,GBP,JPY,CAD"
+            "to": "EUR,GBP,JPY,CAD,CNY,HKD"
         }
 
         response = requests.get(url, params=params, timeout=5)

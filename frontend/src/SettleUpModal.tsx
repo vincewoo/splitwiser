@@ -22,7 +22,7 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({ isOpen, onClose, onSettle
     const [recipientId, setRecipientId] = useState<number>(friends[0]?.id || 0);
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('USD');
-    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD']);
+    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']);
 
     if (!isOpen) return null;
 

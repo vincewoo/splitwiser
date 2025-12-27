@@ -72,7 +72,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
 
-    const currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD'];
+    const currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD'];
 
     // Use custom hooks
     const itemizedExpense = useItemizedExpense();

@@ -21,7 +21,7 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group,
     const [name, setName] = useState(group.name);
     const [currency, setCurrency] = useState(group.default_currency || 'USD');
     const [selectedIcon, setSelectedIcon] = useState<string | null>(group.icon || null);
-    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD']);
+    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 

@@ -11,7 +11,7 @@ interface AddGroupModalProps {
 const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupAdded }) => {
     const [name, setName] = useState('');
     const [currency, setCurrency] = useState('USD');
-    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD']);
+    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']);
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);

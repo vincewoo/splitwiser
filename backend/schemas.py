@@ -135,7 +135,7 @@ class GroupBase(BaseModel):
     @field_validator('default_currency')
     @classmethod
     def validate_currency(cls, v):
-        valid_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD']
+        valid_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']
         if v not in valid_currencies:
             raise ValueError(f'Currency must be one of {valid_currencies}')
         return v
@@ -199,7 +199,7 @@ class GroupUpdate(BaseModel):
     @field_validator('default_currency')
     @classmethod
     def validate_currency(cls, v):
-        valid_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD']
+        valid_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']
         if v not in valid_currencies:
             raise ValueError(f'Currency must be one of {valid_currencies}')
         return v
