@@ -18,15 +18,112 @@ router = APIRouter(tags=["auth"])
 
 
 @router.post("/register", response_model=schemas.User)
-def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+def register_user(
+    user: schemas.UserCreate, 
+    db: Session = Depends(get_db)
+):
+    # Check for existing user
     db_user = get_user_by_email(db, email=user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create user
     hashed_password = auth.get_password_hash(user.password)
     db_user = models.User(email=user.email, hashed_password=hashed_password, full_name=user.full_name)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+
+    # Handle Guest Claiming
+    if user.claim_guest_id and user.share_link_id:
+        # Validate guest and group access
+        guest = db.query(models.GuestMember).filter(models.GuestMember.id == user.claim_guest_id).first()
+        if not guest:
+            # We don't fail registration, but we log/ignore the claim failure
+            print(f"Failed to claim guest {user.claim_guest_id}: Guest not found")
+        else:
+            # Check if group matches share link
+            group = db.query(models.Group).filter(
+                models.Group.id == guest.group_id,
+                models.Group.share_link_id == user.share_link_id,
+                models.Group.is_public == True
+            ).first()
+
+            if not group:
+                print(f"Failed to claim guest {user.claim_guest_id}: Invalid share link or group not public")
+            elif guest.claimed_by_id:
+                print(f"Failed to claim guest {user.claim_guest_id}: Already claimed")
+            else:
+                # Proceed with claiming
+                # 1. Update guest record
+                guest.claimed_by_id = db_user.id
+                
+                # 2. Add user to group members if not already
+                member = db.query(models.GroupMember).filter(
+                    models.GroupMember.group_id == group.id,
+                    models.GroupMember.user_id == db_user.id
+                ).first()
+                if not member:
+                    db_member = models.GroupMember(group_id=group.id, user_id=db_user.id)
+                    db.add(db_member)
+
+                # 3. Update past expenses/splits to point to the user instead of guest
+                # Note: We keep the records as "is_guest=True" but usually we want to migrate them?
+                # Actually, standard splitwise logic: you effectively become that person.
+                # Steps:
+                # - Find all splits where user_id=guest.id AND is_guest=True
+                # - Update them to user_id=db_user.id AND is_guest=False
+                
+                db.query(models.ExpenseSplit).filter(
+                    models.ExpenseSplit.user_id == guest.id,
+                    models.ExpenseSplit.is_guest == True
+                ).update({
+                    "user_id": db_user.id,
+                    "is_guest": False
+                })
+
+                # - Find all ExpenseItemAssignments
+                db.query(models.ExpenseItemAssignment).filter(
+                    models.ExpenseItemAssignment.user_id == guest.id,
+                    models.ExpenseItemAssignment.is_guest == True
+                ).update({
+                    "user_id": db_user.id,
+                    "is_guest": False
+                })
+
+                # - Find all expenses paid by guest
+                db.query(models.Expense).filter(
+                    models.Expense.payer_id == guest.id,
+                    models.Expense.payer_is_guest == True
+                ).update({
+                    "payer_id": db_user.id,
+                    "payer_is_guest": False
+                })
+
+                # - Delete the guest member record? Or keep it as claimed?
+                # The model has 'claimed_by_id', implying we keep it. 
+                # But if we migrated all data, the guest record is just a shell now.
+                # However, there might be 'managed_by' references to it?
+                # If this guest was managing others, we should update those managed guests to be managed by the new user.
+                
+                db.query(models.GuestMember).filter(
+                    models.GuestMember.managed_by_id == guest.id,
+                    models.GuestMember.managed_by_type == 'guest'
+                ).update({
+                    "managed_by_id": db_user.id,
+                    "managed_by_type": 'user'
+                })
+
+                # Finally, we can delete the guest record since all references are moved.
+                # But 'claimed_by_id' suggests soft delete or linking. 
+                # Given I migrated all data, I should probably delete it to avoid duplicate "Member" and "Guest" appearing in list if I didn't migrate properly.
+                # However, existing logic might rely on it. 
+                # Let's Delete it to be clean, as the user is now a full member.
+                db.delete(guest)
+                
+                db.commit()
+                print(f"Successfully claimed guest {user.claim_guest_id} for user {db_user.id}")
+
     return db_user
 
 

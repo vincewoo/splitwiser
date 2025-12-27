@@ -19,6 +19,8 @@ class Group(Base):
     created_by_id = Column(Integer)
     default_currency = Column(String, default="USD")
     icon = Column(String, nullable=True)  # Optional emoji icon for group
+    share_link_id = Column(String, unique=True, nullable=True) # UUID for public share link
+    is_public = Column(Boolean, default=False) # Whether public sharing is enabled
 
 class GroupMember(Base):
     __tablename__ = "group_members"

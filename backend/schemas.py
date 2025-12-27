@@ -7,6 +7,8 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    claim_guest_id: Optional[int] = None
+    share_link_id: Optional[str] = None
 
 class User(UserBase):
     id: int
@@ -142,6 +144,8 @@ class GroupCreate(GroupBase):
 class Group(GroupBase):
     id: int
     created_by_id: int
+    share_link_id: Optional[str] = None
+    is_public: bool = False
 
     class Config:
         from_attributes = True

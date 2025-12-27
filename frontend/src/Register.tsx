@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { usePageTitle } from './hooks/usePageTitle';
 import { getApiUrl } from './api';
 
@@ -8,6 +8,7 @@ const Register = () => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
+  const location = useLocation();
 
   // Set dynamic page title
   usePageTitle('Register');
@@ -15,12 +16,22 @@ const Register = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const searchParams = new URLSearchParams(location.search);
+      const claimGuestId = searchParams.get('claim_guest_id');
+      const shareLinkId = searchParams.get('share_link_id');
+
       const response = await fetch(getApiUrl('register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password, full_name: fullName }),
+        body: JSON.stringify({
+          email,
+          password,
+          full_name: fullName,
+          claim_guest_id: claimGuestId ? parseInt(claimGuestId) : undefined,
+          share_link_id: shareLinkId
+        }),
       });
 
       if (!response.ok) {

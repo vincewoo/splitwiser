@@ -404,6 +404,7 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/" element={<ProtectedRoute element={<Dashboard />} />} />
             <Route path="/groups/:groupId" element={<ProtectedRoute element={<GroupDetailPage />} />} />
+            <Route path="/share/:shareLinkId" element={<GroupDetailPage />} />
           </Routes>
         </Router>
       </AuthProvider>

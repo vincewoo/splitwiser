@@ -37,6 +37,8 @@ interface Group {
     icon?: string | null;
     members: GroupMember[];
     guests: GuestMember[];
+    share_link_id?: string | null;
+    is_public?: boolean;
 }
 
 interface ExpenseSplit {
@@ -79,7 +81,7 @@ interface Friend {
 }
 
 const GroupDetailPage: React.FC = () => {
-    const { groupId } = useParams<{ groupId: string }>();
+    const { groupId, shareLinkId } = useParams<{ groupId?: string; shareLinkId?: string }>();
     const navigate = useNavigate();
     const { user } = useAuth();
 
@@ -111,26 +113,40 @@ const GroupDetailPage: React.FC = () => {
     // Set dynamic page title with group name
     usePageTitle(group?.name || 'Loading...');
 
+    const isPublicView = !!shareLinkId;
+
     const fetchGroupData = async () => {
         const token = localStorage.getItem('token');
         setIsLoading(true);
         setError(null);
 
         try {
-            const [groupRes, expensesRes, balancesRes, friendsRes] = await Promise.all([
-                fetch(getApiUrl(`groups/${groupId}`), {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                fetch(getApiUrl(`groups/${groupId}/expenses`), {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                fetch(getApiUrl(`groups/${groupId}/balances`), {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                fetch(getApiUrl('friends'), {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
-            ]);
+            let groupRes, expensesRes, balancesRes, friendsRes;
+
+            if (isPublicView) {
+                [groupRes, expensesRes, balancesRes] = await Promise.all([
+                    fetch(getApiUrl(`groups/public/${shareLinkId}`)),
+                    fetch(getApiUrl(`groups/public/${shareLinkId}/expenses`)),
+                    fetch(getApiUrl(`groups/public/${shareLinkId}/balances`))
+                ]);
+                // Friends API not available in public view
+                friendsRes = { ok: true, json: async () => [] };
+            } else {
+                [groupRes, expensesRes, balancesRes, friendsRes] = await Promise.all([
+                    fetch(getApiUrl(`groups/${groupId}`), {
+                        headers: { Authorization: `Bearer ${token}` }
+                    }),
+                    fetch(getApiUrl(`groups/${groupId}/expenses`), {
+                        headers: { Authorization: `Bearer ${token}` }
+                    }),
+                    fetch(getApiUrl(`groups/${groupId}/balances`), {
+                        headers: { Authorization: `Bearer ${token}` }
+                    }),
+                    fetch(getApiUrl('friends'), {
+                        headers: { Authorization: `Bearer ${token}` }
+                    })
+                ]);
+            }
 
             if (!groupRes.ok) {
                 if (groupRes.status === 404) {
@@ -144,12 +160,10 @@ const GroupDetailPage: React.FC = () => {
                 return;
             }
 
-            const [groupData, expensesData, balancesData, friendsData] = await Promise.all([
-                groupRes.json(),
-                expensesRes.json(),
-                balancesRes.json(),
-                friendsRes.json()
-            ]);
+            const groupData = await groupRes.json();
+            const expensesData = await expensesRes.json();
+            const balancesData = await balancesRes.json();
+            const friendsData = await friendsRes.json();
 
             setGroup(groupData);
             setExpenses(expensesData);
@@ -163,13 +177,15 @@ const GroupDetailPage: React.FC = () => {
     };
 
     useEffect(() => {
-        fetchGroupData();
-        // Fetch exchange rates
-        fetch(getApiUrl('exchange_rates'))
-            .then(res => res.json())
-            .then(data => setExchangeRates(data))
-            .catch(err => console.error('Failed to fetch exchange rates:', err));
-    }, [groupId]);
+        if (groupId || shareLinkId) {
+            fetchGroupData();
+            // Fetch exchange rates
+            fetch(getApiUrl('exchange_rates'))
+                .then(res => res.json())
+                .then(data => setExchangeRates(data))
+                .catch(err => console.error('Failed to fetch exchange rates:', err));
+        }
+    }, [groupId, shareLinkId]);
 
     const handleAddMember = () => {
         fetchGroupData();
@@ -238,6 +254,32 @@ const GroupDetailPage: React.FC = () => {
 
     const handleGroupDeleted = () => {
         navigate('/');
+    };
+
+    const handleShareGroup = async () => {
+        if (!group || !groupId) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(getApiUrl(`groups/${groupId}/share`), {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const updatedGroup = await response.json();
+                setGroup(prev => prev ? { ...prev, ...updatedGroup } : updatedGroup);
+
+                const shareUrl = `${window.location.origin}/share/${updatedGroup.share_link_id}`;
+                navigator.clipboard.writeText(shareUrl);
+                alert('Public share link copied to clipboard!');
+            } else {
+                alert('Failed to enable sharing');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to share group');
+        }
     };
 
     const handleExpenseClick = (expenseId: number) => {
@@ -510,6 +552,11 @@ const GroupDetailPage: React.FC = () => {
         <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
             {/* Header */}
             <header className="bg-white dark:bg-gray-800 shadow-sm dark:shadow-gray-900/50">
+                {isPublicView && (
+                    <div className="bg-blue-50 dark:bg-blue-900/30 px-4 py-2 text-sm text-blue-700 dark:text-blue-300 text-center border-b border-blue-100 dark:border-blue-800">
+                        You are viewing this group as a guest. To join, find your name in the <strong>Members</strong> list below and click <strong>Claim</strong>.
+                    </div>
+                )}
                 <div className="max-w-5xl mx-auto px-4 lg:px-6 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 lg:gap-4 min-w-0">
@@ -524,36 +571,46 @@ const GroupDetailPage: React.FC = () => {
                                 <span>{group.name}</span>
                             </h1>
                         </div>
-                        {isOwner && (
-                            <div className="flex gap-1 lg:gap-2 flex-shrink-0">
-                                <button
-                                    onClick={() => setIsEditModalOpen(true)}
-                                    className="px-2 lg:px-3 py-1 text-xs lg:text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-                                >
-                                    Edit
-                                </button>
-                                <button
-                                    onClick={() => setIsDeleteConfirmOpen(true)}
-                                    className="px-2 lg:px-3 py-1 text-xs lg:text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
-                                >
-                                    Delete
-                                </button>
-                            </div>
-                        )}
+                        <div className="flex gap-1 lg:gap-2 flex-shrink-0">
+                            {!isPublicView && isOwner && (
+                                <>
+                                    <button
+                                        onClick={handleShareGroup}
+                                        className="px-2 lg:px-3 py-1 text-xs lg:text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
+                                    >
+                                        Share
+                                    </button>
+                                    <button
+                                        onClick={() => setIsEditModalOpen(true)}
+                                        className="px-2 lg:px-3 py-1 text-xs lg:text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        onClick={() => setIsDeleteConfirmOpen(true)}
+                                        className="px-2 lg:px-3 py-1 text-xs lg:text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
+                                    >
+                                        Delete
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     </div>
                 </div>
             </header>
 
             <main className="max-w-5xl mx-auto px-4 lg:px-6 py-4 lg:py-6">
                 {/* Quick Action - Add Expense */}
-                <div className="mb-4">
-                    <button
-                        onClick={() => setIsExpenseModalOpen(true)}
-                        className="w-full px-4 py-3 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 shadow-sm active:bg-orange-700"
-                    >
-                        Add Expense
-                    </button>
-                </div>
+                {!isPublicView && (
+                    <div className="mb-4">
+                        <button
+                            onClick={() => setIsExpenseModalOpen(true)}
+                            className="w-full px-4 py-3 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 shadow-sm active:bg-orange-700"
+                        >
+                            Add Expense
+                        </button>
+                    </div>
+                )}
 
                 {/* Expenses Section - Priority #1 */}
                 <div className="bg-white dark:bg-gray-800 rounded shadow-sm dark:shadow-gray-900/50 p-4 lg:p-6 mb-4">
@@ -683,7 +740,7 @@ const GroupDetailPage: React.FC = () => {
                         className="w-full p-4 lg:p-6 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
                         <h2 className="text-base lg:text-lg font-medium text-gray-900 dark:text-gray-100">
-                            Members ({group.members.length + (group.guests?.length || 0)})
+                            Members ({(group.members || []).length + (group.guests?.length || 0)})
                         </h2>
                         <span className="text-gray-400 dark:text-gray-500 text-xl">
                             {isMembersExpanded ? '−' : '+'}
@@ -693,7 +750,7 @@ const GroupDetailPage: React.FC = () => {
                     {isMembersExpanded && (
                         <div className="px-4 lg:px-6 pb-4 lg:pb-6 border-t dark:border-gray-700">
                             <ul className="space-y-2 lg:space-y-3 mb-4 mt-4">
-                                {[...group.members].sort((a, b) => a.full_name.localeCompare(b.full_name)).map(member => (
+                                {(group.members || []).sort((a, b) => a.full_name.localeCompare(b.full_name)).map(member => (
                                     <li key={member.id} className="flex items-center justify-between">
                                         <div>
                                             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -736,22 +793,31 @@ const GroupDetailPage: React.FC = () => {
                                         </div>
                                         <div className="flex gap-2">
                                             <button
-                                                onClick={() => handleClaimGuest(guest.id)}
+                                                onClick={() => {
+                                                    if (isPublicView) {
+                                                        // Redirect to register with params
+                                                        navigate(`/register?claim_guest_id=${guest.id}&share_link_id=${shareLinkId}`);
+                                                    } else {
+                                                        handleClaimGuest(guest.id);
+                                                    }
+                                                }}
                                                 className="text-xs px-2 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
                                                 title="Claim this guest"
                                             >
                                                 Claim
                                             </button>
-                                            <button
-                                                onClick={() => {
-                                                    setSelectedGuest(guest);
-                                                    setIsManageGuestModalOpen(true);
-                                                }}
-                                                className="text-xs px-2 py-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded"
-                                                title={guest.managed_by_id ? "Change manager" : "Set manager"}
-                                            >
-                                                {guest.managed_by_id ? 'Change' : 'Manage'}
-                                            </button>
+                                            {!isPublicView && (
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedGuest(guest);
+                                                        setIsManageGuestModalOpen(true);
+                                                    }}
+                                                    className="text-xs px-2 py-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded"
+                                                    title={guest.managed_by_id ? "Change manager" : "Set manager"}
+                                                >
+                                                    {guest.managed_by_id ? 'Change' : 'Manage'}
+                                                </button>
+                                            )}
                                             {user?.id === group.created_by_id && (
                                                 <button
                                                     onClick={() => handleRemoveGuest(guest.id)}
@@ -766,20 +832,22 @@ const GroupDetailPage: React.FC = () => {
                             </ul>
 
                             {/* Action buttons */}
-                            <div className="flex flex-col sm:flex-row gap-2 mt-4">
-                                <button
-                                    onClick={() => setIsAddMemberModalOpen(true)}
-                                    className="flex-1 px-4 py-3 bg-teal-500 text-white text-sm font-medium rounded-lg hover:bg-teal-600 transition-colors min-h-[44px]"
-                                >
-                                    Add Member
-                                </button>
-                                <button
-                                    onClick={() => setIsAddGuestModalOpen(true)}
-                                    className="flex-1 px-4 py-3 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition-colors min-h-[44px]"
-                                >
-                                    Add Guest
-                                </button>
-                            </div>
+                            {!isPublicView && (
+                                <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                                    <button
+                                        onClick={() => setIsAddMemberModalOpen(true)}
+                                        className="flex-1 px-4 py-3 bg-teal-500 text-white text-sm font-medium rounded-lg hover:bg-teal-600 transition-colors min-h-[44px]"
+                                    >
+                                        Add Member
+                                    </button>
+                                    <button
+                                        onClick={() => setIsAddGuestModalOpen(true)}
+                                        className="flex-1 px-4 py-3 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition-colors min-h-[44px]"
+                                    >
+                                        Add Guest
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
