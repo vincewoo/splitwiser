@@ -26,6 +26,7 @@ import {
 } from './utils/expenseCalculations';
 import { formatMoney, formatDate } from './utils/formatters';
 import { expensesApi } from './services/api';
+import { getApiUrl } from './api';
 
 interface ExpenseDetailModalProps {
     isOpen: boolean;
@@ -753,6 +754,25 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                         </div>
                                     )}
 
+
+                                    {/* Receipt Image */}
+                                    {expense.receipt_image_path && (
+                                        <div className="border-t dark:border-gray-700 pt-4 mb-4">
+                                            <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">Receipt</h4>
+                                            <a
+                                                href={getApiUrl(expense.receipt_image_path.replace(/^\//, ''))}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center text-sm text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300"
+                                            >
+                                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                </svg>
+                                                View Receipt Image
+                                            </a>
+                                        </div>
+                                    )}
+
                                     <div className="border-t dark:border-gray-700 pt-4">
                                         <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">Split Breakdown</h4>
                                         <div className="space-y-2">
@@ -790,7 +810,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     </>
                 ) : null}
             </div>
-        </div >
+        </div>
     );
 };
 

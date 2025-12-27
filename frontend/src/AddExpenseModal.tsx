@@ -58,13 +58,14 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [scannedItems, setScannedItems] = useState<{ description: string, price: number }[]>([]);
     const [expenseDate, setExpenseDate] = useState<string>(formatDateForInput());
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
+    const [receiptImagePath, setReceiptImagePath] = useState<string | null>(null);
     const [payerId, setPayerId] = useState<number>(user?.id || 0);
     const [payerIsGuest, setPayerIsGuest] = useState<boolean>(false);
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
 
     // Use custom hooks
     const itemizedExpense = useItemizedExpense();
-    const { splitDetails, handleSplitDetailChange, removeSplitDetail } = useSplitDetails();
+    const { splitDetails, handleSplitDetailChange, removeSplitDetail, setSplitDetails } = useSplitDetails();
 
     const selectedGroup = groups.find(g => g.id === selectedGroupId);
     const groupGuests = selectedGroup?.guests || [];
@@ -75,8 +76,39 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         }
     }, [selectedGroup]);
 
-    const handleScannedItems = (items: { description: string, price: number }[]) => {
+    const resetForm = () => {
+        setDescription('');
+        setAmount('');
+        setSelectedFriendIds([]);
+        setSelectedGuestIds([]);
+        setSelectedGroupId(preselectedGroupId);
+
+        // Reset currency to preselected group's default or USD
+        const defaultGroup = groups.find(g => g.id === preselectedGroupId);
+        setCurrency(defaultGroup?.default_currency || 'USD');
+
+        setPayerId(user?.id || 0);
+        setPayerIsGuest(false);
+        setExpenseDate(formatDateForInput());
+        setSplitType('EQUAL');
+        setScannedItems([]);
+        setSelectedIcon(null);
+        setReceiptImagePath(null);
+        itemizedExpense.setItemizedItems([]);
+        itemizedExpense.setTaxTipAmount('');
+        setSplitDetails({});
+    };
+
+    // Reset form when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            resetForm();
+        }
+    }, [isOpen, preselectedGroupId, user?.id]);
+
+    const handleScannedItems = (items: { description: string, price: number }[], receiptPath?: string) => {
         setScannedItems(items);
+        if (receiptPath) setReceiptImagePath(receiptPath);
         setShowScanner(false);
 
         const newItems = items.map(item => ({
@@ -165,7 +197,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             group_id: selectedGroupId,
             split_type: splitType,
             splits: splits,
-            icon: selectedIcon
+            icon: selectedIcon,
+            receipt_image_path: receiptImagePath
         };
 
         if (splitType === 'ITEMIZED') {
@@ -223,7 +256,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 split_type: 'ITEMIZED',
                 items: allItems,
                 splits: [],
-                icon: selectedIcon
+                icon: selectedIcon,
+                receipt_image_path: receiptImagePath
             };
         }
 
@@ -233,18 +267,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             onExpenseAdded();
             onClose();
             // Reset state
-            setDescription('');
-            setAmount('');
-            setSelectedFriendIds([]);
-            setSelectedGuestIds([]);
-            setSelectedGroupId(preselectedGroupId);
-            setPayerId(user?.id || 0);
-            setPayerIsGuest(false);
-            setExpenseDate(formatDateForInput());
-            itemizedExpense.setItemizedItems([]);
-            itemizedExpense.setTaxTipAmount('');
-            setScannedItems([]);
-            setSelectedIcon(null);
+            resetForm();
         } else {
             const err = await response.json();
             alert(`Failed to add expense: ${err.detail}`);

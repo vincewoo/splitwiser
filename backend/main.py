@@ -1,11 +1,15 @@
 from fastapi import Depends, FastAPI, HTTPException, status, File, UploadFile
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
 from typing import Annotated, Optional
 from pydantic import BaseModel
 import requests
+import shutil
+import uuid
+import os
 
 import models, schemas, auth, database
 from database import engine, get_db
@@ -14,7 +18,17 @@ from ocr.parser import parse_receipt_items
 
 models.Base.metadata.create_all(bind=engine)
 
+
+# Create receipts directory if not exists
+# Use DATA_DIR env var if set (e.g. /data in Docker), else default to ./data (local dev)
+DATA_DIR = os.getenv("DATA_DIR", "data")
+RECEIPT_DIR = os.path.join(DATA_DIR, "receipts")
+os.makedirs(RECEIPT_DIR, exist_ok=True)
+
 app = FastAPI()
+
+# Mount static files for receipts
+app.mount("/static/receipts", StaticFiles(directory=RECEIPT_DIR), name="receipts")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1025,7 +1039,8 @@ def create_expense(expense: schemas.ExpenseCreate, current_user: Annotated[model
         created_by_id=current_user.id,
         exchange_rate=str(exchange_rate),  # Store as string for SQLite compatibility
         split_type=expense.split_type or "EQUAL",
-        icon=expense.icon
+        icon=expense.icon,
+        receipt_image_path=expense.receipt_image_path
     )
     db.add(db_expense)
     db.commit()
@@ -1181,7 +1196,8 @@ def get_expense(expense_id: int, current_user: Annotated[models.User, Depends(ge
         splits=splits_with_names,
         split_type=split_type,
         items=items_data,
-        icon=expense.icon
+        icon=expense.icon,
+        receipt_image_path=expense.receipt_image_path
     )
 
 @app.put("/expenses/{expense_id}", response_model=schemas.Expense)
@@ -1233,6 +1249,8 @@ def update_expense(expense_id: int, expense_update: schemas.ExpenseUpdate, curre
     expense.payer_is_guest = expense_update.payer_is_guest
     expense.split_type = expense_update.split_type or "EQUAL"
     expense.icon = expense_update.icon
+    if expense_update.receipt_image_path is not None:
+         expense.receipt_image_path = expense_update.receipt_image_path
 
     # Delete old items and assignments first
     old_items = db.query(models.ExpenseItem).filter(
@@ -1537,6 +1555,10 @@ def simplify_debts(group_id: int, current_user: Annotated[models.User, Depends(g
     return {"transactions": transactions}
 
 
+
+
+# ... existing code ...
+
 @app.post("/ocr/scan-receipt")
 async def scan_receipt(
     file: UploadFile = File(...),
@@ -1544,14 +1566,14 @@ async def scan_receipt(
 ):
     """
     OCR endpoint for receipt scanning using Google Cloud Vision.
-    Accepts image upload, returns extracted items with prices.
+    Accepts image upload, returns extracted items with prices AND saves the image locally.
 
     Args:
         file: Uploaded image file (JPEG, PNG, WebP)
         current_user: Authenticated user (from JWT token)
 
     Returns:
-        JSON with items, total, and raw OCR text
+        JSON with items, total, raw OCR text, and receipt_image_path
     """
     # Validate file type
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
@@ -1561,7 +1583,19 @@ async def scan_receipt(
         )
 
     try:
-        # Read image file
+        # Generate unique filename
+        file_ext = file.filename.split('.')[-1] if '.' in file.filename else "jpg"
+        filename = f"{uuid.uuid4()}.{file_ext}"
+        file_path = os.path.join(RECEIPT_DIR, filename)
+
+        # Save file locally
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Reset file cursor for reading
+        file.file.seek(0)
+
+        # Read image file for OCR
         image_content = await file.read()
         print(f"Starting receipt scan... Image size: {len(image_content)} bytes")
         
@@ -1594,7 +1628,8 @@ async def scan_receipt(
         return {
             "items": items,
             "total": total,
-            "raw_text": raw_text
+            "raw_text": raw_text,
+            "receipt_image_path": f"/static/receipts/{filename}"
         }
 
     except HTTPException:

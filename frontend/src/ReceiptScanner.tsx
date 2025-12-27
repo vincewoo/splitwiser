@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { getApiUrl } from './api';
 
 interface ReceiptScannerProps {
-    onItemsDetected: (items: { description: string, price: number }[]) => void;
+    onItemsDetected: (items: { description: string, price: number }[], receiptPath?: string) => void;
     onClose: () => void;
 }
 
@@ -53,7 +53,7 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
             const data = await response.json();
             console.log("OCR Response:", data);
 
-            onItemsDetected(data.items);
+            onItemsDetected(data.items, data.receipt_image_path);
 
         } catch (error: any) {
             console.error(error);

@@ -59,6 +59,7 @@ class Expense(Base):
     created_by_id = Column(Integer)
     exchange_rate = Column(String, nullable=True) # Rate from currency to USD on expense date (stored as float)
     split_type = Column(String, default="EQUAL") # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
+    receipt_image_path = Column(String, nullable=True) # Path to stored receipt image
     icon = Column(String, nullable=True) # Optional emoji icon for categorization
 
 class ExpenseSplit(Base):
