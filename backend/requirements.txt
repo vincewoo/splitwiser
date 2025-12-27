@@ -8,3 +8,4 @@ python-multipart
 requests
 google-cloud-vision>=3.0.0
 pillow>=11.1.0
+email-validator
