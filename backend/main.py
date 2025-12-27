@@ -1332,6 +1332,23 @@ def delete_expense(expense_id: int, current_user: Annotated[models.User, Depends
     # Delete associated splits
     db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense_id).delete()
 
+    # Delete receipt image if exists
+    if expense.receipt_image_path:
+        try:
+            # Handle potential full URL or relative path
+            # We store relative path like "static/receipts/filename.jpg" or just "filename.jpg"?
+            # Looking at scan_receipt, it returns "receipt_image_path": f"/static/receipts/{filename}"
+            
+            # Extract filename from path
+            filename = os.path.basename(expense.receipt_image_path)
+            file_path = os.path.join(RECEIPT_DIR, filename)
+            
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"Deleted receipt image: {file_path}")
+        except Exception as e:
+            print(f"Error deleting receipt image {expense.receipt_image_path}: {e}")
+
     # Delete the expense
     db.delete(expense)
     db.commit()
