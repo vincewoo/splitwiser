@@ -8,6 +8,7 @@ import SplitDetailsInput from './components/expense/SplitDetailsInput';
 import IconSelector from './components/expense/IconSelector';
 import { useItemizedExpense } from './hooks/useItemizedExpense';
 import { useSplitDetails } from './hooks/useSplitDetails';
+import { useCurrencyPreferences } from './hooks/useCurrencyPreferences';
 import type {
     Friend,
     Group,
@@ -26,6 +27,7 @@ import {
     calculateItemizedTotal
 } from './utils/expenseCalculations';
 import { formatDateForInput } from './utils/formatters';
+import { formatCurrencyDisplay } from './utils/currencyHelpers';
 import { expensesApi } from './services/api';
 
 interface AddExpenseModalProps {
@@ -46,10 +48,10 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     preselectedGroupId = null
 }) => {
     const { user } = useAuth();
+    const { sortedCurrencies, recordCurrencyUsage } = useCurrencyPreferences();
     const [description, setDescription] = useState('');
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('USD');
-    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']);
     const [selectedFriendIds, setSelectedFriendIds] = useState<number[]>([]);
     const [selectedGuestIds, setSelectedGuestIds] = useState<number[]>([]);
     const [selectedGroupId, setSelectedGroupId] = useState<number | null>(preselectedGroupId);
@@ -283,6 +285,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         const response = await expensesApi.create(payload);
 
         if (response.ok) {
+            // Record currency usage for sorting
+            recordCurrencyUsage(currency);
             onExpenseAdded();
             onClose();
             // Reset state
@@ -585,7 +589,11 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                 onChange={(e) => setCurrency(e.target.value)}
                                 className="border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 bg-transparent text-gray-700 dark:text-gray-200 dark:bg-gray-700"
                             >
-                                {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                                {sortedCurrencies.map(c => (
+                                    <option key={c.code} value={c.code}>
+                                        {formatCurrencyDisplay(c.code)}
+                                    </option>
+                                ))}
                             </select>
                             <input
                                 type="number"

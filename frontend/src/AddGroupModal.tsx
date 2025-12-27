@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { getApiUrl } from './api';
 import IconSelector from './components/expense/IconSelector';
+import { useCurrencyPreferences } from './hooks/useCurrencyPreferences';
+import { formatCurrencyDisplay } from './utils/currencyHelpers';
 
 interface AddGroupModalProps {
     isOpen: boolean;
@@ -9,9 +11,9 @@ interface AddGroupModalProps {
 }
 
 const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupAdded }) => {
+    const { sortedCurrencies, recordCurrencyUsage } = useCurrencyPreferences();
     const [name, setName] = useState('');
     const [currency, setCurrency] = useState('USD');
-    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']);
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -50,6 +52,8 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
             });
 
             if (response.ok) {
+                // Record currency usage for sorting
+                recordCurrencyUsage(currency);
                 onGroupAdded();
                 onClose();
             } else {
@@ -121,7 +125,11 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
                             onChange={(e) => setCurrency(e.target.value)}
                             className="w-full px-4 py-3 text-base border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:border-teal-500 dark:focus:border-teal-400 bg-white dark:bg-gray-700 dark:text-gray-100 transition-colors"
                         >
-                            {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                            {sortedCurrencies.map(c => (
+                                <option key={c.code} value={c.code}>
+                                    {formatCurrencyDisplay(c.code)}
+                                </option>
+                            ))}
                         </select>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                             New expenses will default to this currency

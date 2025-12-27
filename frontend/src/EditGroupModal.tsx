@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { getApiUrl } from './api';
 import IconSelector from './components/expense/IconSelector';
+import { useCurrencyPreferences } from './hooks/useCurrencyPreferences';
+import { formatCurrencyDisplay } from './utils/currencyHelpers';
 
 interface Group {
     id: number;
@@ -18,10 +20,10 @@ interface EditGroupModalProps {
 }
 
 const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group, onGroupUpdated }) => {
+    const { sortedCurrencies, recordCurrencyUsage } = useCurrencyPreferences();
     const [name, setName] = useState(group.name);
     const [currency, setCurrency] = useState(group.default_currency || 'USD');
     const [selectedIcon, setSelectedIcon] = useState<string | null>(group.icon || null);
-    const [currencies] = useState<string[]>(['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +54,8 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group,
         setIsSubmitting(false);
 
         if (response.ok) {
+            // Record currency usage for sorting
+            recordCurrencyUsage(currency);
             const updatedGroup = await response.json();
             onGroupUpdated({ ...group, ...updatedGroup });
         } else {
@@ -93,7 +97,11 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group,
                             onChange={(e) => setCurrency(e.target.value)}
                             className="w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 bg-white dark:bg-gray-700 dark:text-gray-100"
                         >
-                            {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                            {sortedCurrencies.map(c => (
+                                <option key={c.code} value={c.code}>
+                                    {formatCurrencyDisplay(c.code)}
+                                </option>
+                            ))}
                         </select>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                             New expenses will default to this currency
