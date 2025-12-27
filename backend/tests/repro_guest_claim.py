@@ -60,16 +60,16 @@ def test_repro_guest_claim_bug(client, db_session):
     # Verify claimed_group_id is returned
     assert data["claimed_group_id"] == group_id
 
-    # 8. Verify Paul Guest is deleted (or claimed)
-    # My implementation deletes the guest record
-    paul_guest = db_session.query(models.GuestMember).filter(models.GuestMember.id == paul_id).first()
-    assert paul_guest is None
-
-    # 9. Verify Sara is now managed by the new User (Paul User)
-    # Find the new user id
+    # Find the new user id first (needed for verification below)
     new_user = db_session.query(models.User).filter(models.User.email == "paul@example.com").first()
     assert new_user is not None
 
+    # 8. Verify Paul Guest is claimed (not deleted)
+    paul_guest = db_session.query(models.GuestMember).filter(models.GuestMember.id == paul_id).first()
+    assert paul_guest is not None, "Paul guest record should still exist"
+    assert paul_guest.claimed_by_id == new_user.id, "Paul guest should be claimed by the new user"
+
+    # 9. Verify Sara is now managed by the new User (Paul User)
     sara_after = db_session.query(models.GuestMember).filter(models.GuestMember.id == sara_id).first()
     
     # Assert Sara still exists
@@ -78,3 +78,4 @@ def test_repro_guest_claim_bug(client, db_session):
     # Assert Sara is managed by the new user
     assert sara_after.managed_by_id == new_user.id
     assert sara_after.managed_by_type == 'user'
+

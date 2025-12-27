@@ -186,6 +186,24 @@ def claim_guest(
         "is_guest": False
     })
 
+    # Transfer item assignments where guest was assigned
+    db.query(models.ExpenseItemAssignment).filter(
+        models.ExpenseItemAssignment.user_id == guest_id,
+        models.ExpenseItemAssignment.is_guest == True
+    ).update({
+        "user_id": current_user.id,
+        "is_guest": False
+    })
+
+    # Update any guests that were managed by this guest to be managed by the new user
+    managed_guests_updated = db.query(models.GuestMember).filter(
+        models.GuestMember.managed_by_id == guest_id,
+        models.GuestMember.managed_by_type == 'guest'
+    ).update({
+        "managed_by_id": current_user.id,
+        "managed_by_type": 'user'
+    })
+
     # Mark guest as claimed
     guest.claimed_by_id = current_user.id
 
@@ -203,7 +221,8 @@ def claim_guest(
     return {
         "message": "Guest claimed successfully",
         "transferred_expenses": expenses_updated,
-        "transferred_splits": splits_updated
+        "transferred_splits": splits_updated,
+        "managed_guests_updated": managed_guests_updated
     }
 
 
