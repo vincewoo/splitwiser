@@ -596,7 +596,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                 ))}
                             </select>
                             <input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 placeholder="0.00"
                                 className={`w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 text-lg dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400 ${splitType === 'ITEMIZED' ? 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400' : ''}`}
                                 value={splitType === 'ITEMIZED' ? calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxAmount, itemizedExpense.tipAmount) : amount}
@@ -671,7 +672,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                             <div className="flex items-center">
                                                 <span className="text-sm mr-2 dark:text-gray-300">{currency}</span>
                                                 <input
-                                                    type="number"
+                                                    type="text"
+                                                    inputMode="decimal"
                                                     placeholder="0.00"
                                                     step="0.01"
                                                     className="w-28 sm:w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"
@@ -688,7 +690,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                 <div className="flex items-center">
                                                     <span className="text-sm mr-2 dark:text-gray-300">{currency}</span>
                                                     <input
-                                                        type="number"
+                                                        type="text"
+                                                        inputMode="decimal"
                                                         placeholder="0.00"
                                                         step="0.01"
                                                         className="w-28 sm:w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"

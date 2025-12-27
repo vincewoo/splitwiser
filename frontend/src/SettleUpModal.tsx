@@ -104,7 +104,8 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({ isOpen, onClose, onSettle
                             {currencies.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                         <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             placeholder="0.00"
                             className="w-full border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 text-lg dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400"
                             value={amount}

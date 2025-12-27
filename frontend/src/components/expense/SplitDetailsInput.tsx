@@ -41,7 +41,8 @@ const SplitDetailsInput: React.FC<SplitDetailsInputProps> = ({
                         </span>
                         <div className="flex items-center gap-2">
                             <input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 className="w-24 border dark:border-gray-600 rounded p-2 text-sm text-right min-h-[44px] dark:bg-gray-800 dark:text-gray-100"
                                 placeholder="0"
                                 value={splitDetails[key] || ''}
