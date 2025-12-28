@@ -54,10 +54,11 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
 
     Strategy:
     1. Extract all text blocks with their spatial positions
-    2. Identify price-like text blocks (numbers with $ or decimal format)
-    3. Group text blocks into horizontal lines based on Y-coordinate
-    4. For each line with a price, find the description (text to the left)
-    5. Apply smart filtering to remove totals, tax, etc.
+    2. Identify price blocks (numbers with $ or decimal format)
+    3. For each price, find associated description:
+       - Look on same line first (right-aligned receipts)
+       - If no description on same line, look at lines above (multi-line items)
+    4. Apply smart filtering to remove totals, tax, etc.
 
     Args:
         vision_response: Google Cloud Vision AnnotateImageResponse
@@ -92,12 +93,72 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
     # Group text blocks into lines based on vertical position
     lines = group_into_lines(text_blocks)
 
-    # Extract items from lines
+    # NEW APPROACH: Find prices first, then match descriptions
     items = []
-    for line in lines:
-        item = extract_item_from_line(line)
-        if item:
-            items.append(item)
+    used_blocks = set()  # Track which blocks we've already used
+
+    for line_idx, line in enumerate(lines):
+        # Find price on this line
+        price_block = None
+        price_cents = None
+
+        for block in reversed(line):  # Check from right to left
+            extracted_price = extract_price_from_text(block.text)
+            if extracted_price is not None:
+                price_cents = extracted_price
+                price_block = block
+                break
+
+        if not price_block or price_cents is None:
+            continue
+
+        # Validate price range
+        if price_cents < 1 or price_cents > 99999:
+            continue
+
+        # Mark price block as used
+        used_blocks.add(id(price_block))
+
+        # Find description blocks
+        description_parts = []
+
+        # Strategy 1: Same-line description (text to left of price)
+        same_line_desc = [b for b in line if b.right_x < price_block.x - 5 and id(b) not in used_blocks]
+
+        if same_line_desc:
+            # Has description on same line
+            description_parts = [b.text for b in same_line_desc]
+        else:
+            # Strategy 2: Multi-line item - look at previous lines
+            # Look up to 3 lines above for description
+            for prev_line_idx in range(max(0, line_idx - 3), line_idx):
+                prev_line = lines[prev_line_idx]
+                # Take all blocks from previous line that aren't already used
+                prev_line_blocks = [b for b in prev_line if id(b) not in used_blocks]
+                if prev_line_blocks:
+                    description_parts.extend([b.text for b in prev_line_blocks])
+                    # Mark these blocks as used
+                    for b in prev_line_blocks:
+                        used_blocks.add(id(b))
+
+        if not description_parts:
+            continue
+
+        # Combine description parts
+        description = ' '.join(description_parts)
+        description = clean_description(description)
+
+        if not description or len(description) < 2:
+            continue
+
+        # Apply smart filtering
+        if should_filter_item(description, line):
+            continue
+
+        items.append({
+            'description': description,
+            'price': price_cents
+        })
 
     return items
 
@@ -241,11 +302,13 @@ def extract_price_from_text(text: str) -> Optional[int]:
 
     # Pattern 4: Just a number on right side (likely a price)
     # Only if it's a standalone number that could be a price
+    # IMPORTANT: Set minimum to $5 to avoid matching metadata (Guest Count: 2, etc.)
     match = re.search(r'^(\d{1,3})$', text)
     if match:
         # Whole dollars (e.g., "12" -> $12.00)
         dollars = int(match.group(1))
-        if 1 <= dollars <= 999:
+        # Require at least $5 for whole-dollar prices to avoid false matches
+        if 5 <= dollars <= 999:
             return dollars * 100
 
     return None
@@ -354,8 +417,15 @@ def should_filter_item(description: str, line: List[TextBlock]) -> bool:
         r'transaction\s*#',
         r'order\s*#',
         r'table\s*#',
+        r'check\s*#',
         r'server:',
+        r'server\s+\w+',                    # "Server: Pixie I"
         r'cashier:',
+        r'guest\s+count',                   # "Guest Count: 2"
+        r'ordered:',                        # "Ordered: 12/18/25"
+        r'we\s+offer',                      # "WE OFFER A 3% DISCOUNT"
+        r'discount',                        # Discount mentions
+        r'payment',                         # Payment instructions
         r'thank\s*you',
         r'welcome',
         r'www\.',
