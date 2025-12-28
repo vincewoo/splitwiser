@@ -26,6 +26,8 @@ import {
 } from './utils/expenseCalculations';
 import { formatMoney, formatDate } from './utils/formatters';
 import { expensesApi } from './services/api';
+import { offlineExpensesApi } from './services/offlineApi';
+import { useSync } from './contexts/SyncContext';
 import { getApiUrl } from './api';
 
 interface ExpenseDetailModalProps {
@@ -53,6 +55,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     shareLinkId,
     readOnly = false
 }) => {
+    const { isOnline: _isOnline } = useSync();
     const [expense, setExpense] = useState<ExpenseWithSplits | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -415,27 +418,31 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             };
         }
 
-        const response = await expensesApi.update(expenseId!, payload);
+        const result = await offlineExpensesApi.update(expenseId!, payload);
 
-        if (response.ok) {
+        if (result.success) {
+            if (result.offline) {
+                console.log('Expense updated offline and queued for sync');
+            }
             setIsEditing(false);
             onExpenseUpdated();
             onClose();
         } else {
-            const err = await response.json();
-            alert(`Failed to update expense: ${err.detail}`);
+            alert(`Failed to update expense`);
         }
     };
 
     const handleDelete = async () => {
-        const response = await expensesApi.delete(expenseId!);
+        const result = await offlineExpensesApi.delete(expenseId!);
 
-        if (response.ok) {
+        if (result.success) {
+            if (result.offline) {
+                console.log('Expense deleted offline and queued for sync');
+            }
             onExpenseDeleted();
             onClose();
         } else {
-            const err = await response.json();
-            alert(`Failed to delete expense: ${err.detail}`);
+            alert(`Failed to delete expense`);
         }
     };
 

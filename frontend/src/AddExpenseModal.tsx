@@ -28,7 +28,8 @@ import {
 } from './utils/expenseCalculations';
 import { formatDateForInput } from './utils/formatters';
 import { formatCurrencyDisplay } from './utils/currencyHelpers';
-import { expensesApi } from './services/api';
+import { offlineExpensesApi } from './services/offlineApi';
+import { useSync } from './contexts/SyncContext';
 
 interface AddExpenseModalProps {
     isOpen: boolean;
@@ -48,6 +49,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     preselectedGroupId = null
 }) => {
     const { user } = useAuth();
+    const { isOnline: _isOnline } = useSync();
     const { sortedCurrencies, recordCurrencyUsage } = useCurrencyPreferences();
     const [description, setDescription] = useState('');
     const [amount, setAmount] = useState('');
@@ -282,18 +284,23 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             };
         }
 
-        const response = await expensesApi.create(payload);
+        const result = await offlineExpensesApi.create(payload);
 
-        if (response.ok) {
+        if (result.success) {
             // Record currency usage for sorting
             recordCurrencyUsage(currency);
+
+            // Show feedback if created offline
+            if (result.offline) {
+                console.log('Expense created offline and queued for sync');
+            }
+
             onExpenseAdded();
             onClose();
             // Reset state
             resetForm();
         } else {
-            const err = await response.json();
-            alert(`Failed to add expense: ${err.detail}`);
+            alert(`Failed to add expense`);
         }
     };
 

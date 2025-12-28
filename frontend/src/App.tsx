@@ -9,6 +9,8 @@ import AddFriendModal from './AddFriendModal';
 import GroupDetailPage from './GroupDetailPage';
 import { AuthProvider, useAuth } from './AuthContext';
 import { ThemeProvider, useTheme } from './ThemeContext';
+import { SyncProvider } from './contexts/SyncContext';
+import SyncStatusBar from './components/SyncStatusBar';
 import type { Friend } from './types/friend';
 import type { Group } from './types/group';
 import type { Balance } from './types/balance';
@@ -398,15 +400,18 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Router>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/" element={<ProtectedRoute element={<Dashboard />} />} />
-            <Route path="/groups/:groupId" element={<ProtectedRoute element={<GroupDetailPage />} />} />
-            <Route path="/share/:shareLinkId" element={<GroupDetailPage />} />
-          </Routes>
-        </Router>
+        <SyncProvider>
+          <Router>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/" element={<ProtectedRoute element={<Dashboard />} />} />
+              <Route path="/groups/:groupId" element={<ProtectedRoute element={<GroupDetailPage />} />} />
+              <Route path="/share/:shareLinkId" element={<GroupDetailPage />} />
+            </Routes>
+            <SyncStatusBar />
+          </Router>
+        </SyncProvider>
       </AuthProvider>
     </ThemeProvider>
   );

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { getApiUrl } from './api';
 import IconSelector from './components/expense/IconSelector';
 import { useCurrencyPreferences } from './hooks/useCurrencyPreferences';
 import { formatCurrencyDisplay } from './utils/currencyHelpers';
+import { offlineGroupsApi } from './services/offlineApi';
+import { useSync } from './contexts/SyncContext';
 
 interface AddGroupModalProps {
     isOpen: boolean;
@@ -11,6 +12,7 @@ interface AddGroupModalProps {
 }
 
 const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupAdded }) => {
+    const { isOnline: _isOnline } = useSync();
     const { sortedCurrencies, recordCurrencyUsage } = useCurrencyPreferences();
     const [name, setName] = useState('');
     const [currency, setCurrency] = useState('USD');
@@ -41,24 +43,20 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
         setError(null);
 
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(getApiUrl('groups'), {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ name: name.trim(), default_currency: currency, icon: selectedIcon })
-            });
+            const result = await offlineGroupsApi.create(name.trim(), currency);
 
-            if (response.ok) {
+            if (result.success) {
                 // Record currency usage for sorting
                 recordCurrencyUsage(currency);
+
+                if (result.offline) {
+                    console.log('Group created offline and queued for sync');
+                }
+
                 onGroupAdded();
                 onClose();
             } else {
-                const err = await response.json();
-                setError(err.detail || 'Failed to create group');
+                setError('Failed to create group');
             }
         } catch (error) {
             setError('Network error. Please try again.');
