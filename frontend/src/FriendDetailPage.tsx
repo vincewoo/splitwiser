@@ -366,6 +366,9 @@ const FriendDetailPage: React.FC = () => {
                     expenseId={selectedExpenseId}
                     onExpenseUpdated={fetchFriendData}
                     onExpenseDeleted={fetchFriendData}
+                    groupMembers={[]}
+                    groupGuests={[]}
+                    currentUserId={user?.id || 0}
                 />
             )}
         </div>
