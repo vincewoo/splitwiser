@@ -40,6 +40,12 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         }
         // Save to localStorage
         localStorage.setItem('theme', isDark ? 'dark' : 'light');
+
+        // Update PWA theme-color meta tag for iPhone frame
+        const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+        if (metaThemeColor) {
+            metaThemeColor.setAttribute('content', isDark ? '#1f2937' : '#14b8a6');
+        }
     }, [isDark]);
 
     const toggleTheme = () => {

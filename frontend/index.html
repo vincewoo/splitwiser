@@ -11,15 +11,19 @@
     <meta name="description" content="Split expenses with friends and groups" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Splitwiser" />
   </head>
   <body>
     <script>
       // Apply dark mode immediately before page renders to prevent white flash
-      if (localStorage.getItem('theme') === 'dark' || 
-          (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      const isDark = localStorage.getItem('theme') === 'dark' ||
+          (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+      if (isDark) {
         document.documentElement.classList.add('dark');
+        // Update theme-color for dark mode
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', '#1f2937');
       }
     </script>
     <div id="root"></div>

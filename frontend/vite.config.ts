@@ -14,7 +14,7 @@ export default defineConfig({
         short_name: 'Splitwiser',
         description: 'Split expenses with friends and groups',
         theme_color: '#14b8a6',
-        background_color: '#ffffff',
+        background_color: '#1f2937',
         display: 'standalone',
         orientation: 'portrait-primary',
         start_url: '/',
