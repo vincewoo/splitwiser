@@ -12,6 +12,7 @@ from database import get_db
 from dependencies import get_current_user
 from ocr.service import ocr_service
 from ocr.parser import parse_receipt_items
+from ocr.parser_v2 import parse_receipt_items_v2, get_raw_text
 
 
 # Receipt directory path
@@ -81,11 +82,17 @@ async def scan_receipt(
             print("No text annotations found in response")
             raw_text = ""
 
-        # Parse items
-        items = parse_receipt_items(vision_response)
-        print(f"Parsed items count: {len(items)}")
+        # Parse items using new spatial layout parser (V2)
+        items = parse_receipt_items_v2(vision_response)
+        print(f"[V2 Parser] Parsed items count: {len(items)}")
         for item in items:
             print(f" - Found item: {item}")
+
+        # For comparison, also run old parser
+        items_old = parse_receipt_items(vision_response)
+        print(f"[Old Parser] Parsed items count: {len(items_old)}")
+        if len(items_old) != len(items):
+            print(f"⚠️  Parser difference: V2 found {len(items)} items vs Old found {len(items_old)} items")
         
         # Calculate total
         total = sum(item['price'] for item in items)
