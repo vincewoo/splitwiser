@@ -314,15 +314,18 @@ def update_expense(
     )
 
     # Update expense fields
+    # Normalize the date first for accurate comparison
+    normalized_update_date = normalize_date(expense_update.date)
+
     # Check if date or currency changed, if so update exchange rate
-    if expense.date != expense_update.date or expense.currency != expense_update.currency:
-        new_rate = get_exchange_rate_for_expense(expense_update.date, expense_update.currency)
+    if expense.date != normalized_update_date or expense.currency != expense_update.currency:
+        new_rate = get_exchange_rate_for_expense(normalized_update_date, expense_update.currency)
         expense.exchange_rate = str(new_rate)
 
     expense.description = expense_update.description
     expense.amount = expense_update.amount
     expense.currency = expense_update.currency
-    expense.date = normalize_date(expense_update.date)
+    expense.date = normalized_update_date
     expense.payer_id = expense_update.payer_id
     expense.payer_is_guest = expense_update.payer_is_guest
     expense.split_type = expense_update.split_type or "EQUAL"
