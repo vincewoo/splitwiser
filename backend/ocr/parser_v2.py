@@ -130,12 +130,15 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
             description_parts = [b.text for b in same_line_desc]
         else:
             # Strategy 2: Multi-line item - look at previous lines
-            # Look up to 3 lines above for description
-            for prev_line_idx in range(max(0, line_idx - 3), line_idx):
-                prev_line = lines[prev_line_idx]
+            # Look at the line DIRECTLY above (not 3 lines up - too risky)
+            if line_idx > 0:
+                prev_line = lines[line_idx - 1]
                 # Take all blocks from previous line that aren't already used
                 prev_line_blocks = [b for b in prev_line if id(b) not in used_blocks]
-                if prev_line_blocks:
+
+                # IMPORTANT: Check if previous line contains metadata before using it
+                prev_line_text = ' '.join(b.text for b in prev_line_blocks)
+                if prev_line_blocks and not contains_metadata(prev_line_text):
                     description_parts.extend([b.text for b in prev_line_blocks])
                     # Mark these blocks as used
                     for b in prev_line_blocks:
@@ -300,16 +303,9 @@ def extract_price_from_text(text: str) -> Optional[int]:
         price_str = f"{match.group(1)}.{match.group(2)}"
         return parse_price_to_cents(price_str)
 
-    # Pattern 4: Just a number on right side (likely a price)
-    # Only if it's a standalone number that could be a price
-    # IMPORTANT: Set minimum to $5 to avoid matching metadata (Guest Count: 2, etc.)
-    match = re.search(r'^(\d{1,3})$', text)
-    if match:
-        # Whole dollars (e.g., "12" -> $12.00)
-        dollars = int(match.group(1))
-        # Require at least $5 for whole-dollar prices to avoid false matches
-        if 5 <= dollars <= 999:
-            return dollars * 100
+    # Pattern 4: DISABLED - Too risky
+    # Bare numbers like "49" from "Check #49" were being detected as prices
+    # Only accept prices with $ symbol or decimal points to avoid false matches
 
     return None
 
@@ -362,6 +358,47 @@ def clean_description(text: str) -> str:
     text = text.strip().title()
 
     return text
+
+
+def contains_metadata(text: str) -> bool:
+    """
+    Check if text contains receipt metadata patterns.
+
+    Used to prevent metadata lines from being used as item descriptions
+    in multi-line matching.
+
+    Args:
+        text: Text to check
+
+    Returns:
+        True if text contains metadata patterns
+    """
+    text_lower = text.lower()
+
+    # Metadata patterns to check
+    patterns = [
+        r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}',  # Dates
+        r'\d{1,2}:\d{2}\s?(?:am|pm)?',      # Times
+        r'receipt\s*#',
+        r'transaction\s*#',
+        r'order\s*#',
+        r'table\s*[#\w]',                   # "Table #5" or "Table B2"
+        r'check\s*#',
+        r'server[:\s]',                      # "Server:" or "Server Pixie"
+        r'cashier[:\s]',
+        r'guest\s+count',
+        r'ordered[:\s]',
+        r'discount',
+        r'payment',
+        r'thank\s*you',
+        r'welcome',
+    ]
+
+    for pattern in patterns:
+        if re.search(pattern, text_lower):
+            return True
+
+    return False
 
 
 def should_filter_item(description: str, line: List[TextBlock]) -> bool:
