@@ -134,6 +134,31 @@ def convert_to_usd(amount: float, currency: str) -> float:
     return amount / EXCHANGE_RATES[currency]
 
 
+def convert_currency(amount: float, from_currency: str, to_currency: str) -> float:
+    """
+    Convert an amount from one currency to another using static rates.
+    Converts through USD as an intermediary.
+
+    Args:
+        amount: Amount in source currency
+        from_currency: Source currency code (e.g., "EUR")
+        to_currency: Target currency code (e.g., "GBP")
+
+    Returns:
+        Amount in target currency
+    """
+    if from_currency == to_currency:
+        return amount
+
+    # Convert to USD first, then to target currency
+    amount_in_usd = convert_to_usd(amount, from_currency)
+
+    if to_currency not in EXCHANGE_RATES:
+        return amount_in_usd
+
+    return amount_in_usd * EXCHANGE_RATES[to_currency]
+
+
 def get_current_exchange_rates() -> dict:
     """
     Get current exchange rates from Frankfurter API (free, no key required).

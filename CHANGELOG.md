@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed - 2025-12-29
+
+#### Debt Simplification Now Respects Management Relationships
+- Fixed debt simplification to properly aggregate managed members and guests with their managers
+- Only "managers" (people who manage others) now appear in simplified transactions
+- Created shared utility function `calculate_net_balances()` for consistent balance calculations
+- Both balance display and debt simplification now use the same aggregation logic
+
+**Backend Changes:**
+- `backend/utils/balances.py` - New utility module with `calculate_net_balances()` function
+- `backend/routers/balances.py` - Refactored both `get_group_balances` and `simplify_debts` to use shared utility
+- Managed guests and members are now properly aggregated before debt simplification algorithm runs
+
+**Technical Details:**
+- The `calculate_net_balances()` function supports both single-currency and multi-currency modes
+- Single-currency mode (with `target_currency` parameter) for debt simplification
+- Multi-currency mode (without `target_currency`) for balance display
+- Ensures consistent handling of claimed guests and management relationships
+
 ### Added - 2025-12-28
 
 #### Debt Simplification UI
@@ -13,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added "Simplify Debts" button in group balances section
 - Created SimplifyDebtsModal to display optimized payment plan
 - Shows minimum transactions needed to settle all balances in a group
-- Converts all balances to USD using historical exchange rates for simplification
+- Uses group's default currency instead of hardcoding USD
 - Visual payment flow showing who pays whom and how much
 - Displays total transaction count and total amount to transfer
 - Copy to clipboard functionality for easy sharing of payment plan
@@ -23,11 +42,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `frontend/src/SimplifyDebtsModal.tsx` - New modal component for debt simplification
 - `frontend/src/GroupDetailPage.tsx` - Added "Simplify Debts" button and modal integration
 - `frontend/src/services/api.ts` - Added `balances.simplifyDebts()` API method
+- Modal dynamically displays the group's default currency
 
-**Backend (Already Existed):**
-- `backend/routers/balances.py:272` - `GET /simplify_debts/{group_id}` endpoint
+**Backend Changes:**
+- `backend/routers/balances.py:273` - Enhanced `GET /simplify_debts/{group_id}` endpoint
+- Now uses group's `default_currency` instead of hardcoding USD
+- Converts all balances to group's currency using historical exchange rates
+- `backend/utils/currency.py` - Added `convert_currency()` function for arbitrary currency conversion
+
+**Algorithm:**
 - Uses greedy algorithm to minimize number of transactions
-- Handles multi-currency groups by converting to USD
+- Handles multi-currency groups by converting to group's default currency
+- Preserves historical accuracy using cached exchange rates
 
 #### Help & FAQ Page
 - Added comprehensive in-app documentation covering all Splitwiser features

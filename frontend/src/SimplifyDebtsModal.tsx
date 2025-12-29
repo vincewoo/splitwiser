@@ -127,7 +127,12 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
                     <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">How it works</h3>
                     <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
                       These {transactions.length} payment{transactions.length !== 1 ? 's' : ''} will settle all balances in the group.
-                      All amounts are shown in USD for simplicity (converted using historical exchange rates).
+                      {transactions.length > 0 && transactions[0].currency !== 'USD' && (
+                        <> All amounts are shown in {transactions[0].currency} (the group's default currency), converted using historical exchange rates.</>
+                      )}
+                      {transactions.length > 0 && transactions[0].currency === 'USD' && (
+                        <> All amounts are shown in USD, converted using historical exchange rates.</>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -196,7 +201,7 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
                   <span className="font-semibold text-gray-900 dark:text-gray-100">
                     {formatMoney(
                       transactions.reduce((sum, t) => sum + t.amount, 0),
-                      'USD'
+                      transactions.length > 0 ? transactions[0].currency : 'USD'
                     )}
                   </span>
                 </div>

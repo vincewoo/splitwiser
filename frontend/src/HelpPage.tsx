@@ -308,7 +308,7 @@ const HelpPage: React.FC = () => {
             '4. View the optimized payment plan',
             '5. Copy to clipboard to share with group members',
             '',
-            'For multi-currency groups, all balances are converted to USD using historical exchange rates to calculate the optimal payment plan.'
+            'The payment plan uses your group\'s default currency. For multi-currency groups, all balances are automatically converted using historical exchange rates to calculate the optimal transactions.'
           ]
         },
         {
@@ -476,9 +476,9 @@ const HelpPage: React.FC = () => {
             '2. Each person records expenses in the currency they actually paid',
             '3. Historical rates are cached automatically',
             '4. Use "Show in [currency]" to view total balances in one currency',
-            '5. Simplify debts at the end to minimize transfers',
+            '5. Click "Simplify Debts" at the end to get an optimal payment plan',
             '',
-            'This preserves accurate records while making settlement simple.'
+            'This preserves accurate records while making settlement simple. The debt simplification converts everything to your group\'s default currency and shows you the minimum number of transactions needed.'
           ]
         },
         {

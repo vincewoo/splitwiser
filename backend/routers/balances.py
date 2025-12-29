@@ -10,9 +10,11 @@ from database import get_db
 from dependencies import get_current_user
 from utils.validation import get_group_or_404, verify_group_membership
 from utils.display import get_guest_display_name
+from utils.balances import calculate_net_balances
 from utils.currency import (
     format_currency,
     convert_to_usd,
+    convert_currency,
     get_current_exchange_rates,
     EXCHANGE_RATES
 )
@@ -23,113 +25,82 @@ router = APIRouter(tags=["balances"])
 
 @router.get("/groups/{group_id}/balances", response_model=list[schemas.GroupBalance])
 def get_group_balances(
-    group_id: int, 
-    current_user: Annotated[models.User, Depends(get_current_user)], 
+    group_id: int,
+    current_user: Annotated[models.User, Depends(get_current_user)],
     db: Session = Depends(get_db)
 ):
     get_group_or_404(db, group_id)
     verify_group_membership(db, group_id, current_user.id)
 
-    # Get all expenses in group
-    expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
+    # Calculate net balances with management relationships aggregated (multi-currency)
+    net_balances = calculate_net_balances(db, group_id, target_currency=None)
 
-    # Calculate net balances per participant (keyed by (id, is_guest) tuple)
-    net_balances = {}  # (user_id, is_guest) -> {currency -> amount}
-
-    for expense in expenses:
-        splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
-
-        for split in splits:
-            key = (split.user_id, split.is_guest)
-            if key not in net_balances:
-                net_balances[key] = {}
-            if expense.currency not in net_balances[key]:
-                net_balances[key][expense.currency] = 0
-
-            # Debtor decreases balance
-            net_balances[key][expense.currency] -= split.amount_owed
-
-            # Creditor (payer) increases balance
-            payer_key = (expense.payer_id, expense.payer_is_guest)
-            if payer_key not in net_balances:
-                net_balances[payer_key] = {}
-            if expense.currency not in net_balances[payer_key]:
-                net_balances[payer_key][expense.currency] = 0
-            net_balances[payer_key][expense.currency] += split.amount_owed
-
-    # Get all managed guests in this group
+    # Get all managed guests and members for breakdown display
     managed_guests = db.query(models.GuestMember).filter(
         models.GuestMember.group_id == group_id,
         models.GuestMember.managed_by_id != None
     ).all()
 
-    # Get all managed members in this group
     managed_members = db.query(models.GroupMember).filter(
         models.GroupMember.group_id == group_id,
         models.GroupMember.managed_by_id != None
     ).all()
 
-    # Track which guests/members were aggregated with which managers (for breakdown display)
+    # Build breakdown info before aggregation (to show what was aggregated)
+    # We need to recalculate raw balances for breakdown display
     manager_guest_breakdown = {}
 
-    # Aggregate managed guest balances with their managers
+    # Get all expenses to recalculate raw balances for breakdown
+    expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
+    raw_balances = {}  # (user_id, is_guest) -> {currency -> amount}
+
+    for expense in expenses:
+        splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+        for split in splits:
+            key = (split.user_id, split.is_guest)
+            if key not in raw_balances:
+                raw_balances[key] = {}
+            if expense.currency not in raw_balances[key]:
+                raw_balances[key][expense.currency] = 0
+            raw_balances[key][expense.currency] -= split.amount_owed
+
+            payer_key = (expense.payer_id, expense.payer_is_guest)
+            if payer_key not in raw_balances:
+                raw_balances[payer_key] = {}
+            if expense.currency not in raw_balances[payer_key]:
+                raw_balances[payer_key][expense.currency] = 0
+            raw_balances[payer_key][expense.currency] += split.amount_owed
+
+    # Build breakdown for managed guests
     for guest in managed_guests:
         if guest.claimed_by_id:
-            # If guest is claimed, their balance is now under the user ID
             guest_key = (guest.claimed_by_id, False)
         else:
-            # If guest is unclaimed, their balance is under the guest ID
             guest_key = (guest.id, True)
 
         manager_is_guest = (guest.managed_by_type == 'guest')
-        manager_key = (guest.managed_by_id, manager_is_guest)
 
-        if guest_key in net_balances:
-            guest_currencies = net_balances[guest_key]
-            for currency, amount in guest_currencies.items():
-                if manager_key not in net_balances:
-                    net_balances[manager_key] = {}
-                if currency not in net_balances[manager_key]:
-                    net_balances[manager_key][currency] = 0
-
-                net_balances[manager_key][currency] += amount
-
-                # Get the display name - use User's full_name if claimed, otherwise guest name
-                display_name = get_guest_display_name(guest, db)
-
+        if guest_key in raw_balances:
+            display_name = get_guest_display_name(guest, db)
+            for currency, amount in raw_balances[guest_key].items():
                 breakdown_key = (guest.managed_by_id, manager_is_guest, currency)
                 if breakdown_key not in manager_guest_breakdown:
                     manager_guest_breakdown[breakdown_key] = []
                 manager_guest_breakdown[breakdown_key].append((display_name, amount))
 
-            del net_balances[guest_key]
-
-    # Aggregate managed member balances with their managers
+    # Build breakdown for managed members
     for managed_member in managed_members:
         member_key = (managed_member.user_id, False)
         manager_is_guest = (managed_member.managed_by_type == 'guest')
-        manager_key = (managed_member.managed_by_id, manager_is_guest)
 
-        if member_key in net_balances:
-            member_currencies = net_balances[member_key]
-            for currency, amount in member_currencies.items():
-                if manager_key not in net_balances:
-                    net_balances[manager_key] = {}
-                if currency not in net_balances[manager_key]:
-                    net_balances[manager_key][currency] = 0
-
-                net_balances[manager_key][currency] += amount
-
-                # Get member name for breakdown
-                member_user = db.query(models.User).filter(models.User.id == managed_member.user_id).first()
-                member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
-
+        if member_key in raw_balances:
+            member_user = db.query(models.User).filter(models.User.id == managed_member.user_id).first()
+            member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
+            for currency, amount in raw_balances[member_key].items():
                 breakdown_key = (managed_member.managed_by_id, manager_is_guest, currency)
                 if breakdown_key not in manager_guest_breakdown:
                     manager_guest_breakdown[breakdown_key] = []
                 manager_guest_breakdown[breakdown_key].append((member_name, amount))
-
-            del net_balances[member_key]
 
     # Build response with participant details
     result = []
@@ -271,44 +242,26 @@ def get_exchange_rates():
 
 @router.get("/simplify_debts/{group_id}")
 def simplify_debts(
-    group_id: int, 
-    current_user: Annotated[models.User, Depends(get_current_user)], 
+    group_id: int,
+    current_user: Annotated[models.User, Depends(get_current_user)],
     db: Session = Depends(get_db)
 ):
-    """Simplify debts in a group using a graph algorithm. Returns transactions in USD."""
-    # Get all expenses in group
-    expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
+    """Simplify debts in a group using a graph algorithm. Returns transactions in group's default currency."""
+    # Get group to determine default currency
+    group = get_group_or_404(db, group_id)
+    verify_group_membership(db, group_id, current_user.id)
 
-    # Calculate net balances per participant in USD (Cross-Currency)
-    net_balances_usd = {}
+    target_currency = group.default_currency or "USD"
 
-    for expense in expenses:
-        splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+    # Calculate net balances with management relationships aggregated
+    net_balances = calculate_net_balances(db, group_id, target_currency)
 
-        for split in splits:
-            # Use stored exchange rate from expense if available
-            if expense.exchange_rate:
-                try:
-                    rate = float(expense.exchange_rate)
-                    amount_usd = split.amount_owed * rate
-                except ValueError:
-                    amount_usd = convert_to_usd(split.amount_owed, expense.currency)
-            else:
-                amount_usd = convert_to_usd(split.amount_owed, expense.currency)
-
-            # Debtor decreases balance
-            debtor_key = (split.user_id, split.is_guest)
-            net_balances_usd[debtor_key] = net_balances_usd.get(debtor_key, 0) - amount_usd
-            # Creditor (Payer) increases balance
-            payer_key = (expense.payer_id, expense.payer_is_guest)
-            net_balances_usd[payer_key] = net_balances_usd.get(payer_key, 0) + amount_usd
-
-    # Simplify in USD
+    # Simplify in target currency
     transactions = []
     debtors = []
     creditors = []
 
-    for (uid, is_guest), amount in net_balances_usd.items():
+    for (uid, is_guest), amount in net_balances.items():
         if amount < -0.01:
             debtors.append({'id': uid, 'is_guest': is_guest, 'amount': amount})
         elif amount > 0.01:
@@ -332,7 +285,7 @@ def simplify_debts(
             "to_id": creditor['id'],
             "to_is_guest": creditor['is_guest'],
             "amount": amount,
-            "currency": "USD"
+            "currency": target_currency
         })
 
         debtor['amount'] += amount
