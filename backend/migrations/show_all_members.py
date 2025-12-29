@@ -4,6 +4,7 @@ Show all members and their relationships
 """
 import sys
 import os
+import argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from sqlalchemy import create_engine
@@ -11,8 +12,13 @@ from sqlalchemy.orm import sessionmaker
 from database import Base
 import models
 
+# Parse arguments
+parser = argparse.ArgumentParser(description="Show all members and their relationships")
+parser.add_argument("--db-path", default="db.sqlite3", help="Path to SQLite database file")
+args = parser.parse_args()
+
 # Create database connection
-engine = create_engine("sqlite:///db.sqlite3")
+engine = create_engine(f"sqlite:///{args.db_path}")
 SessionLocal = sessionmaker(bind=engine)
 db = SessionLocal()
 

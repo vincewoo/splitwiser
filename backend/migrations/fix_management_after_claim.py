@@ -16,9 +16,9 @@ from sqlalchemy.orm import sessionmaker
 from database import Base
 import models
 
-def run_migration(dry_run=False):
+def run_migration(db_path, dry_run=False):
     """Fix all management relationship issues"""
-    engine = create_engine("sqlite:///db.sqlite3")
+    engine = create_engine(f"sqlite:///{db_path}")
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
 
@@ -175,10 +175,11 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Fix management relationships comprehensively")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done")
+    parser.add_argument("--db-path", default="db.sqlite3", help="Path to SQLite database file")
     args = parser.parse_args()
 
     try:
-        run_migration(dry_run=args.dry_run)
+        run_migration(db_path=args.db_path, dry_run=args.dry_run)
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
