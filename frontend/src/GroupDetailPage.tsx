@@ -929,17 +929,14 @@ const GroupDetailPage: React.FC = () => {
                             <ul className="space-y-2 lg:space-y-3 mb-4 mt-4">
                                 {(group.members || []).sort((a, b) => a.full_name.localeCompare(b.full_name)).map(member => (
                                     <li key={member.id} className="flex items-center justify-between">
-                                        <div>
-                                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                                {member.full_name}
-                                                {member.user_id === group.created_by_id && (
-                                                    <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(owner)</span>
-                                                )}
-                                                {member.user_id === user?.id && (
-                                                    <span className="ml-2 text-xs text-teal-600 dark:text-teal-400">(you)</span>
-                                                )}
-                                            </div>
-                                            <div className="text-xs text-gray-500 dark:text-gray-400">{member.email}</div>
+                                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                            {member.full_name}
+                                            {member.user_id === group.created_by_id && (
+                                                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(owner)</span>
+                                            )}
+                                            {member.user_id === user?.id && (
+                                                <span className="ml-2 text-xs text-teal-600 dark:text-teal-400">(you)</span>
+                                            )}
                                         </div>
                                         {member.user_id !== group.created_by_id && (isOwner || member.user_id === user?.id) && (
                                             <button
