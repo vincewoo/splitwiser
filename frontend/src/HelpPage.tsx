@@ -670,7 +670,7 @@ const HelpPage: React.FC = () => {
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             Still have questions? Check out our{' '}
             <a
-              href="https://github.com/yourusername/splitwiser"
+              href="https://github.com/vincewoo/splitwiser"
               target="_blank"
               rel="noopener noreferrer"
               className="text-teal-500 hover:text-teal-600 dark:text-teal-400 dark:hover:text-teal-300 font-medium"
@@ -679,7 +679,7 @@ const HelpPage: React.FC = () => {
             </a>
             {' '}or{' '}
             <a
-              href="https://github.com/yourusername/splitwiser/issues"
+              href="https://github.com/vincewoo/splitwiser/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="text-teal-500 hover:text-teal-600 dark:text-teal-400 dark:hover:text-teal-300 font-medium"
