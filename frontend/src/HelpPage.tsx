@@ -301,7 +301,14 @@ const HelpPage: React.FC = () => {
             '• Bob owes Charlie $10',
             '= 2 transactions totaling $30',
             '',
-            'To use: Click "Simplify Debts" on the group page. For multi-currency groups, all balances are converted to USD using cached exchange rates.'
+            'How to use:',
+            '1. Open a group with balances',
+            '2. Scroll to the Group Balances section',
+            '3. Click the "Simplify Debts" button',
+            '4. View the optimized payment plan',
+            '5. Copy to clipboard to share with group members',
+            '',
+            'For multi-currency groups, all balances are converted to USD using historical exchange rates to calculate the optimal payment plan.'
           ]
         },
         {

@@ -351,6 +351,12 @@ export const balancesApi = {
         return response.json();
     },
 
+    simplifyDebts: async (groupId: number) => {
+        const response = await apiFetch(`/simplify_debts/${groupId}`);
+        if (!response.ok) throw new Error('Failed to simplify debts');
+        return response.json();
+    },
+
     settleUp: async (
         creditorId: number,
         creditorIsGuest: boolean,

@@ -12,6 +12,7 @@ import AddMemberModal from './AddMemberModal';
 import AddGuestModal from './AddGuestModal';
 import ManageGuestModal from './ManageGuestModal';
 import ManageMemberModal from './ManageMemberModal';
+import SimplifyDebtsModal from './SimplifyDebtsModal';
 import AlertDialog from './components/AlertDialog';
 
 interface GroupMember {
@@ -126,6 +127,7 @@ const GroupDetailPage: React.FC = () => {
     const [showInGroupCurrency, setShowInGroupCurrency] = useState(true);
     const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({ USD: 1 });
     const [isMembersExpanded, setIsMembersExpanded] = useState(!!shareLinkId);
+    const [isSimplifyDebtsModalOpen, setIsSimplifyDebtsModalOpen] = useState(false);
     const [isBalancesExpanded, setIsBalancesExpanded] = useState(true);
     const [isExpensesExpanded, setIsExpensesExpanded] = useState(!!shareLinkId);
     const [showOnlyMyExpenses, setShowOnlyMyExpenses] = useState(false);
@@ -915,6 +917,24 @@ const GroupDetailPage: React.FC = () => {
                                 <div className="mt-4">
                                     {!showInGroupCurrency && renderBalancesByCurrency()}
                                     {showInGroupCurrency && renderBalancesConverted()}
+
+                                    {/* Simplify Debts Button */}
+                                    {!isPublicView && balances.some(b => b.amount !== 0) && (
+                                        <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                            <button
+                                                onClick={() => setIsSimplifyDebtsModalOpen(true)}
+                                                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 font-medium"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                </svg>
+                                                <span>Simplify Debts</span>
+                                            </button>
+                                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                                                Calculate the minimum transactions needed to settle all balances
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -1175,6 +1195,17 @@ const GroupDetailPage: React.FC = () => {
                 message={alertDialog.message}
                 type={alertDialog.type}
             />
+
+            {/* Simplify Debts Modal */}
+            {group && (
+                <SimplifyDebtsModal
+                    isOpen={isSimplifyDebtsModalOpen}
+                    onClose={() => setIsSimplifyDebtsModalOpen(false)}
+                    groupId={parseInt(groupId || '0')}
+                    members={group.members}
+                    guests={group.guests}
+                />
+            )}
         </div>
     );
 };

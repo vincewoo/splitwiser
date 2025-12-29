@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added - 2025-12-28
 
+#### Debt Simplification UI
+- Implemented frontend UI for the existing debt simplification backend feature
+- Added "Simplify Debts" button in group balances section
+- Created SimplifyDebtsModal to display optimized payment plan
+- Shows minimum transactions needed to settle all balances in a group
+- Converts all balances to USD using historical exchange rates for simplification
+- Visual payment flow showing who pays whom and how much
+- Displays total transaction count and total amount to transfer
+- Copy to clipboard functionality for easy sharing of payment plan
+- Only shows when there are active balances in the group
+
+**Frontend Changes:**
+- `frontend/src/SimplifyDebtsModal.tsx` - New modal component for debt simplification
+- `frontend/src/GroupDetailPage.tsx` - Added "Simplify Debts" button and modal integration
+- `frontend/src/services/api.ts` - Added `balances.simplifyDebts()` API method
+
+**Backend (Already Existed):**
+- `backend/routers/balances.py:272` - `GET /simplify_debts/{group_id}` endpoint
+- Uses greedy algorithm to minimize number of transactions
+- Handles multi-currency groups by converting to USD
+
 #### Help & FAQ Page
 - Added comprehensive in-app documentation covering all Splitwiser features
 - Searchable FAQ with 8 major categories covering 35+ topics
