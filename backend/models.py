@@ -28,6 +28,8 @@ class GroupMember(Base):
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer)
     user_id = Column(Integer)
+    managed_by_id = Column(Integer, nullable=True)  # ID of manager (user or guest)
+    managed_by_type = Column(String, nullable=True)  # 'user' or 'guest'
 
 class GuestMember(Base):
     __tablename__ = "guest_members"
