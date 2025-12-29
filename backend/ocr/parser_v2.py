@@ -6,8 +6,32 @@ from receipts, handling various receipt formats and layouts.
 """
 
 import re
+import sys
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+
+
+_environment_logged = False
+
+
+def log_environment_info():
+    """Log environment info for debugging library version differences."""
+    global _environment_logged
+    if _environment_logged:
+        return
+    _environment_logged = True
+
+    print(f"[V2 DEBUG] Python version: {sys.version}")
+    try:
+        import google.cloud.vision
+        print(f"[V2 DEBUG] google-cloud-vision version: {google.cloud.vision.__version__}")
+    except (ImportError, AttributeError):
+        print("[V2 DEBUG] Could not get google-cloud-vision version")
+    try:
+        import google.protobuf
+        print(f"[V2 DEBUG] protobuf version: {google.protobuf.__version__}")
+    except (ImportError, AttributeError):
+        print("[V2 DEBUG] Could not get protobuf version")
 
 # Import old parser for fallback
 # Use try/except to handle both package import (server) and direct import (tests)
@@ -37,7 +61,7 @@ class TextBlock:
         return self.x + self.width
 
 
-def extract_bounding_box(vertices) -> Tuple[float, float, float, float]:
+def extract_bounding_box(vertices, debug: bool = False) -> Tuple[float, float, float, float]:
     """
     Extract bounding box coordinates from Vision API vertices.
 
@@ -51,17 +75,24 @@ def extract_bounding_box(vertices) -> Tuple[float, float, float, float]:
         """Get coordinate from vertex, handling both object and dict access."""
         try:
             # Try attribute access first (protobuf objects)
-            return getattr(v, attr, None) or 0
+            val = getattr(v, attr, None)
+            if val is not None:
+                return val
         except (TypeError, AttributeError):
             pass
         try:
             # Try dict-style access
-            return v.get(attr, 0) if isinstance(v, dict) else 0
+            if isinstance(v, dict):
+                return v.get(attr, 0)
         except (TypeError, AttributeError):
-            return 0
+            pass
+        return 0
 
     xs = [get_coord(v, 'x') for v in vertices]
     ys = [get_coord(v, 'y') for v in vertices]
+
+    if debug:
+        print(f"[V2 DEBUG] Extracted xs: {xs}, ys: {ys}")
 
     # Handle empty or invalid vertices
     if not xs or not ys or all(x == 0 for x in xs):
@@ -75,7 +106,7 @@ def extract_bounding_box(vertices) -> Tuple[float, float, float, float]:
     return (x, y, width, height)
 
 
-def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
+def parse_receipt_items_v2(vision_response, debug: bool = True) -> List[Dict[str, any]]:
     """
     Parse Google Cloud Vision OCR response using bounding box coordinates.
 
@@ -89,29 +120,66 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
 
     Args:
         vision_response: Google Cloud Vision AnnotateImageResponse
+        debug: Enable verbose debug logging
 
     Returns:
         List of items: [{"description": str, "price": int}, ...]
     """
+    # Log environment info (once per session) to help debug version differences
+    if debug:
+        log_environment_info()
+
     if not vision_response or not vision_response.text_annotations:
+        if debug:
+            print("[V2 DEBUG] No vision_response or no text_annotations")
         return []
+
+    # Log basic info about the response
+    annotation_count = len(vision_response.text_annotations)
+    if debug:
+        print(f"[V2 DEBUG] Total annotations: {annotation_count}")
 
     # Skip first annotation (full text), use individual word/phrase annotations
     text_blocks = []
     valid_blocks = 0
     zero_coord_blocks = 0
+    first_few_debug = 3  # Log details for first few annotations
 
-    for annotation in vision_response.text_annotations[1:]:  # Skip [0] which is full text
+    for idx, annotation in enumerate(vision_response.text_annotations[1:]):  # Skip [0] which is full text
         text = annotation.description.strip()
         if not text:
             continue
 
+        # Deep inspection of first few annotations to understand data structure
+        if debug and idx < first_few_debug:
+            print(f"[V2 DEBUG] Annotation #{idx}: text='{text}'")
+            print(f"[V2 DEBUG]   bounding_poly type: {type(annotation.bounding_poly)}")
+            vertices = annotation.bounding_poly.vertices
+            print(f"[V2 DEBUG]   vertices type: {type(vertices)}, len: {len(vertices) if hasattr(vertices, '__len__') else 'N/A'}")
+            if len(vertices) > 0:
+                v0 = vertices[0]
+                print(f"[V2 DEBUG]   vertices[0] type: {type(v0)}")
+                print(f"[V2 DEBUG]   vertices[0] dir: {[a for a in dir(v0) if not a.startswith('_')][:10]}")
+                # Try different access methods
+                try:
+                    print(f"[V2 DEBUG]   vertices[0].x = {v0.x}, vertices[0].y = {v0.y}")
+                except Exception as e:
+                    print(f"[V2 DEBUG]   vertices[0].x/.y access failed: {e}")
+                try:
+                    print(f"[V2 DEBUG]   getattr(vertices[0], 'x') = {getattr(v0, 'x', 'NOT_FOUND')}")
+                except Exception as e:
+                    print(f"[V2 DEBUG]   getattr access failed: {e}")
+                if isinstance(v0, dict):
+                    print(f"[V2 DEBUG]   vertices[0] is dict: {v0}")
+
         vertices = annotation.bounding_poly.vertices
-        x, y, width, height = extract_bounding_box(vertices)
+        x, y, width, height = extract_bounding_box(vertices, debug=(debug and idx < first_few_debug))
 
         # Track blocks with zero coordinates (indicates parsing issue)
         if x == 0 and y == 0 and width == 0 and height == 0:
             zero_coord_blocks += 1
+            if debug and zero_coord_blocks <= 3:
+                print(f"[V2 DEBUG] Zero-coord block #{zero_coord_blocks}: text='{text}'")
             continue  # Skip invalid blocks
         else:
             valid_blocks += 1
@@ -124,19 +192,33 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
             height=height
         ))
 
+    # Log summary of block processing
+    if debug:
+        print(f"[V2 DEBUG] Block processing summary: {valid_blocks} valid, {zero_coord_blocks} zero-coord (skipped)")
+
     # Log if we're losing blocks to coordinate parsing issues
     if zero_coord_blocks > 0:
         print(f"[V2 Parser] Warning: {zero_coord_blocks} blocks had invalid coordinates (skipped), {valid_blocks} valid blocks")
 
     if not text_blocks:
+        if debug:
+            print("[V2 DEBUG] No valid text_blocks after processing - returning empty")
         return []
 
     # Group text blocks into lines based on vertical position
     lines = group_into_lines(text_blocks)
 
+    if debug:
+        print(f"[V2 DEBUG] Grouped into {len(lines)} lines")
+        # Log first 5 lines to see what we're working with
+        for i, line in enumerate(lines[:5]):
+            line_text = ' '.join(b.text for b in line)
+            print(f"[V2 DEBUG]   Line {i}: '{line_text}' ({len(line)} blocks)")
+
     # NEW APPROACH: Find prices first, then match descriptions
     items = []
     used_blocks = set()  # Track which blocks we've already used
+    prices_found = 0  # Track how many prices we detect
 
     for line_idx, line in enumerate(lines):
         # Find price on this line
@@ -152,6 +234,11 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
 
         if not price_block or price_cents is None:
             continue
+
+        prices_found += 1
+        if debug and prices_found <= 10:
+            line_text = ' '.join(b.text for b in line)
+            print(f"[V2 DEBUG] Price #{prices_found} found: ${price_cents/100:.2f} in line: '{line_text}'")
 
         # Validate price range
         if price_cents < 1 or price_cents > 99999:
@@ -203,6 +290,14 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
             'description': description,
             'price': price_cents
         })
+
+    if debug:
+        print(f"[V2 DEBUG] Final summary: {prices_found} prices found, {len(items)} items extracted")
+        if items:
+            for item in items[:5]:
+                print(f"[V2 DEBUG]   Item: '{item['description']}' = ${item['price']/100:.2f}")
+            if len(items) > 5:
+                print(f"[V2 DEBUG]   ... and {len(items) - 5} more items")
 
     return items
 
