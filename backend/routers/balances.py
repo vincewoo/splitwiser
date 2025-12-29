@@ -74,6 +74,7 @@ def get_group_balances(
             raw_balances[payer_key][expense.currency] += split.amount_owed
 
     # Build breakdown for managed guests
+    # Use dict to deduplicate by name within each breakdown key
     for guest in managed_guests:
         if guest.claimed_by_id:
             guest_key = (guest.claimed_by_id, False)
@@ -87,8 +88,11 @@ def get_group_balances(
             for currency, amount in raw_balances[guest_key].items():
                 breakdown_key = (guest.managed_by_id, manager_is_guest, currency)
                 if breakdown_key not in manager_guest_breakdown:
-                    manager_guest_breakdown[breakdown_key] = []
-                manager_guest_breakdown[breakdown_key].append((display_name, amount))
+                    manager_guest_breakdown[breakdown_key] = {}
+                # Use name as key to avoid duplicates, sum amounts if name appears multiple times
+                if display_name not in manager_guest_breakdown[breakdown_key]:
+                    manager_guest_breakdown[breakdown_key][display_name] = 0
+                manager_guest_breakdown[breakdown_key][display_name] += amount
 
     # Build breakdown for managed members
     for managed_member in managed_members:
@@ -101,14 +105,72 @@ def get_group_balances(
             for currency, amount in raw_balances[member_key].items():
                 breakdown_key = (managed_member.managed_by_id, manager_is_guest, currency)
                 if breakdown_key not in manager_guest_breakdown:
-                    manager_guest_breakdown[breakdown_key] = []
-                manager_guest_breakdown[breakdown_key].append((member_name, amount))
+                    manager_guest_breakdown[breakdown_key] = {}
+                # Use name as key to avoid duplicates, sum amounts if name appears multiple times
+                if member_name not in manager_guest_breakdown[breakdown_key]:
+                    manager_guest_breakdown[breakdown_key][member_name] = 0
+                manager_guest_breakdown[breakdown_key][member_name] += amount
 
     # Build response with participant details
     result = []
 
     if convert_to:
         # Single currency mode - net_balances is {(user_id, is_guest): amount}
+        # Build breakdown in converted currency
+        # Use dict to deduplicate by name
+        manager_breakdown_converted = {}
+
+        # Convert raw balances to target currency for breakdown display
+        for guest in managed_guests:
+            if guest.claimed_by_id:
+                guest_key = (guest.claimed_by_id, False)
+            else:
+                guest_key = (guest.id, True)
+
+            manager_is_guest = (guest.managed_by_type == 'guest')
+            breakdown_key = (guest.managed_by_id, manager_is_guest)
+
+            if guest_key in raw_balances:
+                display_name = get_guest_display_name(guest, db)
+                total_amount = 0
+                # Convert all currencies to target currency
+                for currency, amount in raw_balances[guest_key].items():
+                    # Convert through USD
+                    amount_usd = convert_to_usd(amount, currency)
+                    amount_converted = convert_currency(amount_usd, "USD", convert_to)
+                    total_amount += amount_converted
+
+                if breakdown_key not in manager_breakdown_converted:
+                    manager_breakdown_converted[breakdown_key] = {}
+                # Use name as key to avoid duplicates, sum amounts if name appears multiple times
+                if display_name not in manager_breakdown_converted[breakdown_key]:
+                    manager_breakdown_converted[breakdown_key][display_name] = 0
+                manager_breakdown_converted[breakdown_key][display_name] += int(total_amount)
+
+        # Same for managed members
+        for managed_member in managed_members:
+            member_key = (managed_member.user_id, False)
+            manager_is_guest = (managed_member.managed_by_type == 'guest')
+            breakdown_key = (managed_member.managed_by_id, manager_is_guest)
+
+            if member_key in raw_balances:
+                member_user = db.query(models.User).filter(models.User.id == managed_member.user_id).first()
+                member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
+                total_amount = 0
+                # Convert all currencies to target currency
+                for currency, amount in raw_balances[member_key].items():
+                    # Convert through USD
+                    amount_usd = convert_to_usd(amount, currency)
+                    amount_converted = convert_currency(amount_usd, "USD", convert_to)
+                    total_amount += amount_converted
+
+                if breakdown_key not in manager_breakdown_converted:
+                    manager_breakdown_converted[breakdown_key] = {}
+                # Use name as key to avoid duplicates, sum amounts if name appears multiple times
+                if member_name not in manager_breakdown_converted[breakdown_key]:
+                    manager_breakdown_converted[breakdown_key][member_name] = 0
+                manager_breakdown_converted[breakdown_key][member_name] += int(total_amount)
+
         for (participant_id, is_guest), amount in net_balances.items():
             if amount == 0:
                 continue
@@ -120,15 +182,22 @@ def get_group_balances(
                 user = db.query(models.User).filter(models.User.id == participant_id).first()
                 name = (user.full_name or user.email) if user else "Unknown User"
 
-            # For converted view, we don't show managed guest breakdown
-            # (it would be confusing since the breakdown amounts are in different currencies)
+            # Build managed guests list for this participant
+            managed_guests_list = []
+            breakdown_key = (participant_id, is_guest)
+            if breakdown_key in manager_breakdown_converted:
+                managed_guests_list = [
+                    f"{guest_name} ({format_currency(guest_amount, convert_to)})"
+                    for guest_name, guest_amount in manager_breakdown_converted[breakdown_key].items()
+                ]
+
             result.append(schemas.GroupBalance(
                 user_id=participant_id,
                 is_guest=is_guest,
                 full_name=name,
                 amount=int(amount),
                 currency=convert_to,
-                managed_guests=[]
+                managed_guests=managed_guests_list
             ))
     else:
         # Multi-currency mode - net_balances is {(user_id, is_guest): {currency: amount}}
@@ -146,8 +215,8 @@ def get_group_balances(
                     breakdown_key = (participant_id, is_guest, currency)
                     if breakdown_key in manager_guest_breakdown:
                         managed_guests_list = [
-                            f"{guest_name} ({format_currency(amount, currency)})"
-                            for guest_name, amount in manager_guest_breakdown[breakdown_key]
+                            f"{guest_name} ({format_currency(guest_amount, currency)})"
+                            for guest_name, guest_amount in manager_guest_breakdown[breakdown_key].items()
                         ]
 
                     result.append(schemas.GroupBalance(
