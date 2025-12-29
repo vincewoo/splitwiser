@@ -106,7 +106,7 @@ def extract_bounding_box(vertices, debug: bool = False) -> Tuple[float, float, f
     return (x, y, width, height)
 
 
-def parse_receipt_items_v2(vision_response, debug: bool = True) -> List[Dict[str, any]]:
+def parse_receipt_items_v2(vision_response, debug: bool = False) -> List[Dict[str, any]]:
     """
     Parse Google Cloud Vision OCR response using bounding box coordinates.
 

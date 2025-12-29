@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { getApiUrl } from './api';
 import AlertDialog from './components/AlertDialog';
+import { useSync } from './contexts/SyncContext';
 
 interface ReceiptScannerProps {
     onItemsDetected: (items: { description: string, price: number }[], receiptPath?: string, validationWarning?: string | null) => void;
@@ -8,6 +9,7 @@ interface ReceiptScannerProps {
 }
 
 const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClose }) => {
+    const { isOnline } = useSync();
     const [image, setImage] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -31,6 +33,17 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
 
     const processImage = async () => {
         if (!image) return;
+
+        // Check if user is offline
+        if (!isOnline) {
+            setAlertDialog({
+                isOpen: true,
+                title: 'No Internet Connection',
+                message: 'Receipt scanning requires an internet connection. Please check your connection and try again.',
+                type: 'error'
+            });
+            return;
+        }
 
         setLoading(true);
         setProgress(0);
@@ -85,6 +98,14 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl dark:shadow-gray-900/50 w-full max-w-md">
                 <h2 className="text-xl font-bold mb-4 dark:text-gray-100">Scan Receipt</h2>
 
+                {!isOnline && (
+                    <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
+                        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                            ⚠️ You are currently offline. Receipt scanning requires an internet connection. Please check your connection and try again.
+                        </p>
+                    </div>
+                )}
+
                 <div className="mb-4">
                     <label className="block w-full">
                         <span className="sr-only">Choose receipt</span>
@@ -120,10 +141,10 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
                     <button onClick={onClose} className="px-4 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Cancel</button>
                     <button
                         onClick={processImage}
-                        disabled={!image || loading}
-                        className={`px-4 py-2 text-white rounded ${!image || loading ? 'bg-gray-300 dark:bg-gray-600' : 'bg-teal-500 hover:bg-teal-600'}`}
+                        disabled={!image || loading || !isOnline}
+                        className={`px-4 py-2 text-white rounded ${!image || loading || !isOnline ? 'bg-gray-300 dark:bg-gray-600' : 'bg-teal-500 hover:bg-teal-600'}`}
                     >
-                        Scan
+                        {!isOnline ? 'Offline' : 'Scan'}
                     </button>
                 </div>
             </div>
