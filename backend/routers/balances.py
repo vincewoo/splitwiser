@@ -79,7 +79,7 @@ def get_group_balances(
         else:
             # If guest is unclaimed, their balance is under the guest ID
             guest_key = (guest.id, True)
-            
+
         manager_is_guest = (guest.managed_by_type == 'guest')
         manager_key = (guest.managed_by_id, manager_is_guest)
 
@@ -93,10 +93,17 @@ def get_group_balances(
 
                 net_balances[manager_key][currency] += amount
 
+                # Get the display name - use User's full_name if claimed, otherwise guest name
+                if guest.claimed_by_id:
+                    claimed_user = db.query(models.User).filter(models.User.id == guest.claimed_by_id).first()
+                    display_name = (claimed_user.full_name or claimed_user.email) if claimed_user else guest.name
+                else:
+                    display_name = guest.name
+
                 breakdown_key = (guest.managed_by_id, manager_is_guest, currency)
                 if breakdown_key not in manager_guest_breakdown:
                     manager_guest_breakdown[breakdown_key] = []
-                manager_guest_breakdown[breakdown_key].append((guest.name, amount))
+                manager_guest_breakdown[breakdown_key].append((display_name, amount))
 
             del net_balances[guest_key]
 
