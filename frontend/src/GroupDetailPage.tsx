@@ -18,6 +18,9 @@ interface GroupMember {
     user_id: number;
     full_name: string;
     email: string;
+    managed_by_id: number | null;
+    managed_by_type: string | null;  // 'user' | 'guest'
+    managed_by_name: string | null;
 }
 
 interface GuestMember {
