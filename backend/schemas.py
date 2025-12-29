@@ -171,6 +171,9 @@ class GroupMember(BaseModel):
     user_id: int
     full_name: str
     email: str
+    managed_by_id: Optional[int] = None
+    managed_by_type: Optional[str] = None
+    managed_by_name: Optional[str] = None
 
     class Config:
         from_attributes = True

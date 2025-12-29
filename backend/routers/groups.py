@@ -65,15 +65,29 @@ def get_group(
         models.User, models.GroupMember.user_id == models.User.id
     ).filter(models.GroupMember.group_id == group_id).all()
 
-    members = [
-        schemas.GroupMember(
+    # Populate managed_by_name for each member
+    members = []
+    for gm, user in members_query:
+        managed_by_name = None
+        if gm.managed_by_id:
+            if gm.managed_by_type == 'user':
+                manager = db.query(models.User).filter(models.User.id == gm.managed_by_id).first()
+                if manager:
+                    managed_by_name = manager.full_name or manager.email
+            elif gm.managed_by_type == 'guest':
+                manager_guest = db.query(models.GuestMember).filter(models.GuestMember.id == gm.managed_by_id).first()
+                if manager_guest:
+                    managed_by_name = manager_guest.name
+
+        members.append(schemas.GroupMember(
             id=gm.id,
             user_id=user.id,
             full_name=user.full_name or user.email,
-            email=user.email
-        )
-        for gm, user in members_query
-    ]
+            email=user.email,
+            managed_by_id=gm.managed_by_id,
+            managed_by_type=gm.managed_by_type,
+            managed_by_name=managed_by_name
+        ))
 
     # Get unclaimed guests
     guests = db.query(models.GuestMember).filter(
@@ -207,15 +221,29 @@ def get_public_group(
         models.User, models.GroupMember.user_id == models.User.id
     ).filter(models.GroupMember.group_id == group.id).all()
 
-    members = [
-        schemas.GroupMember(
+    # Populate managed_by_name for each member
+    members = []
+    for gm, user in members_query:
+        managed_by_name = None
+        if gm.managed_by_id:
+            if gm.managed_by_type == 'user':
+                manager = db.query(models.User).filter(models.User.id == gm.managed_by_id).first()
+                if manager:
+                    managed_by_name = manager.full_name or manager.email
+            elif gm.managed_by_type == 'guest':
+                manager_guest = db.query(models.GuestMember).filter(models.GuestMember.id == gm.managed_by_id).first()
+                if manager_guest:
+                    managed_by_name = manager_guest.name
+
+        members.append(schemas.GroupMember(
             id=gm.id,
             user_id=user.id,
             full_name=user.full_name or user.email, # Maybe partially redact email for public view?
-            email=user.email # Keeping it for now as per plan
-        )
-        for gm, user in members_query
-    ]
+            email=user.email, # Keeping it for now as per plan
+            managed_by_id=gm.managed_by_id,
+            managed_by_type=gm.managed_by_type,
+            managed_by_name=managed_by_name
+        ))
 
     # Get unclaimed guests
     guests = db.query(models.GuestMember).filter(
@@ -412,7 +440,13 @@ def get_public_group_balances(
         models.GuestMember.managed_by_id != None
     ).all()
 
-    # Track which guests were aggregated with which managers (for breakdown display)
+    # Get all managed members in this group
+    managed_members = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group.id,
+        models.GroupMember.managed_by_id != None
+    ).all()
+
+    # Track which guests/members were aggregated with which managers (for breakdown display)
     manager_guest_breakdown = {}
 
     # Aggregate managed guest balances with their managers
@@ -443,6 +477,33 @@ def get_public_group_balances(
                 manager_guest_breakdown[breakdown_key].append((guest.name, amount))
 
             del net_balances[guest_key]
+
+    # Aggregate managed member balances with their managers
+    for managed_member in managed_members:
+        member_key = (managed_member.user_id, False)
+        manager_is_guest = (managed_member.managed_by_type == 'guest')
+        manager_key = (managed_member.managed_by_id, manager_is_guest)
+
+        if member_key in net_balances:
+            member_currencies = net_balances[member_key]
+            for currency, amount in member_currencies.items():
+                if manager_key not in net_balances:
+                    net_balances[manager_key] = {}
+                if currency not in net_balances[manager_key]:
+                    net_balances[manager_key][currency] = 0
+
+                net_balances[manager_key][currency] += amount
+
+                # Get member name for breakdown
+                member_user = db.query(models.User).filter(models.User.id == managed_member.user_id).first()
+                member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
+
+                breakdown_key = (managed_member.managed_by_id, manager_is_guest, currency)
+                if breakdown_key not in manager_guest_breakdown:
+                    manager_guest_breakdown[breakdown_key] = []
+                manager_guest_breakdown[breakdown_key].append((member_name, amount))
+
+            del net_balances[member_key]
 
     from utils.currency import format_currency  # Import here to avoid circular dependencies if any, though likely fine at top
 

@@ -62,7 +62,13 @@ def get_group_balances(
         models.GuestMember.managed_by_id != None
     ).all()
 
-    # Track which guests were aggregated with which managers (for breakdown display)
+    # Get all managed members in this group
+    managed_members = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.managed_by_id != None
+    ).all()
+
+    # Track which guests/members were aggregated with which managers (for breakdown display)
     manager_guest_breakdown = {}
 
     # Aggregate managed guest balances with their managers
@@ -93,6 +99,33 @@ def get_group_balances(
                 manager_guest_breakdown[breakdown_key].append((guest.name, amount))
 
             del net_balances[guest_key]
+
+    # Aggregate managed member balances with their managers
+    for managed_member in managed_members:
+        member_key = (managed_member.user_id, False)
+        manager_is_guest = (managed_member.managed_by_type == 'guest')
+        manager_key = (managed_member.managed_by_id, manager_is_guest)
+
+        if member_key in net_balances:
+            member_currencies = net_balances[member_key]
+            for currency, amount in member_currencies.items():
+                if manager_key not in net_balances:
+                    net_balances[manager_key] = {}
+                if currency not in net_balances[manager_key]:
+                    net_balances[manager_key][currency] = 0
+
+                net_balances[manager_key][currency] += amount
+
+                # Get member name for breakdown
+                member_user = db.query(models.User).filter(models.User.id == managed_member.user_id).first()
+                member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
+
+                breakdown_key = (managed_member.managed_by_id, manager_is_guest, currency)
+                if breakdown_key not in manager_guest_breakdown:
+                    manager_guest_breakdown[breakdown_key] = []
+                manager_guest_breakdown[breakdown_key].append((member_name, amount))
+
+            del net_balances[member_key]
 
     # Build response with participant details
     result = []

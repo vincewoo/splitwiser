@@ -10,6 +10,7 @@ import ExpenseDetailModal from './ExpenseDetailModal';
 import AddMemberModal from './AddMemberModal';
 import AddGuestModal from './AddGuestModal';
 import ManageGuestModal from './ManageGuestModal';
+import ManageMemberModal from './ManageMemberModal';
 import AlertDialog from './components/AlertDialog';
 
 interface GroupMember {
@@ -96,7 +97,9 @@ const GroupDetailPage: React.FC = () => {
     const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
     const [isAddGuestModalOpen, setIsAddGuestModalOpen] = useState(false);
     const [isManageGuestModalOpen, setIsManageGuestModalOpen] = useState(false);
+    const [isManageMemberModalOpen, setIsManageMemberModalOpen] = useState(false);
     const [selectedGuest, setSelectedGuest] = useState<GuestMember | null>(null);
+    const [selectedMember, setSelectedMember] = useState<GroupMember | null>(null);
 
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -928,24 +931,49 @@ const GroupDetailPage: React.FC = () => {
                         <div className="px-4 lg:px-6 pb-4 lg:pb-6 border-t dark:border-gray-700">
                             <ul className="space-y-2 lg:space-y-3 mb-4 mt-4">
                                 {(group.members || []).sort((a, b) => a.full_name.localeCompare(b.full_name)).map(member => (
-                                    <li key={member.id} className="flex items-center justify-between">
-                                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                            {member.full_name}
-                                            {member.user_id === group.created_by_id && (
-                                                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(owner)</span>
-                                            )}
-                                            {member.user_id === user?.id && (
-                                                <span className="ml-2 text-xs text-teal-600 dark:text-teal-400">(you)</span>
+                                    <li key={member.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700 rounded">
+                                        <div className="flex flex-col">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-gray-900 dark:text-gray-100">{member.full_name}</span>
+                                                {member.user_id === group.created_by_id && (
+                                                    <span className="px-2 py-0.5 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs rounded">
+                                                        owner
+                                                    </span>
+                                                )}
+                                                {member.user_id === user?.id && (
+                                                    <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded">
+                                                        you
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {member.managed_by_name && (
+                                                <span className="text-xs text-teal-600 dark:text-teal-400 mt-1">
+                                                    Managed by {member.managed_by_name}
+                                                </span>
                                             )}
                                         </div>
-                                        {member.user_id !== group.created_by_id && (isOwner || member.user_id === user?.id) && (
-                                            <button
-                                                onClick={() => handleRemoveMember(member.user_id)}
-                                                className="text-xs text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
-                                            >
-                                                {member.user_id === user?.id ? 'Leave' : 'Remove'}
-                                            </button>
-                                        )}
+                                        <div className="flex gap-2">
+                                            {!isPublicView && (
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedMember(member);
+                                                        setIsManageMemberModalOpen(true);
+                                                    }}
+                                                    className="text-xs px-2 py-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded"
+                                                    title={member.managed_by_id ? "Change manager" : "Set manager"}
+                                                >
+                                                    {member.managed_by_id ? 'Change' : 'Manage'}
+                                                </button>
+                                            )}
+                                            {member.user_id !== group.created_by_id && (isOwner || member.user_id === user?.id) && (
+                                                <button
+                                                    onClick={() => handleRemoveMember(member.user_id)}
+                                                    className="text-xs px-2 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                                >
+                                                    {member.user_id === user?.id ? 'Leave' : 'Remove'}
+                                                </button>
+                                            )}
+                                        </div>
                                     </li>
                                 ))}
                             </ul>
@@ -1093,6 +1121,23 @@ const GroupDetailPage: React.FC = () => {
                     fetchGroupData();
                     setIsManageGuestModalOpen(false);
                     setSelectedGuest(null);
+                }}
+            />
+
+            <ManageMemberModal
+                isOpen={isManageMemberModalOpen}
+                onClose={() => {
+                    setIsManageMemberModalOpen(false);
+                    setSelectedMember(null);
+                }}
+                member={selectedMember}
+                groupId={groupId || ''}
+                groupMembers={group?.members || []}
+                groupGuests={group?.guests || []}
+                onMemberUpdated={() => {
+                    fetchGroupData();
+                    setIsManageMemberModalOpen(false);
+                    setSelectedMember(null);
                 }}
             />
 

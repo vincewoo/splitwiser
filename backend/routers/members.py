@@ -84,6 +84,13 @@ def remove_group_member(
         models.GuestMember.managed_by_type == 'user'
     ).update({"managed_by_id": None, "managed_by_type": None})
 
+    # Auto-unlink any members managed by this user
+    db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.managed_by_id == user_id,
+        models.GroupMember.managed_by_type == 'user'
+    ).update({"managed_by_id": None, "managed_by_type": None})
+
     db.delete(member)
     db.commit()
 
@@ -323,3 +330,100 @@ def unmanage_guest(
     db.commit()
 
     return {"message": "Guest manager removed successfully"}
+
+
+@router.post("/members/{member_user_id}/manage")
+def manage_member(
+    group_id: int,
+    member_user_id: int,
+    request: schemas.ManageGuestRequest,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Link a registered member to a manager (user or guest) for aggregated balance tracking"""
+    get_group_or_404(db, group_id)
+    verify_group_membership(db, group_id, current_user.id)
+
+    # Get the member
+    member = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == member_user_id
+    ).first()
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Cannot manage yourself
+    if not request.is_guest and request.user_id == member_user_id:
+        raise HTTPException(status_code=400, detail="Member cannot manage themselves")
+
+    # Verify manager exists and is in the group
+    if request.is_guest:
+        # Manager is a guest - verify it exists and is in this group
+        manager_guest = db.query(models.GuestMember).filter(
+            models.GuestMember.id == request.user_id,
+            models.GuestMember.group_id == group_id,
+            models.GuestMember.claimed_by_id == None  # Cannot use claimed guests as managers
+        ).first()
+        if not manager_guest:
+            raise HTTPException(status_code=400, detail="Manager guest not found or already claimed")
+        managed_by_name = manager_guest.name
+    else:
+        # Manager is a user - verify they are a group member
+        manager_membership = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id == group_id,
+            models.GroupMember.user_id == request.user_id
+        ).first()
+        if not manager_membership:
+            raise HTTPException(status_code=400, detail="Manager must be a group member")
+        manager = db.query(models.User).filter(models.User.id == request.user_id).first()
+        managed_by_name = manager.full_name or manager.email if manager else None
+
+    # Update member's manager
+    member.managed_by_id = request.user_id
+    member.managed_by_type = 'guest' if request.is_guest else 'user'
+    db.commit()
+    db.refresh(member)
+
+    # Get user details for response
+    user = db.query(models.User).filter(models.User.id == member_user_id).first()
+
+    return {
+        "message": "Member manager updated successfully",
+        "member": schemas.GroupMember(
+            id=member.id,
+            user_id=member.user_id,
+            full_name=user.full_name or user.email if user else "Unknown",
+            email=user.email if user else "",
+            managed_by_id=member.managed_by_id,
+            managed_by_type=member.managed_by_type,
+            managed_by_name=managed_by_name
+        )
+    }
+
+
+@router.delete("/members/{member_user_id}/manage")
+def unmanage_member(
+    group_id: int,
+    member_user_id: int,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Remove member's manager link"""
+    get_group_or_404(db, group_id)
+    verify_group_membership(db, group_id, current_user.id)
+
+    member = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == member_user_id
+    ).first()
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Remove manager link
+    member.managed_by_id = None
+    member.managed_by_type = None
+    db.commit()
+
+    return {"message": "Member manager removed successfully"}
