@@ -937,109 +937,126 @@ const GroupDetailPage: React.FC = () => {
 
                     {isMembersExpanded && (
                         <div className="px-4 lg:px-6 pb-4 lg:pb-6 border-t dark:border-gray-700">
-                            <ul className="space-y-2 lg:space-y-3 mb-4 mt-4">
-                                {(group.members || []).sort((a, b) => a.full_name.localeCompare(b.full_name)).map(member => (
-                                    <li key={member.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700 rounded">
-                                        <div className="flex flex-col">
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-medium text-gray-900 dark:text-gray-100">{member.full_name}</span>
-                                                {member.user_id === group.created_by_id && (
-                                                    <span className="px-2 py-0.5 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs rounded">
-                                                        owner
-                                                    </span>
-                                                )}
-                                                {member.user_id === user?.id && (
-                                                    <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded">
-                                                        you
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {member.managed_by_name && (
-                                                <span className="text-xs text-teal-600 dark:text-teal-400 mt-1">
-                                                    Managed by {member.managed_by_name}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            {!isPublicView && (
-                                                <button
-                                                    onClick={() => {
-                                                        setSelectedMember(member);
-                                                        setIsManageMemberModalOpen(true);
-                                                    }}
-                                                    className="text-xs px-2 py-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded"
-                                                    title={member.managed_by_id ? "Change manager" : "Set manager"}
-                                                >
-                                                    {member.managed_by_id ? 'Change' : 'Manage'}
-                                                </button>
-                                            )}
-                                            {member.user_id !== group.created_by_id && (isOwner || member.user_id === user?.id) && (
-                                                <button
-                                                    onClick={() => handleRemoveMember(member.user_id)}
-                                                    className="text-xs px-2 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                                                >
-                                                    {member.user_id === user?.id ? 'Leave' : 'Remove'}
-                                                </button>
-                                            )}
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-                            <ul className="space-y-2">
-                                {group.guests?.sort((a, b) => a.name.localeCompare(b.name)).map(guest => (
-                                    <li key={guest.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700 rounded">
-                                        <div className="flex flex-col">
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-medium text-gray-900 dark:text-gray-100">{guest.name}</span>
-                                                <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 text-xs rounded">
-                                                    guest
-                                                </span>
-                                            </div>
-                                            {guest.managed_by_name && (
-                                                <span className="text-xs text-teal-600 dark:text-teal-400 mt-1">
-                                                    Managed by {guest.managed_by_name}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={() => {
-                                                    if (isPublicView) {
-                                                        // Redirect to register with params
-                                                        navigate(`/register?claim_guest_id=${guest.id}&share_link_id=${shareLinkId}`);
-                                                    } else {
-                                                        handleClaimGuest(guest.id);
-                                                    }
-                                                }}
-                                                className="text-xs px-2 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
-                                                title="Claim this guest"
-                                            >
-                                                Claim
-                                            </button>
-                                            {!isPublicView && (
-                                                <button
-                                                    onClick={() => {
-                                                        setSelectedGuest(guest);
-                                                        setIsManageGuestModalOpen(true);
-                                                    }}
-                                                    className="text-xs px-2 py-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded"
-                                                    title={guest.managed_by_id ? "Change manager" : "Set manager"}
-                                                >
-                                                    {guest.managed_by_id ? 'Change' : 'Manage'}
-                                                </button>
-                                            )}
-                                            {user?.id === group.created_by_id && (
-                                                <button
-                                                    onClick={() => handleRemoveGuest(guest.id)}
-                                                    className="text-xs px-2 py-1 text-red-600 darktext-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                                                >
-                                                    Remove
-                                                </button>
-                                            )}
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
+                            {/* Splitwisers Section */}
+                            {(group.members || []).length > 0 && (
+                                <div className="mt-4">
+                                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">
+                                        Splitwisers
+                                    </h3>
+                                    <ul className="space-y-2 lg:space-y-3">
+                                        {(group.members || []).sort((a, b) => a.full_name.localeCompare(b.full_name)).map(member => (
+                                            <li key={member.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700 rounded">
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium text-gray-900 dark:text-gray-100">{member.full_name}</span>
+                                                        {member.user_id === group.created_by_id && (
+                                                            <span className="px-2 py-0.5 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs rounded">
+                                                                owner
+                                                            </span>
+                                                        )}
+                                                        {member.user_id === user?.id && (
+                                                            <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded">
+                                                                you
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {member.managed_by_name && (
+                                                        <span className="text-xs text-teal-600 dark:text-teal-400 mt-1">
+                                                            Managed by {member.managed_by_name}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    {!isPublicView && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedMember(member);
+                                                                setIsManageMemberModalOpen(true);
+                                                            }}
+                                                            className="text-xs px-2 py-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded"
+                                                            title={member.managed_by_id ? "Change manager" : "Set manager"}
+                                                        >
+                                                            {member.managed_by_id ? 'Change' : 'Manage'}
+                                                        </button>
+                                                    )}
+                                                    {member.user_id !== group.created_by_id && (isOwner || member.user_id === user?.id) && (
+                                                        <button
+                                                            onClick={() => handleRemoveMember(member.user_id)}
+                                                            className="text-xs px-2 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                                        >
+                                                            {member.user_id === user?.id ? 'Leave' : 'Remove'}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Guests Section */}
+                            {(group.guests || []).length > 0 && (
+                                <div className="mt-6">
+                                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">
+                                        Guests
+                                    </h3>
+                                    <ul className="space-y-2">
+                                        {group.guests?.sort((a, b) => a.name.localeCompare(b.name)).map(guest => (
+                                            <li key={guest.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700 rounded">
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium text-gray-900 dark:text-gray-100">{guest.name}</span>
+                                                        <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 text-xs rounded">
+                                                            guest
+                                                        </span>
+                                                    </div>
+                                                    {guest.managed_by_name && (
+                                                        <span className="text-xs text-teal-600 dark:text-teal-400 mt-1">
+                                                            Managed by {guest.managed_by_name}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            if (isPublicView) {
+                                                                // Redirect to register with params
+                                                                navigate(`/register?claim_guest_id=${guest.id}&share_link_id=${shareLinkId}`);
+                                                            } else {
+                                                                handleClaimGuest(guest.id);
+                                                            }
+                                                        }}
+                                                        className="text-xs px-2 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
+                                                        title="Claim this guest"
+                                                    >
+                                                        Claim
+                                                    </button>
+                                                    {!isPublicView && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedGuest(guest);
+                                                                setIsManageGuestModalOpen(true);
+                                                            }}
+                                                            className="text-xs px-2 py-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded"
+                                                            title={guest.managed_by_id ? "Change manager" : "Set manager"}
+                                                        >
+                                                            {guest.managed_by_id ? 'Change' : 'Manage'}
+                                                        </button>
+                                                    )}
+                                                    {user?.id === group.created_by_id && (
+                                                        <button
+                                                            onClick={() => handleRemoveGuest(guest.id)}
+                                                            className="text-xs px-2 py-1 text-red-600 darktext-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
 
                             {/* Action buttons */}
                             {!isPublicView && (
