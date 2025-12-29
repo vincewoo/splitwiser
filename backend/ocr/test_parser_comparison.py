@@ -8,7 +8,16 @@ parser behavior without making actual API calls.
 from dataclasses import dataclass
 from typing import List
 from parser import parse_receipt_items
-from parser_v2 import parse_receipt_items_v2
+from parser_v2 import (
+    parse_receipt_items_v2,
+    extract_price_from_text,
+    clean_description,
+    should_filter_item,
+    detect_receipt_total,
+    detect_receipt_tax,
+    detect_receipt_subtotal,
+    parse_receipt_with_validation
+)
 
 
 @dataclass
@@ -294,5 +303,261 @@ def run_comparison_test():
     print("\n" + "=" * 80)
 
 
+def test_price_patterns():
+    """Test price extraction patterns including prices without $ signs."""
+    print("\n" + "=" * 80)
+    print("PRICE PATTERN TESTS")
+    print("=" * 80)
+
+    test_cases = [
+        # (input_text, expected_cents, description)
+        ("$12.99", 1299, "Standard dollar sign price"),
+        ("$ 12.99", 1299, "Dollar sign with space"),
+        ("12.99", 1299, "Exact decimal without $"),
+        ("GARLICBREAD 3.95", 395, "Item name followed by price"),
+        ("1 Alfredo 14.95", 1495, "Quantity + item + price"),
+        (" 6.00 ", 600, "Price with surrounding whitespace"),
+        ("33.90", 3390, "Higher price without $"),
+        ("12,99", 1299, "European comma decimal"),
+        ("$1,234.56", 123456, "Price with thousands separator"),
+        ("Check #49", None, "Should NOT match check numbers"),
+        ("Table 12", None, "Should NOT match table numbers"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for input_text, expected, description in test_cases:
+        result = extract_price_from_text(input_text)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+        print(f"  {status}: {description}")
+        print(f"         Input: '{input_text}' -> Got: {result}, Expected: {expected}")
+
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_quantity_preservation():
+    """Test that quantity prefixes are preserved in descriptions."""
+    print("\n" + "=" * 80)
+    print("QUANTITY PRESERVATION TESTS")
+    print("=" * 80)
+
+    test_cases = [
+        # (input_text, expected_output, description)
+        ("2 Diet", "2 Diet", "Simple quantity preserved"),
+        ("4 Pint Guinness", "4 Pint Guinness", "Quantity with multi-word item"),
+        ("1 GARLICBREAD", "1 Garlicbread", "Single quantity (title cased)"),
+        ("2x Burger", "2 Burger", "Multiplication syntax normalized"),
+        ("2X Pizza", "2 Pizza", "Uppercase X normalized"),
+        ("2 for 1 Deal", "2 For 1 Deal", "Quantity in item name preserved"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for input_text, expected, description in test_cases:
+        result = clean_description(input_text)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+        print(f"  {status}: {description}")
+        print(f"         Input: '{input_text}' -> Got: '{result}', Expected: '{expected}'")
+
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_category_subtotal_filtering():
+    """Test smart filtering of category subtotals vs real items."""
+    print("\n" + "=" * 80)
+    print("CATEGORY SUBTOTAL FILTERING TESTS")
+    print("=" * 80)
+
+    # Mock a simple line for testing
+    class MockBlock:
+        def __init__(self, text):
+            self.text = text
+
+    test_cases = [
+        # (description, price_cents, should_be_filtered, reason)
+        ("Food", 7975, True, "Single-word 'Food' with high price = subtotal"),
+        ("Food", 1299, False, "Single-word 'Food' with low price = could be item"),
+        ("Food Court Combo", 1299, False, "Multi-word with 'Food' = real item"),
+        ("Drinks", 5000, True, "Single-word 'Drinks' with high price = subtotal"),
+        ("Beverages", 3500, True, "Single-word 'Beverages' with high price = subtotal"),
+        ("Subtotal", 8000, True, "Subtotal keyword always filtered"),
+        ("Total", 9000, True, "Total keyword always filtered"),
+        ("Tax", 778, True, "Tax keyword always filtered"),
+        ("Admin Fee", 711, True, "Admin Fee keyword filtered"),
+        ("Admin Fee ( 3.00 % )", 711, True, "Admin Fee with percentage filtered"),
+        ("Service Fee", 500, True, "Service Fee keyword filtered"),
+        ("Convenience Fee", 300, True, "Convenience Fee keyword filtered"),
+        ("Processing Fee", 250, True, "Processing Fee keyword filtered"),
+        ("Burger", 1299, False, "Regular item not filtered"),
+        ("Caesar Salad", 1499, False, "Regular multi-word item not filtered"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for description, price_cents, expected_filtered, reason in test_cases:
+        mock_line = [MockBlock(description), MockBlock(f"${price_cents/100:.2f}")]
+        result = should_filter_item(description, mock_line, price_cents)
+        status = "✅ PASS" if result == expected_filtered else "❌ FAIL"
+        if result == expected_filtered:
+            passed += 1
+        else:
+            failed += 1
+        print(f"  {status}: {reason}")
+        print(f"         '{description}' ${price_cents/100:.2f} -> Filtered: {result}, Expected: {expected_filtered}")
+
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_total_detection():
+    """Test detection of receipt totals from raw text."""
+    print("\n" + "=" * 80)
+    print("RECEIPT TOTAL DETECTION TESTS")
+    print("=" * 80)
+
+    test_cases = [
+        # (raw_text, expected_total_cents, description)
+        ("Total $145.86", 14586, "Standard 'Total $X.XX'"),
+        ("TOTAL DUE 87.53", 8753, "Uppercase 'TOTAL DUE X.XX'"),
+        ("Amount Due: $50.00", 5000, "Amount Due with colon"),
+        ("Grand Total $1,234.56", 123456, "Grand total with thousands"),
+        ("Balance Due $25.00", 2500, "Balance Due format"),
+        ("Just some random text", None, "No total present"),
+        ("Subtotal $50.00\nTax $5.00\nTotal $55.00", 5500, "Full receipt finds Total"),
+        ("Total $61.50\nSales tax $5.51\nGrand Total $67.01", 6701, "Grand Total preferred over Total"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for raw_text, expected, description in test_cases:
+        result = detect_receipt_total(raw_text)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+        print(f"  {status}: {description}")
+        print(f"         Got: {result}, Expected: {expected}")
+
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_tax_detection():
+    """Test detection of tax amounts from raw text."""
+    print("\n" + "=" * 80)
+    print("TAX DETECTION TESTS")
+    print("=" * 80)
+
+    test_cases = [
+        # (raw_text, expected_tax_cents, description)
+        ("Tax $7.78", 778, "Standard 'Tax $X.XX'"),
+        ("TAX: 13.86", 1386, "Uppercase TAX with colon"),
+        ("Sales Tax $5.00", 500, "Sales Tax format"),
+        ("GST $10.00", 1000, "GST format"),
+        ("HST $15.00", 1500, "HST format"),
+        ("VAT $20.00", 2000, "VAT format"),
+        ("No tax here", None, "No tax present"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for raw_text, expected, description in test_cases:
+        result = detect_receipt_tax(raw_text)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+        print(f"  {status}: {description}")
+        print(f"         Got: {result}, Expected: {expected}")
+
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_subtotal_detection():
+    """Test detection of subtotals from raw text."""
+    print("\n" + "=" * 80)
+    print("SUBTOTAL DETECTION TESTS")
+    print("=" * 80)
+
+    test_cases = [
+        # (raw_text, expected_subtotal_cents, description)
+        ("Subtotal $114.00", 11400, "Standard 'Subtotal $X.XX'"),
+        ("SubTotal: 114.00", 11400, "CamelCase SubTotal with colon"),
+        ("Sub Total $50.00", 5000, "Sub Total with space"),
+        ("Sub-total $75.50", 7550, "Sub-total with hyphen"),
+        ("SUBTOTAL $200.00", 20000, "Uppercase SUBTOTAL"),
+        ("subtotal 45.99", 4599, "Lowercase without $"),
+        ("Just some random text", None, "No subtotal present"),
+        ("Total $100.00", None, "Total without Sub prefix"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for raw_text, expected, description in test_cases:
+        result = detect_receipt_subtotal(raw_text)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+        print(f"  {status}: {description}")
+        print(f"         Got: {result}, Expected: {expected}")
+
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def run_all_unit_tests():
+    """Run all unit tests for parser functions."""
+    print("\n" + "=" * 80)
+    print("RUNNING ALL UNIT TESTS")
+    print("=" * 80)
+
+    results = []
+    results.append(("Price Patterns", test_price_patterns()))
+    results.append(("Quantity Preservation", test_quantity_preservation()))
+    results.append(("Category Subtotal Filtering", test_category_subtotal_filtering()))
+    results.append(("Total Detection", test_total_detection()))
+    results.append(("Tax Detection", test_tax_detection()))
+    results.append(("Subtotal Detection", test_subtotal_detection()))
+
+    print("\n" + "=" * 80)
+    print("SUMMARY")
+    print("=" * 80)
+    all_passed = True
+    for name, passed in results:
+        status = "✅ PASS" if passed else "❌ FAIL"
+        print(f"  {status}: {name}")
+        if not passed:
+            all_passed = False
+
+    if all_passed:
+        print("\n🎉 All tests passed!")
+    else:
+        print("\n⚠️  Some tests failed!")
+
+    return all_passed
+
+
 if __name__ == "__main__":
     run_comparison_test()
+    run_all_unit_tests()

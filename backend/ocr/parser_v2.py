@@ -154,8 +154,8 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
         if not description or len(description) < 2:
             continue
 
-        # Apply smart filtering
-        if should_filter_item(description, line):
+        # Apply smart filtering (pass price for subtotal detection)
+        if should_filter_item(description, line, price_cents):
             continue
 
         items.append({
@@ -260,8 +260,8 @@ def extract_item_from_line(line: List[TextBlock]) -> Optional[Dict[str, any]]:
     if not description or len(description) < 2:
         return None
 
-    # Apply smart filtering
-    if should_filter_item(description, line):
+    # Apply smart filtering (pass price for subtotal detection)
+    if should_filter_item(description, line, price_cents):
         return None
 
     return {
@@ -276,9 +276,9 @@ def extract_price_from_text(text: str) -> Optional[int]:
 
     Handles formats:
     - $12.99
-    - 12.99
+    - 12.99 (with or without surrounding text)
     - 12,99 (European format)
-    - 12 (whole dollars)
+    - 12 (whole dollars with $ sign only)
 
     Returns:
         Price in cents, or None if no valid price found
@@ -292,8 +292,18 @@ def extract_price_from_text(text: str) -> Optional[int]:
         price_str = match.group(1).replace(',', '')
         return parse_price_to_cents(price_str)
 
-    # Pattern 2: 12.99 (no $, must have decimal)
+    # Pattern 2: Exact price (strict) - "12.99"
     match = re.search(r'^(\d{1,3}\.\d{2})$', text)
+    if match:
+        return parse_price_to_cents(match.group(1))
+
+    # Pattern 2a: Price at end of text with space before - "GARLICBREAD 3.95"
+    match = re.search(r'\s(\d{1,3}\.\d{2})$', text)
+    if match:
+        return parse_price_to_cents(match.group(1))
+
+    # Pattern 2b: Price with optional whitespace around - " 3.95 " or "3.95"
+    match = re.search(r'(?:^|\s)(\d{1,3}\.\d{2})(?:\s|$)', text)
     if match:
         return parse_price_to_cents(match.group(1))
 
@@ -340,16 +350,21 @@ def clean_description(text: str) -> str:
     """
     Clean item description.
 
+    - Preserves quantity prefixes (e.g., "2 Diet" stays as "2 Diet")
+    - Normalizes "2x" multiplication syntax to "2 "
     - Removes special characters
     - Normalizes whitespace
     - Title cases for consistency
     """
-    # Remove common quantity markers if they're standalone
-    # But keep them if part of name (e.g., "2 for 1 Deal")
-    text = re.sub(r'^(\d+)\s*x\s*', '', text, flags=re.I)  # "2x Burger" -> "Burger"
+    # Normalize multiplication syntax but preserve quantity
+    # "2x Burger" -> "2 Burger", "2X Burger" -> "2 Burger"
+    text = re.sub(r'^(\d+)\s*[xX]\s+', r'\1 ', text)
 
-    # Remove trailing special characters
-    text = re.sub(r'[*\-\.]+$', '', text)
+    # Remove trailing special characters (including $)
+    text = re.sub(r'[*\-\.\$\:]+$', '', text)
+
+    # Remove leading special characters
+    text = re.sub(r'^[*\-\.\$\:]+', '', text)
 
     # Remove extra whitespace
     text = ' '.join(text.split())
@@ -401,7 +416,7 @@ def contains_metadata(text: str) -> bool:
     return False
 
 
-def should_filter_item(description: str, line: List[TextBlock]) -> bool:
+def should_filter_item(description: str, line: List[TextBlock], price_cents: int = 0) -> bool:
     """
     Smart filtering to remove non-item lines (totals, tax, etc.).
 
@@ -410,6 +425,7 @@ def should_filter_item(description: str, line: List[TextBlock]) -> bool:
     Args:
         description: Cleaned item description
         line: All text blocks on the line
+        price_cents: Price in cents (used for subtotal detection)
 
     Returns:
         True if item should be filtered out
@@ -436,15 +452,35 @@ def should_filter_item(description: str, line: List[TextBlock]) -> bool:
         'visa',
         'mastercard',
         'amex',
+        'admin fee',
+        'service fee',
+        'convenience fee',
+        'processing fee',
     ]
 
     for keyword in exact_filters:
-        if keyword == desc_lower or keyword in line_text:
+        # Check if keyword matches description exactly OR is contained in description/line
+        if keyword == desc_lower or keyword in desc_lower or keyword in line_text:
             return True
 
-    # Filter lines that are just category headers
-    if desc_lower in ['food', 'drinks', 'beverages', 'appetizers', 'entrees', 'desserts']:
-        return True
+    # Smart category subtotal filtering
+    # These are ONLY filtered when they appear to be subtotals, not menu items
+    category_keywords = ['food', 'drinks', 'beverages', 'appetizers', 'entrees', 'desserts']
+
+    if desc_lower in category_keywords:
+        # If the description has multiple words, it's likely a real item
+        # e.g., "Food Court Combo" should NOT be filtered
+        word_count = len(description.split())
+        if word_count > 1:
+            return False  # Don't filter multi-word items
+
+        # Single-word category name with high price is likely a subtotal
+        # e.g., "Food $79.75" is a subtotal, "Food $12.99" might be an item
+        if price_cents > 2000:  # >$20 threshold for subtotals
+            return True
+
+        # Single-word category with low price - could be an item, don't filter
+        return False
 
     # Filter receipt metadata
     metadata_patterns = [
@@ -497,3 +533,186 @@ def get_raw_text(vision_response) -> str:
     if vision_response and vision_response.text_annotations:
         return vision_response.text_annotations[0].description
     return ""
+
+
+def detect_receipt_total(raw_text: str) -> Optional[int]:
+    """
+    Find the receipt total from common patterns in the raw OCR text.
+
+    Looks for lines like:
+    - "Total $145.86"
+    - "TOTAL DUE 87.53"
+    - "Amount Due: $50.00"
+
+    Args:
+        raw_text: Full OCR text from receipt
+
+    Returns:
+        Total in cents, or None if not found
+    """
+    if not raw_text:
+        return None
+
+    # Patterns to match total lines (case-insensitive)
+    # Note: Order matters - more specific patterns first (Grand Total before Total)
+    # Also avoid matching "Subtotal" by checking character before "total"
+    total_patterns = [
+        r'grand\s*total[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',  # "Grand Total" first (most specific)
+        r'amount\s*due[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',
+        r'balance\s*due[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',
+        r'(?:^|[^buS])total\s*(?:due)?[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',  # Avoid "Subtotal"
+    ]
+
+    for pattern in total_patterns:
+        match = re.search(pattern, raw_text, re.I)
+        if match:
+            price_str = match.group(1).replace(',', '')
+            return parse_price_to_cents(price_str)
+
+    return None
+
+
+def detect_receipt_tax(raw_text: str) -> Optional[int]:
+    """
+    Find the tax amount from the raw OCR text.
+
+    Looks for lines like:
+    - "Tax $7.78"
+    - "TAX: 13.86"
+    - "Sales Tax 5.00"
+
+    Args:
+        raw_text: Full OCR text from receipt
+
+    Returns:
+        Tax in cents, or None if not found
+    """
+    if not raw_text:
+        return None
+
+    # Patterns to match tax lines (case-insensitive)
+    tax_patterns = [
+        r'(?:sales\s*)?tax[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',
+        r'gst[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',
+        r'hst[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',
+        r'vat[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',
+    ]
+
+    for pattern in tax_patterns:
+        match = re.search(pattern, raw_text, re.I)
+        if match:
+            price_str = match.group(1).replace(',', '')
+            return parse_price_to_cents(price_str)
+
+    return None
+
+
+def detect_receipt_subtotal(raw_text: str) -> Optional[int]:
+    """
+    Find the subtotal from the raw OCR text.
+
+    Looks for lines like:
+    - "Subtotal $114.00"
+    - "Sub Total: 114.00"
+    - "Sub-total $114.00"
+
+    Args:
+        raw_text: Full OCR text from receipt
+
+    Returns:
+        Subtotal in cents, or None if not found
+    """
+    if not raw_text:
+        return None
+
+    # Patterns to match subtotal lines (case-insensitive)
+    subtotal_patterns = [
+        r'sub[-\s]?total[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*\.\d{2})',
+    ]
+
+    for pattern in subtotal_patterns:
+        match = re.search(pattern, raw_text, re.I)
+        if match:
+            price_str = match.group(1).replace(',', '')
+            return parse_price_to_cents(price_str)
+
+    return None
+
+
+def parse_receipt_with_validation(vision_response) -> Dict[str, any]:
+    """
+    Parse receipt items and validate against detected subtotal.
+
+    Returns enhanced structure with validation information:
+    {
+        "items": [...],
+        "detected_total": int or None,
+        "detected_subtotal": int or None,
+        "detected_tax": int or None,
+        "calculated_subtotal": int,
+        "validation_warning": str or None
+    }
+
+    Args:
+        vision_response: Google Cloud Vision AnnotateImageResponse
+
+    Returns:
+        Dict with items and validation info
+    """
+    # Parse items using existing function
+    items = parse_receipt_items_v2(vision_response)
+
+    # Get raw text for total/tax detection
+    raw_text = get_raw_text(vision_response)
+
+    # Detect subtotal, total and tax from receipt
+    detected_subtotal = detect_receipt_subtotal(raw_text)
+    detected_total = detect_receipt_total(raw_text)
+    detected_tax = detect_receipt_tax(raw_text)
+
+    # Calculate sum of parsed items
+    calculated_subtotal = sum(item['price'] for item in items)
+
+    # Validate and generate warning if needed
+    validation_warning = None
+
+    # Determine expected subtotal - prefer detected subtotal over calculated
+    expected_subtotal = None
+    if detected_subtotal is not None:
+        # Best case: we have an explicit subtotal on the receipt
+        expected_subtotal = detected_subtotal
+    elif detected_total is not None and detected_tax is not None:
+        # Fallback: calculate subtotal from total minus tax
+        expected_subtotal = detected_total - detected_tax
+
+    if expected_subtotal is not None:
+        # Check if our parsed items match expected subtotal
+        # Allow 100 cents ($1) tolerance for rounding
+        difference = abs(calculated_subtotal - expected_subtotal)
+
+        if difference > 100:
+            # Calculate how much is missing
+            missing_amount = expected_subtotal - calculated_subtotal
+            if missing_amount > 0:
+                validation_warning = (
+                    f"Some items may be missing. "
+                    f"Parsed items total ${calculated_subtotal/100:.2f} "
+                    f"but receipt subtotal is ${expected_subtotal/100:.2f} "
+                    f"(${missing_amount/100:.2f} difference)."
+                )
+            else:
+                # We have more than expected - probably incorrectly included subtotal/tax
+                validation_warning = (
+                    f"Some items may be incorrectly included. "
+                    f"Parsed items total ${calculated_subtotal/100:.2f} "
+                    f"but receipt subtotal is ${expected_subtotal/100:.2f}."
+                )
+
+    return {
+        "items": items,
+        "detected_total": detected_total,
+        "detected_subtotal": detected_subtotal,
+        "detected_tax": detected_tax,
+        "calculated_subtotal": calculated_subtotal,
+        "validation_warning": validation_warning
+    }

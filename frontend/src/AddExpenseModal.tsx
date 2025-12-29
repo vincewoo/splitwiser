@@ -65,6 +65,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [splitType, setSplitType] = useState<SplitType>('EQUAL');
     const [showScanner, setShowScanner] = useState(false);
     const [scannedItems, setScannedItems] = useState<{ description: string, price: number }[]>([]);
+    const [ocrValidationWarning, setOcrValidationWarning] = useState<string | null>(null);
     const [expenseDate, setExpenseDate] = useState<string>(formatDateForInput());
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
     const [receiptImagePath, setReceiptImagePath] = useState<string | null>(null);
@@ -115,6 +116,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setExpenseDate(formatDateForInput());
         setSplitType('EQUAL');
         setScannedItems([]);
+        setOcrValidationWarning(null);
         setSelectedIcon(null);
         setReceiptImagePath(null);
         setNotes('');
@@ -131,9 +133,10 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         }
     }, [isOpen, preselectedGroupId, preselectedFriendId, user?.id]);
 
-    const handleScannedItems = (items: { description: string, price: number }[], receiptPath?: string) => {
+    const handleScannedItems = (items: { description: string, price: number }[], receiptPath?: string, validationWarning?: string | null) => {
         setScannedItems(items);
         if (receiptPath) setReceiptImagePath(receiptPath);
+        setOcrValidationWarning(validationWarning || null);
         setShowScanner(false);
 
         const newItems = items.map(item => ({
@@ -774,6 +777,27 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                             </button>
                                         </div>
                                     </div>
+
+                                    {/* OCR Validation Warning */}
+                                    {ocrValidationWarning && (
+                                        <div className="mb-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 text-yellow-800 dark:text-yellow-200 px-3 py-2 rounded-md text-sm">
+                                            <div className="flex items-start gap-2">
+                                                <span className="text-yellow-500 flex-shrink-0">⚠️</span>
+                                                <div>
+                                                    <p className="font-medium">Some items may be missing</p>
+                                                    <p className="text-xs mt-1 text-yellow-700 dark:text-yellow-300">{ocrValidationWarning}</p>
+                                                    <p className="text-xs mt-1 text-yellow-600 dark:text-yellow-400">Please review and add any missing items manually using the "+ Add" button.</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setOcrValidationWarning(null)}
+                                                    className="text-yellow-500 hover:text-yellow-700 dark:hover:text-yellow-300 flex-shrink-0"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <ExpenseItemList
                                         items={itemizedExpense.itemizedItems}

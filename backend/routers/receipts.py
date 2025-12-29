@@ -12,7 +12,7 @@ from database import get_db
 from dependencies import get_current_user
 from ocr.service import ocr_service
 from ocr.parser import parse_receipt_items
-from ocr.parser_v2 import parse_receipt_items_v2, get_raw_text
+from ocr.parser_v2 import parse_receipt_items_v2, get_raw_text, parse_receipt_with_validation
 
 
 # Receipt directory path
@@ -82,8 +82,10 @@ async def scan_receipt(
             print("No text annotations found in response")
             raw_text = ""
 
-        # Parse items using new spatial layout parser (V2)
-        items = parse_receipt_items_v2(vision_response)
+        # Parse items using new spatial layout parser (V2) with validation
+        parsed_result = parse_receipt_with_validation(vision_response)
+        items = parsed_result["items"]
+
         print(f"[V2 Parser] Parsed items count: {len(items)}")
         for item in items:
             print(f" - Found item: {item}")
@@ -93,14 +95,20 @@ async def scan_receipt(
         print(f"[Old Parser] Parsed items count: {len(items_old)}")
         if len(items_old) != len(items):
             print(f"⚠️  Parser difference: V2 found {len(items)} items vs Old found {len(items_old)} items")
-        
-        # Calculate total
-        total = sum(item['price'] for item in items)
-        print(f"Calculated total from items: {total}")
+
+        # Log validation results
+        print(f"[Validation] Detected subtotal: {parsed_result['detected_subtotal']}, Total: {parsed_result['detected_total']}, Tax: {parsed_result['detected_tax']}")
+        print(f"[Validation] Calculated subtotal: {parsed_result['calculated_subtotal']}")
+        if parsed_result["validation_warning"]:
+            print(f"[Validation] ⚠️  {parsed_result['validation_warning']}")
 
         return {
             "items": items,
-            "total": total,
+            "total": parsed_result["calculated_subtotal"],
+            "detected_subtotal": parsed_result["detected_subtotal"],
+            "detected_total": parsed_result["detected_total"],
+            "detected_tax": parsed_result["detected_tax"],
+            "validation_warning": parsed_result["validation_warning"],
             "raw_text": raw_text,
             "receipt_image_path": f"/static/receipts/{filename}"
         }
