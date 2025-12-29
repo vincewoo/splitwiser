@@ -84,7 +84,7 @@ class SyncManager {
         await this.processOperation(op);
       }
 
-      // Refresh cached data after sync
+      // Refresh cached data after sync (includes exchange rates for offline expenses)
       await this.refreshCachedData();
 
       await this.updateState({
@@ -350,6 +350,27 @@ class SyncManager {
       }
     } catch (e) {
       console.warn('Failed to refresh groups:', e);
+    }
+
+    // Refresh expenses (includes exchange rates for offline-created expenses)
+    try {
+      const response = await fetch(`${API_BASE_URL}/expenses`, { headers });
+      if (response.ok) {
+        const expenses = await response.json();
+        // Delete all non-temp expenses
+        const nonTempExpenses = await db.expenses.filter(e => !e.is_temp).toArray();
+        await db.expenses.bulkDelete(nonTempExpenses.map(e => e.id));
+        await db.expenses.bulkAdd(
+          expenses.map((e: any) => ({
+            ...e,
+            cached_at: Date.now(),
+            is_temp: false,
+            local_version: 1
+          }))
+        );
+      }
+    } catch (e) {
+      console.warn('Failed to refresh expenses:', e);
     }
 
     // Refresh balances
