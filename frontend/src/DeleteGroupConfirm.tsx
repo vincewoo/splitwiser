@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getApiUrl } from './api';
+import { api } from './services/api';
 
 interface Group {
     id: number;
@@ -24,19 +24,19 @@ const DeleteGroupConfirm: React.FC<DeleteGroupConfirmProps> = ({ isOpen, onClose
         setIsDeleting(true);
         setError(null);
 
-        const token = localStorage.getItem('token');
-        const response = await fetch(getApiUrl(`groups/${group.id}`), {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` }
-        });
+        try {
+            const response = await api.groups.delete(group.id);
 
-        setIsDeleting(false);
-
-        if (response.ok) {
-            onDeleted();
-        } else {
-            const err = await response.json();
-            setError(err.detail || 'Failed to delete group');
+            if (response.ok) {
+                onDeleted();
+            } else {
+                const err = await response.json();
+                setError(err.detail || 'Failed to delete group');
+            }
+        } catch (error) {
+            setError('Failed to delete group');
+        } finally {
+            setIsDeleting(false);
         }
     };
 

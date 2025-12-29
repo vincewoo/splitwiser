@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getApiUrl } from './api';
+import { api } from './services/api';
 import IconSelector from './components/expense/IconSelector';
 import { useCurrencyPreferences } from './hooks/useCurrencyPreferences';
 import { formatCurrencyDisplay } from './utils/currencyHelpers';
@@ -41,26 +41,26 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({ isOpen, onClose, group,
         setIsSubmitting(true);
         setError(null);
 
-        const token = localStorage.getItem('token');
-        const response = await fetch(getApiUrl(`groups/${group.id}`), {
-            method: 'PUT',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ name, default_currency: currency, icon: selectedIcon })
-        });
+        try {
+            const response = await api.groups.update(group.id, {
+                name,
+                default_currency: currency,
+                icon: selectedIcon
+            });
 
-        setIsSubmitting(false);
-
-        if (response.ok) {
-            // Record currency usage for sorting
-            recordCurrencyUsage(currency);
-            const updatedGroup = await response.json();
-            onGroupUpdated({ ...group, ...updatedGroup });
-        } else {
-            const err = await response.json();
-            setError(err.detail || 'Failed to update group');
+            if (response.ok) {
+                // Record currency usage for sorting
+                recordCurrencyUsage(currency);
+                const updatedGroup = await response.json();
+                onGroupUpdated({ ...group, ...updatedGroup });
+            } else {
+                const err = await response.json();
+                setError(err.detail || 'Failed to update group');
+            }
+        } catch (error) {
+            setError('Failed to update group');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { getApiUrl } from './api';
+import { api } from './services/api';
 import { formatDateForInput } from './utils/formatters';
 import AlertDialog from './components/AlertDialog';
 
@@ -80,21 +80,22 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({ isOpen, onClose, onSettle
             ]
         };
 
-        const token = localStorage.getItem('token');
-        const response = await fetch(getApiUrl('expenses'), {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
+        try {
+            const response = await api.expenses.create(payload);
 
-        if (response.ok) {
-            onSettled();
-            onClose();
-            setAmount('');
-        } else {
+            if (response.ok) {
+                onSettled();
+                onClose();
+                setAmount('');
+            } else {
+                setAlertDialog({
+                    isOpen: true,
+                    title: 'Error',
+                    message: 'Failed to settle up',
+                    type: 'error'
+                });
+            }
+        } catch (error) {
             setAlertDialog({
                 isOpen: true,
                 title: 'Error',

@@ -181,10 +181,10 @@ export const groupsApi = {
         return response;
     },
 
-    update: async (groupId: number, name: string) => {
+    update: async (groupId: number, data: { name: string; default_currency?: string; icon?: string | null }) => {
         const response = await apiFetch(`/groups/${groupId}`, {
             method: 'PUT',
-            body: JSON.stringify({ name }),
+            body: JSON.stringify(data),
         });
         return response;
     },
@@ -237,6 +237,56 @@ export const groupsApi = {
         const response = await apiFetch(`/groups/${groupId}/balances`);
         if (!response.ok) throw new Error('Failed to fetch group balances');
         return response.json();
+    },
+
+    share: async (groupId: number) => {
+        const response = await apiFetch(`/groups/${groupId}/share`, {
+            method: 'POST',
+        });
+        return response;
+    },
+
+    getExpenses: async (groupId: number) => {
+        const response = await apiFetch(`/groups/${groupId}/expenses`);
+        if (!response.ok) throw new Error('Failed to fetch group expenses');
+        return response.json();
+    },
+
+    manageGuest: async (groupId: number, guestId: number, userId: number, isGuest: boolean) => {
+        const response = await apiFetch(`/groups/${groupId}/guests/${guestId}/manage`, {
+            method: 'POST',
+            body: JSON.stringify({ user_id: userId, is_guest: isGuest }),
+        });
+        return response;
+    },
+
+    unmanageGuest: async (groupId: number, guestId: number) => {
+        const response = await apiFetch(`/groups/${groupId}/guests/${guestId}/manage`, {
+            method: 'DELETE',
+        });
+        return response;
+    },
+
+    manageMember: async (groupId: number, userId: number, managerId: number, isGuest: boolean) => {
+        const response = await apiFetch(`/groups/${groupId}/members/${userId}/manage`, {
+            method: 'POST',
+            body: JSON.stringify({ user_id: managerId, is_guest: isGuest }),
+        });
+        return response;
+    },
+
+    unmanageMember: async (groupId: number, userId: number) => {
+        const response = await apiFetch(`/groups/${groupId}/members/${userId}/manage`, {
+            method: 'DELETE',
+        });
+        return response;
+    },
+
+    joinPublic: async (shareLinkId: string) => {
+        const response = await apiFetch(`/groups/public/${shareLinkId}/join`, {
+            method: 'POST',
+        });
+        return response;
     },
 };
 

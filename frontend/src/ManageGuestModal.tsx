@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getApiUrl } from './api';
+import { api } from './services/api';
 
 interface GroupMember {
     id: number;
@@ -59,20 +59,11 @@ const ManageGuestModal: React.FC<ManageGuestModalProps> = ({
         setError(null);
 
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(
-                getApiUrl(`groups/${groupId}/guests/${guest.id}/manage`),
-                {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        user_id: selectedManagerId,
-                        is_guest: selectedIsGuest
-                    })
-                }
+            const response = await api.groups.manageGuest(
+                parseInt(groupId),
+                guest.id,
+                selectedManagerId,
+                selectedIsGuest
             );
 
             if (response.ok) {
@@ -94,16 +85,7 @@ const ManageGuestModal: React.FC<ManageGuestModalProps> = ({
         setError(null);
 
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(
-                getApiUrl(`groups/${groupId}/guests/${guest.id}/manage`),
-                {
-                    method: 'DELETE',
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                }
-            );
+            const response = await api.groups.unmanageGuest(parseInt(groupId), guest.id);
 
             if (response.ok) {
                 onGuestUpdated();

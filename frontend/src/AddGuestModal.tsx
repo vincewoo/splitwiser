@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getApiUrl } from './api';
+import { api } from './services/api';
 
 interface AddGuestModalProps {
     isOpen: boolean;
@@ -34,15 +34,7 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({ isOpen, onClose, onGuestA
         setError(null);
 
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(getApiUrl(`groups/${groupId}/guests`), {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ name: name.trim() })
-            });
+            const response = await api.groups.addGuest(parseInt(groupId), name.trim());
 
             if (response.ok) {
                 onGuestAdded();

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { usePageTitle } from './hooks/usePageTitle';
 import { getApiUrl } from './api';
+import { api } from './services/api';
 import EditGroupModal from './EditGroupModal';
 import DeleteGroupConfirm from './DeleteGroupConfirm';
 import AddExpenseModal from './AddExpenseModal';
@@ -135,61 +136,58 @@ const GroupDetailPage: React.FC = () => {
     const isPublicView = !!shareLinkId;
 
     const fetchGroupData = async () => {
-        const token = localStorage.getItem('token');
         setIsLoading(true);
         setError(null);
 
         try {
-            let groupRes, expensesRes, balancesRes, friendsRes;
-
             if (isPublicView) {
-                [groupRes, expensesRes, balancesRes] = await Promise.all([
+                // Public view - no auth needed
+                const [groupRes, expensesRes, balancesRes] = await Promise.all([
                     fetch(getApiUrl(`groups/public/${shareLinkId}`)),
                     fetch(getApiUrl(`groups/public/${shareLinkId}/expenses`)),
                     fetch(getApiUrl(`groups/public/${shareLinkId}/balances`))
                 ]);
-                // Friends API not available in public view
-                friendsRes = { ok: true, json: async () => [] };
-            } else {
-                [groupRes, expensesRes, balancesRes, friendsRes] = await Promise.all([
-                    fetch(getApiUrl(`groups/${groupId}`), {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }),
-                    fetch(getApiUrl(`groups/${groupId}/expenses`), {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }),
-                    fetch(getApiUrl(`groups/${groupId}/balances`), {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }),
-                    fetch(getApiUrl('friends'), {
-                        headers: { Authorization: `Bearer ${token}` }
-                    })
-                ]);
-            }
 
-            if (!groupRes.ok) {
-                if (groupRes.status === 404) {
-                    setError('Group not found');
-                } else if (groupRes.status === 403) {
-                    setError('You are not a member of this group');
-                } else {
-                    setError('Failed to load group');
+                if (!groupRes.ok) {
+                    if (groupRes.status === 404) {
+                        setError('Group not found');
+                    } else {
+                        setError('Failed to load group');
+                    }
+                    setIsLoading(false);
+                    return;
                 }
-                setIsLoading(false);
-                return;
+
+                const groupData = await groupRes.json();
+                const expensesData = await expensesRes.json();
+                const balancesData = await balancesRes.json();
+
+                setGroup(groupData);
+                setExpenses(expensesData);
+                setBalances(balancesData);
+                setFriends([]);
+            } else {
+                // Authenticated view - use API service with automatic token refresh
+                const [groupData, expensesData, balancesData, friendsData] = await Promise.all([
+                    api.groups.getById(parseInt(groupId!)),
+                    api.groups.getExpenses(parseInt(groupId!)),
+                    api.groups.getBalances(parseInt(groupId!)),
+                    api.friends.getAll()
+                ]);
+
+                setGroup(groupData);
+                setExpenses(expensesData);
+                setBalances(balancesData);
+                setFriends(friendsData);
             }
-
-            const groupData = await groupRes.json();
-            const expensesData = await expensesRes.json();
-            const balancesData = await balancesRes.json();
-            const friendsData = await friendsRes.json();
-
-            setGroup(groupData);
-            setExpenses(expensesData);
-            setBalances(balancesData);
-            setFriends(friendsData);
-        } catch (err) {
-            setError('Failed to load group data');
+        } catch (err: any) {
+            if (err.message?.includes('404') || err.message?.includes('not found')) {
+                setError('Group not found');
+            } else if (err.message?.includes('403')) {
+                setError('You are not a member of this group');
+            } else {
+                setError('Failed to load group data');
+            }
         } finally {
             setIsLoading(false);
         }
@@ -223,25 +221,30 @@ const GroupDetailPage: React.FC = () => {
     };
 
     const handleRemoveMember = async (userId: number) => {
-        const token = localStorage.getItem('token');
-        const response = await fetch(getApiUrl(`groups/${groupId}/members/${userId}`), {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` }
-        });
+        try {
+            const response = await api.groups.removeMember(parseInt(groupId!), userId);
 
-        if (response.ok) {
-            // If user removed themselves, navigate back to dashboard
-            if (userId === user?.id) {
-                navigate('/');
+            if (response.ok) {
+                // If user removed themselves, navigate back to dashboard
+                if (userId === user?.id) {
+                    navigate('/');
+                } else {
+                    fetchGroupData();
+                }
             } else {
-                fetchGroupData();
+                const err = await response.json();
+                setAlertDialog({
+                    isOpen: true,
+                    title: 'Error',
+                    message: err.detail || 'Failed to remove member',
+                    type: 'error'
+                });
             }
-        } else {
-            const err = await response.json();
+        } catch (error) {
             setAlertDialog({
                 isOpen: true,
                 title: 'Error',
-                message: err.detail || 'Failed to remove member',
+                message: 'Failed to remove member',
                 type: 'error'
             });
         }
@@ -252,40 +255,50 @@ const GroupDetailPage: React.FC = () => {
     };
 
     const handleRemoveGuest = async (guestId: number) => {
-        const token = localStorage.getItem('token');
-        const response = await fetch(getApiUrl(`groups/${groupId}/guests/${guestId}`), {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` }
-        });
+        try {
+            const response = await api.groups.removeGuest(parseInt(groupId!), guestId);
 
-        if (response.ok) {
-            fetchGroupData();
-        } else {
-            const err = await response.json();
+            if (response.ok) {
+                fetchGroupData();
+            } else {
+                const err = await response.json();
+                setAlertDialog({
+                    isOpen: true,
+                    title: 'Error',
+                    message: err.detail || 'Failed to remove guest',
+                    type: 'error'
+                });
+            }
+        } catch (error) {
             setAlertDialog({
                 isOpen: true,
                 title: 'Error',
-                message: err.detail || 'Failed to remove guest',
+                message: 'Failed to remove guest',
                 type: 'error'
             });
         }
     };
 
     const handleClaimGuest = async (guestId: number) => {
-        const token = localStorage.getItem('token');
-        const response = await fetch(getApiUrl(`groups/${groupId}/guests/${guestId}/claim`), {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` }
-        });
+        try {
+            const response = await api.groups.claimGuest(parseInt(groupId!), guestId);
 
-        if (response.ok) {
-            fetchGroupData();
-        } else {
-            const err = await response.json();
+            if (response.ok) {
+                fetchGroupData();
+            } else {
+                const err = await response.json();
+                setAlertDialog({
+                    isOpen: true,
+                    title: 'Error',
+                    message: err.detail || 'Failed to claim guest',
+                    type: 'error'
+                });
+            }
+        } catch (error) {
             setAlertDialog({
                 isOpen: true,
                 title: 'Error',
-                message: err.detail || 'Failed to claim guest',
+                message: 'Failed to claim guest',
                 type: 'error'
             });
         }
@@ -306,11 +319,7 @@ const GroupDetailPage: React.FC = () => {
         if (!group || !groupId) return;
 
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(getApiUrl(`groups/${groupId}/share`), {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const response = await api.groups.share(parseInt(groupId));
 
             if (response.ok) {
                 const updatedGroup = await response.json();
@@ -430,11 +439,7 @@ const GroupDetailPage: React.FC = () => {
         if (!shareLinkId) return;
 
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(getApiUrl(`groups/public/${shareLinkId}/join`), {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const response = await api.groups.joinPublic(shareLinkId);
 
             if (response.ok) {
                 const result = await response.json();
