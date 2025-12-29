@@ -9,8 +9,12 @@ import re
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 
-# Import old parser for fallback (using relative import within ocr package)
-from .parser import parse_receipt_items as parse_receipt_items_v1
+# Import old parser for fallback
+# Use try/except to handle both package import (server) and direct import (tests)
+try:
+    from .parser import parse_receipt_items as parse_receipt_items_v1
+except ImportError:
+    from parser import parse_receipt_items as parse_receipt_items_v1
 
 
 @dataclass
@@ -37,11 +41,31 @@ def extract_bounding_box(vertices) -> Tuple[float, float, float, float]:
     """
     Extract bounding box coordinates from Vision API vertices.
 
+    Handles both attribute-style access (v.x) and dict-style access (v['x'])
+    for compatibility across different google-cloud-vision library versions.
+
     Returns:
         (x, y, width, height) where x,y is top-left corner
     """
-    xs = [v.x for v in vertices]
-    ys = [v.y for v in vertices]
+    def get_coord(v, attr):
+        """Get coordinate from vertex, handling both object and dict access."""
+        try:
+            # Try attribute access first (protobuf objects)
+            return getattr(v, attr, None) or 0
+        except (TypeError, AttributeError):
+            pass
+        try:
+            # Try dict-style access
+            return v.get(attr, 0) if isinstance(v, dict) else 0
+        except (TypeError, AttributeError):
+            return 0
+
+    xs = [get_coord(v, 'x') for v in vertices]
+    ys = [get_coord(v, 'y') for v in vertices]
+
+    # Handle empty or invalid vertices
+    if not xs or not ys or all(x == 0 for x in xs):
+        return (0, 0, 0, 0)
 
     x = min(xs)
     y = min(ys)
@@ -74,6 +98,9 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
 
     # Skip first annotation (full text), use individual word/phrase annotations
     text_blocks = []
+    valid_blocks = 0
+    zero_coord_blocks = 0
+
     for annotation in vision_response.text_annotations[1:]:  # Skip [0] which is full text
         text = annotation.description.strip()
         if not text:
@@ -82,6 +109,13 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
         vertices = annotation.bounding_poly.vertices
         x, y, width, height = extract_bounding_box(vertices)
 
+        # Track blocks with zero coordinates (indicates parsing issue)
+        if x == 0 and y == 0 and width == 0 and height == 0:
+            zero_coord_blocks += 1
+            continue  # Skip invalid blocks
+        else:
+            valid_blocks += 1
+
         text_blocks.append(TextBlock(
             text=text,
             x=x,
@@ -89,6 +123,10 @@ def parse_receipt_items_v2(vision_response) -> List[Dict[str, any]]:
             width=width,
             height=height
         ))
+
+    # Log if we're losing blocks to coordinate parsing issues
+    if zero_coord_blocks > 0:
+        print(f"[V2 Parser] Warning: {zero_coord_blocks} blocks had invalid coordinates (skipped), {valid_blocks} valid blocks")
 
     if not text_blocks:
         return []
