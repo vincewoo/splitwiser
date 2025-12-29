@@ -41,7 +41,9 @@ def calculate_net_balances(
                 if expense.exchange_rate:
                     try:
                         rate = float(expense.exchange_rate)
-                        amount_usd = split.amount_owed * rate
+                        # exchange_rate represents: 1 USD = X of expense currency
+                        # So to convert from expense currency to USD: divide by rate
+                        amount_usd = split.amount_owed / rate
                     except ValueError:
                         amount_usd = convert_to_usd(split.amount_owed, expense.currency)
                 else:

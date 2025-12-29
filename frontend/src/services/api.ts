@@ -233,8 +233,11 @@ export const groupsApi = {
         return response;
     },
 
-    getBalances: async (groupId: number) => {
-        const response = await apiFetch(`/groups/${groupId}/balances`);
+    getBalances: async (groupId: number, convertTo?: string) => {
+        const url = convertTo
+            ? `/groups/${groupId}/balances?convert_to=${convertTo}`
+            : `/groups/${groupId}/balances`;
+        const response = await apiFetch(url);
         if (!response.ok) throw new Error('Failed to fetch group balances');
         return response.json();
     },

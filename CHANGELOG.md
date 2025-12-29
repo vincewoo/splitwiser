@@ -36,6 +36,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - 2025-12-29
 
+#### Critical: Fixed Exchange Rate Conversion in Debt Simplification
+- **CRITICAL BUG FIX**: Fixed incorrect exchange rate conversion that was inflating/deflating balances
+- The `calculate_net_balances` function was multiplying by exchange rate instead of dividing
+- This caused simplified debts to be incorrect when expenses were in multiple currencies
+- Exchange rates are stored as "1 USD = X of currency", so conversion to USD requires division
+- Example: 322.51 CAD with rate 1.38 → should be 233.70 USD (dividing), not 445.06 USD (multiplying)
+
+**Impact:**
+- Groups with multi-currency expenses (CAD, EUR, etc.) had incorrect simplified debt amounts
+- Balance display was correct (uses original currency), but debt simplification was wrong
+- Discrepancies could be significant (30-50%+ difference in some cases)
+
+**Backend Changes:**
+- `backend/utils/balances.py:46` - Changed `amount_usd = split.amount_owed * rate` to `amount_usd = split.amount_owed / rate`
+- Added clarifying comment about exchange rate direction
+
+#### Fixed: Balance Display Now Uses Historical Exchange Rates
+- **IMPORTANT**: Balance conversion now uses historical exchange rates instead of current rates
+- Frontend was converting balances using current exchange rates from `/exchange_rates` endpoint
+- This was inaccurate for historical expenses - e.g., a $100 CAD expense from 2024 was being converted using today's rate
+- Backend now handles all currency conversion using the cached historical rates from when expenses were created
+
+**Backend Changes:**
+- `backend/routers/balances.py` - Added `convert_to` query parameter to `/groups/{group_id}/balances` endpoint
+- When `convert_to` is specified, backend converts all balances using historical exchange rates
+- Uses same `calculate_net_balances()` function as debt simplification for consistency
+
+**Frontend Changes:**
+- `frontend/src/services/api.ts` - Updated `getBalances()` to accept optional `convertTo` parameter
+- `frontend/src/GroupDetailPage.tsx` - Removed all client-side currency conversion logic
+- Now fetches pre-converted balances from backend when currency toggle changes
+- Removed `exchangeRates` state and `convertCurrency()` function
+- Simplified `renderBalances()` - backend handles all conversion
+
+**User Impact:**
+- Converted balance view now shows historically accurate amounts
+- Matches the debt simplification amounts (both use historical rates)
+- More accurate representation of what was actually owed at the time
+
 #### Debt Simplification Now Respects Management Relationships
 - Fixed debt simplification to properly aggregate managed members and guests with their managers
 - Only "managers" (people who manage others) now appear in simplified transactions

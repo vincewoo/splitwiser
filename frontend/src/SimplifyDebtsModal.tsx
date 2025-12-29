@@ -83,10 +83,11 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
         split_type: 'EQUAL',
         icon: '🏦',
         notes: 'Created by Simplify Debts',
-        participants: [
+        splits: [
           {
             user_id: transaction.to_id,
             is_guest: transaction.to_is_guest,
+            amount_owed: Math.round(transaction.amount), // The payee owes this amount (it's a payment)
           },
         ],
       });

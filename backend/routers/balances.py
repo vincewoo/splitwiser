@@ -27,13 +27,15 @@ router = APIRouter(tags=["balances"])
 def get_group_balances(
     group_id: int,
     current_user: Annotated[models.User, Depends(get_current_user)],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    convert_to: str = None  # Optional: convert all balances to this currency using historical rates
 ):
     get_group_or_404(db, group_id)
     verify_group_membership(db, group_id, current_user.id)
 
-    # Calculate net balances with management relationships aggregated (multi-currency)
-    net_balances = calculate_net_balances(db, group_id, target_currency=None)
+    # Calculate net balances with management relationships aggregated
+    # If convert_to is specified, convert using historical exchange rates
+    net_balances = calculate_net_balances(db, group_id, target_currency=convert_to)
 
     # Get all managed guests and members for breakdown display
     managed_guests = db.query(models.GuestMember).filter(
@@ -104,32 +106,58 @@ def get_group_balances(
 
     # Build response with participant details
     result = []
-    for (participant_id, is_guest), currencies in net_balances.items():
-        if is_guest:
-            guest = db.query(models.GuestMember).filter(models.GuestMember.id == participant_id).first()
-            name = guest.name if guest else "Unknown Guest"
-        else:
-            user = db.query(models.User).filter(models.User.id == participant_id).first()
-            name = (user.full_name or user.email) if user else "Unknown User"
 
-        for currency, amount in currencies.items():
-            if amount != 0:
-                managed_guests_list = []
-                breakdown_key = (participant_id, is_guest, currency)
-                if breakdown_key in manager_guest_breakdown:
-                    managed_guests_list = [
-                        f"{guest_name} ({format_currency(amount, currency)})"
-                        for guest_name, amount in manager_guest_breakdown[breakdown_key]
-                    ]
+    if convert_to:
+        # Single currency mode - net_balances is {(user_id, is_guest): amount}
+        for (participant_id, is_guest), amount in net_balances.items():
+            if amount == 0:
+                continue
 
-                result.append(schemas.GroupBalance(
-                    user_id=participant_id,
-                    is_guest=is_guest,
-                    full_name=name,
-                    amount=amount,
-                    currency=currency,
-                    managed_guests=managed_guests_list
-                ))
+            if is_guest:
+                guest = db.query(models.GuestMember).filter(models.GuestMember.id == participant_id).first()
+                name = guest.name if guest else "Unknown Guest"
+            else:
+                user = db.query(models.User).filter(models.User.id == participant_id).first()
+                name = (user.full_name or user.email) if user else "Unknown User"
+
+            # For converted view, we don't show managed guest breakdown
+            # (it would be confusing since the breakdown amounts are in different currencies)
+            result.append(schemas.GroupBalance(
+                user_id=participant_id,
+                is_guest=is_guest,
+                full_name=name,
+                amount=int(amount),
+                currency=convert_to,
+                managed_guests=[]
+            ))
+    else:
+        # Multi-currency mode - net_balances is {(user_id, is_guest): {currency: amount}}
+        for (participant_id, is_guest), currencies in net_balances.items():
+            if is_guest:
+                guest = db.query(models.GuestMember).filter(models.GuestMember.id == participant_id).first()
+                name = guest.name if guest else "Unknown Guest"
+            else:
+                user = db.query(models.User).filter(models.User.id == participant_id).first()
+                name = (user.full_name or user.email) if user else "Unknown User"
+
+            for currency, amount in currencies.items():
+                if amount != 0:
+                    managed_guests_list = []
+                    breakdown_key = (participant_id, is_guest, currency)
+                    if breakdown_key in manager_guest_breakdown:
+                        managed_guests_list = [
+                            f"{guest_name} ({format_currency(amount, currency)})"
+                            for guest_name, amount in manager_guest_breakdown[breakdown_key]
+                        ]
+
+                    result.append(schemas.GroupBalance(
+                        user_id=participant_id,
+                        is_guest=is_guest,
+                        full_name=name,
+                        amount=amount,
+                        currency=currency,
+                        managed_guests=managed_guests_list
+                    ))
 
     return result
 

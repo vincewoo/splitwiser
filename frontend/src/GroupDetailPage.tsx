@@ -125,7 +125,6 @@ const GroupDetailPage: React.FC = () => {
     const [isExpenseDetailOpen, setIsExpenseDetailOpen] = useState(false);
 
     const [showInGroupCurrency, setShowInGroupCurrency] = useState(true);
-    const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({ USD: 1 });
     const [isMembersExpanded, setIsMembersExpanded] = useState(!!shareLinkId);
     const [isSimplifyDebtsModalOpen, setIsSimplifyDebtsModalOpen] = useState(false);
     const [isBalancesExpanded, setIsBalancesExpanded] = useState(true);
@@ -137,6 +136,24 @@ const GroupDetailPage: React.FC = () => {
 
     const isPublicView = !!shareLinkId;
 
+    const fetchBalances = async (convertTo?: string) => {
+        try {
+            if (isPublicView) {
+                const url = convertTo
+                    ? `groups/public/${shareLinkId}/balances?convert_to=${convertTo}`
+                    : `groups/public/${shareLinkId}/balances`;
+                const response = await fetch(getApiUrl(url));
+                const balancesData = await response.json();
+                setBalances(balancesData);
+            } else {
+                const balancesData = await api.groups.getBalances(parseInt(groupId!), convertTo);
+                setBalances(balancesData);
+            }
+        } catch (err) {
+            console.error('Failed to fetch balances:', err);
+        }
+    };
+
     const fetchGroupData = async () => {
         setIsLoading(true);
         setError(null);
@@ -144,10 +161,9 @@ const GroupDetailPage: React.FC = () => {
         try {
             if (isPublicView) {
                 // Public view - no auth needed
-                const [groupRes, expensesRes, balancesRes] = await Promise.all([
+                const [groupRes, expensesRes] = await Promise.all([
                     fetch(getApiUrl(`groups/public/${shareLinkId}`)),
-                    fetch(getApiUrl(`groups/public/${shareLinkId}/expenses`)),
-                    fetch(getApiUrl(`groups/public/${shareLinkId}/balances`))
+                    fetch(getApiUrl(`groups/public/${shareLinkId}/expenses`))
                 ]);
 
                 if (!groupRes.ok) {
@@ -162,25 +178,27 @@ const GroupDetailPage: React.FC = () => {
 
                 const groupData = await groupRes.json();
                 const expensesData = await expensesRes.json();
-                const balancesData = await balancesRes.json();
 
                 setGroup(groupData);
                 setExpenses(expensesData);
-                setBalances(balancesData);
                 setFriends([]);
+
+                // Fetch balances separately to use conversion parameter
+                await fetchBalances(showInGroupCurrency ? groupData.default_currency : undefined);
             } else {
                 // Authenticated view - use API service with automatic token refresh
-                const [groupData, expensesData, balancesData, friendsData] = await Promise.all([
+                const [groupData, expensesData, friendsData] = await Promise.all([
                     api.groups.getById(parseInt(groupId!)),
                     api.groups.getExpenses(parseInt(groupId!)),
-                    api.groups.getBalances(parseInt(groupId!)),
                     api.friends.getAll()
                 ]);
 
                 setGroup(groupData);
                 setExpenses(expensesData);
-                setBalances(balancesData);
                 setFriends(friendsData);
+
+                // Fetch balances separately to use conversion parameter
+                await fetchBalances(showInGroupCurrency ? groupData.default_currency : undefined);
             }
         } catch (err: any) {
             if (err.message?.includes('404') || err.message?.includes('not found')) {
@@ -198,13 +216,15 @@ const GroupDetailPage: React.FC = () => {
     useEffect(() => {
         if (groupId || shareLinkId) {
             fetchGroupData();
-            // Fetch exchange rates
-            fetch(getApiUrl('exchange_rates'))
-                .then(res => res.json())
-                .then(data => setExchangeRates(data))
-                .catch(err => console.error('Failed to fetch exchange rates:', err));
         }
     }, [groupId, shareLinkId]);
+
+    // Refetch balances when currency toggle changes
+    useEffect(() => {
+        if (group) {
+            fetchBalances(showInGroupCurrency ? group.default_currency : undefined);
+        }
+    }, [showInGroupCurrency]);
 
     // Redirect logged-in members from public link to full authenticated view
     useEffect(() => {
@@ -497,123 +517,38 @@ const GroupDetailPage: React.FC = () => {
         return member?.full_name || 'Unknown';
     };
 
-    const convertCurrency = (amount: number, fromCurrency: string, toCurrency: string): number => {
-        if (fromCurrency === toCurrency) return amount;
-        if (!exchangeRates[fromCurrency] || !exchangeRates[toCurrency]) return amount;
-
-        // Convert to USD first, then to target currency
-        const amountInUSD = amount / exchangeRates[fromCurrency];
-        return amountInUSD * exchangeRates[toCurrency];
-    };
-
-    const getProcessedBalances = () => {
-        if (showInGroupCurrency && group?.default_currency) {
-            // Convert all balances to group's default currency
-            const converted = balances.map(balance => {
-                // Convert the main balance amount
-                const convertedAmount = convertCurrency(balance.amount, balance.currency, group.default_currency);
-
-                // Convert managed_guests amounts if they exist
-                let convertedManagedGuests = balance.managed_guests;
-                if (balance.managed_guests && balance.managed_guests.length > 0 && balance.currency !== group.default_currency) {
-                    convertedManagedGuests = balance.managed_guests.map(guestStr => {
-                        // Parse "Guest Name ($12.34)" or "Guest Name (-$12.34)" format
-                        const match = guestStr.match(/^(.+?)\s*\(([+-]?[^\d]*)([\d.]+)\)$/);
-                        if (match) {
-                            const guestName = match[1];
-                            const sign = match[2].includes('-') ? -1 : 1;
-                            const amount = parseFloat(match[3]) * 100 * sign; // Convert to cents
-                            const convertedGuestAmount = convertCurrency(amount, balance.currency, group.default_currency);
-                            return `${guestName} (${formatMoney(convertedGuestAmount, group.default_currency)})`;
-                        }
-                        return guestStr; // Return unchanged if parsing fails
-                    });
-                }
-
-                return {
-                    ...balance,
-                    amount: convertedAmount,
-                    currency: group.default_currency,
-                    managed_guests: convertedManagedGuests
-                };
-            });
-
-            // Aggregate by user (combine amounts now in same currency)
-            const aggregated: Record<string, GroupBalance> = {};
-            converted.forEach(balance => {
-                const key = `${balance.user_id}_${balance.is_guest}`;
-                if (aggregated[key]) {
-                    aggregated[key].amount += balance.amount;
-                    // Merge and consolidate managed_guests arrays
-                    if (balance.managed_guests && balance.managed_guests.length > 0) {
-                        const existingGuests = aggregated[key].managed_guests || [];
-                        const allGuests = [...existingGuests, ...balance.managed_guests];
-
-                        // Parse, group by guest name, and sum amounts
-                        const guestMap: Record<string, number> = {};
-                        allGuests.forEach(guestStr => {
-                            // Parse "Guest Name ($12.34)" or "Guest Name (-$12.34)" format
-                            const match = guestStr.match(/^(.+?)\s*\(([+-]?[^\d]*)([\d.]+)\)$/);
-                            if (match) {
-                                const guestName = match[1];
-                                const sign = match[2].includes('-') ? -1 : 1;
-                                const amount = parseFloat(match[3]) * sign;
-                                guestMap[guestName] = (guestMap[guestName] || 0) + amount;
-                            }
-                        });
-
-                        // Re-format consolidated guests with currency symbols
-                        const currency = group.default_currency;
-                        aggregated[key].managed_guests = Object.entries(guestMap).map(
-                            ([name, amount]) => `${name} (${formatMoney(amount * 100, currency)})`
-                        );
-                    }
-                } else {
-                    aggregated[key] = { ...balance };
-                }
-            });
-
-            return Object.values(aggregated).filter(b => Math.abs(b.amount) > 0.01);
-        } else {
-            // Group by currency - sort so same currency appears together
-            return [...balances].sort((a, b) => {
-                if (a.currency !== b.currency) {
-                    return a.currency.localeCompare(b.currency);
-                }
-                return a.full_name.localeCompare(b.full_name);
-            });
-        }
-    };
-
-    const renderBalancesByCurrency = () => {
-        const processedBalances = getProcessedBalances();
-
-        // Group balances by currency for display
-        const byCurrency: Record<string, GroupBalance[]> = {};
-        processedBalances.forEach(balance => {
-            if (!byCurrency[balance.currency]) {
-                byCurrency[balance.currency] = [];
+    const renderBalances = () => {
+        // Backend now handles currency conversion, so we just need to render
+        const sortedBalances = [...balances].sort((a, b) => {
+            // If showing by currency, group by currency first
+            if (!showInGroupCurrency && a.currency !== b.currency) {
+                return a.currency.localeCompare(b.currency);
             }
-            byCurrency[balance.currency].push(balance);
+            // Then sort: "You" first, then alphabetically
+            if (a.full_name === 'You') return -1;
+            if (b.full_name === 'You') return 1;
+            return a.full_name.localeCompare(b.full_name);
         });
 
-        return (
-            <div className="space-y-4">
-                {Object.entries(byCurrency).map(([currency, balanceList]) => {
-                    // Sort: "You" first, then alphabetically
-                    const sortedList = [...balanceList].sort((a, b) => {
-                        if (a.full_name === 'You') return -1;
-                        if (b.full_name === 'You') return 1;
-                        return a.full_name.localeCompare(b.full_name);
-                    });
+        if (!showInGroupCurrency) {
+            // Group by currency for display
+            const byCurrency: Record<string, GroupBalance[]> = {};
+            sortedBalances.forEach(balance => {
+                if (!byCurrency[balance.currency]) {
+                    byCurrency[balance.currency] = [];
+                }
+                byCurrency[balance.currency].push(balance);
+            });
 
-                    return (
+            return (
+                <div className="space-y-4">
+                    {Object.entries(byCurrency).map(([currency, balanceList]) => (
                         <div key={currency}>
                             <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">
                                 {currency}
                             </h3>
                             <ul className="space-y-2">
-                                {sortedList.map((balance, idx) => (
+                                {balanceList.map((balance, idx) => (
                                     <li key={`${balance.user_id}_${balance.is_guest}_${idx}`}
                                         className="flex items-center justify-between py-2">
                                         <div className="flex flex-col">
@@ -634,22 +569,12 @@ const GroupDetailPage: React.FC = () => {
                                 ))}
                             </ul>
                         </div>
-                    );
-                })}
-            </div>
-        );
-    };
+                    ))}
+                </div>
+            );
+        }
 
-    const renderBalancesConverted = () => {
-        const processedBalances = getProcessedBalances();
-
-        // Sort: "You" first, then alphabetically
-        const sortedBalances = [...processedBalances].sort((a, b) => {
-            if (a.full_name === 'You') return -1;
-            if (b.full_name === 'You') return 1;
-            return a.full_name.localeCompare(b.full_name);
-        });
-
+        // Converted view - all in one currency
         return (
             <ul className="space-y-2">
                 {sortedBalances.map((balance, index) => (
@@ -673,6 +598,7 @@ const GroupDetailPage: React.FC = () => {
             </ul>
         );
     };
+
 
     if (isLoading) {
         return (
@@ -915,8 +841,7 @@ const GroupDetailPage: React.FC = () => {
                                 <p className="text-gray-500 dark:text-gray-400 italic text-sm mt-4">No balances yet</p>
                             ) : (
                                 <div className="mt-4">
-                                    {!showInGroupCurrency && renderBalancesByCurrency()}
-                                    {showInGroupCurrency && renderBalancesConverted()}
+                                    {renderBalances()}
 
                                     {/* Simplify Debts Button */}
                                     {!isPublicView && balances.some(b => b.amount !== 0) && (
