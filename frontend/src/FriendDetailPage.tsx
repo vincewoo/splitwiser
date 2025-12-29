@@ -153,6 +153,9 @@ const FriendDetailPage: React.FC = () => {
                                 <h1 className="text-lg lg:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate">
                                     {friend.full_name}
                                 </h1>
+                                <p className="text-xs lg:text-sm text-gray-500 dark:text-gray-400 truncate">
+                                    {friend.email}
+                                </p>
                             </div>
                         </div>
                     </div>
