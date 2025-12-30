@@ -1,6 +1,9 @@
 from google.cloud import vision
 from google.api_core import exceptions as google_exceptions
+import google.auth.exceptions
+import logging
 
+logger = logging.getLogger(__name__)
 
 class OCRService:
     """
@@ -10,7 +13,14 @@ class OCRService:
 
     def __init__(self):
         """Initialize Google Cloud Vision client."""
-        self.client = vision.ImageAnnotatorClient()
+        try:
+            self.client = vision.ImageAnnotatorClient()
+        except google.auth.exceptions.DefaultCredentialsError:
+            logger.warning("Google Cloud Credentials not found. OCR service will not work.")
+            self.client = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize OCR service: {e}")
+            self.client = None
 
     def extract_text(self, image_bytes: bytes):
         """
@@ -24,8 +34,11 @@ class OCRService:
             First annotation contains full text, subsequent ones are individual words.
 
         Raises:
-            Exception: If Vision API returns an error
+            Exception: If Vision API returns an error or client is not initialized
         """
+        if not self.client:
+            raise Exception("OCR service is not available (missing credentials)")
+
         image = vision.Image(content=image_bytes)
         response = self.client.text_detection(image=image)
 
