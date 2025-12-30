@@ -452,23 +452,60 @@ def get_group_expenses(
     get_group_or_404(db, group_id)
     verify_group_membership(db, group_id, current_user.id)
 
+    # 1. Fetch all expenses
     expenses = db.query(models.Expense).filter(
         models.Expense.group_id == group_id
     ).order_by(models.Expense.date.desc(), models.Expense.id.desc()).all()
 
-    # Include splits for each expense
+    if not expenses:
+        return []
+
+    expense_ids = [e.id for e in expenses]
+
+    # 2. Fetch all splits for these expenses
+    all_splits = db.query(models.ExpenseSplit).filter(
+        models.ExpenseSplit.expense_id.in_(expense_ids)
+    ).all()
+
+    # Group splits by expense_id
+    splits_by_expense = {}
+    user_ids = set()
+    guest_ids = set()
+
+    for split in all_splits:
+        if split.expense_id not in splits_by_expense:
+            splits_by_expense[split.expense_id] = []
+        splits_by_expense[split.expense_id].append(split)
+
+        if split.is_guest:
+            guest_ids.add(split.user_id)
+        else:
+            user_ids.add(split.user_id)
+
+    # 3. Batch fetch users and guests
+    users = {}
+    if user_ids:
+        user_records = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+        users = {u.id: u for u in user_records}
+
+    guests = {}
+    if guest_ids:
+        guest_records = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids)).all()
+        guests = {g.id: g for g in guest_records}
+
+    # 4. Assemble the result
     result = []
     for expense in expenses:
-        splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+        expense_splits = splits_by_expense.get(expense.id, [])
 
         # Build splits with user names
         splits_with_names = []
-        for split in splits:
+        for split in expense_splits:
             if split.is_guest:
-                guest = db.query(models.GuestMember).filter(models.GuestMember.id == split.user_id).first()
-                user_name = get_guest_display_name(guest, db)
+                guest = guests.get(split.user_id)
+                user_name = get_guest_display_name(guest, db) if guest else "Unknown Guest"
             else:
-                user = db.query(models.User).filter(models.User.id == split.user_id).first()
+                user = users.get(split.user_id)
                 user_name = (user.full_name or user.email) if user else "Unknown User"
 
             splits_with_names.append(schemas.ExpenseSplitDetail(
