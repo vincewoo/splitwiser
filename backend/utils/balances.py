@@ -92,6 +92,17 @@ def calculate_net_balances(
     ).all()
 
     for guest in managed_guests:
+        # Defensive check: claimed guests should not have managed_by set
+        # This would cause double-counting since the user inherits the management relationship
+        if guest.claimed_by_id and guest.managed_by_id:
+            import logging
+            logging.warning(
+                f"Data integrity issue: Claimed guest '{guest.name}' (ID: {guest.id}) "
+                f"has managed_by_id={guest.managed_by_id} set. This should be None. "
+                f"Skipping aggregation to prevent double-counting."
+            )
+            continue
+
         if guest.claimed_by_id:
             # If guest is claimed, their balance is now under the user ID
             guest_key = (guest.claimed_by_id, False)

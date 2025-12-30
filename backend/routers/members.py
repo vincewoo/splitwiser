@@ -253,6 +253,11 @@ def claim_guest(
 
         db.add(new_member)
 
+    # Clear the guest's managed_by fields to prevent double-counting in balance calculations
+    # The management relationship has been transferred to the GroupMember above
+    guest.managed_by_id = None
+    guest.managed_by_type = None
+
     db.commit()
 
     return {
