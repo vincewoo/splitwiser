@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -5,7 +6,7 @@ import bcrypt
 import secrets
 import hashlib
 
-SECRET_KEY = "your-secret-key-keep-it-secret" # In prod use env var
+SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-keep-it-secret")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Short-lived access token
 REFRESH_TOKEN_EXPIRE_DAYS = 30  # Long-lived refresh token
