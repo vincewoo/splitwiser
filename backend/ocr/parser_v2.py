@@ -533,7 +533,7 @@ def contains_metadata(text: str) -> bool:
         r'receipt\s*#',
         r'transaction\s*#',
         r'order\s*#',
-        r'table\s*[#\w]',                   # "Table #5" or "Table B2"
+        r'\btable\s+[#t]?\d+\b',              # "Table #5" or "Table T6" (word boundary)
         r'check\s*#',
         r'server[:\s]',                      # "Server:" or "Server Pixie"
         r'cashier[:\s]',
@@ -625,7 +625,7 @@ def should_filter_item(description: str, line: List[TextBlock], price_cents: int
         r'receipt\s*#',
         r'transaction\s*#',
         r'order\s*#',
-        r'table\s*#',
+        r'\btable\s+[#t]?\d+\b',
         r'check\s*#',
         r'server:',
         r'server\s+\w+',                    # "Server: Pixie I"
@@ -795,38 +795,61 @@ def parse_receipt_with_validation(vision_response) -> Dict[str, any]:
     Returns:
         Dict with items and validation info
     """
-    # Parse items using V2 parser first
-    items = parse_receipt_items_v2(vision_response)
-
-    # Fallback: if V2 found nothing, try the old line-based parser
-    if not items:
-        items_old = parse_receipt_items_v1(vision_response)
-        if items_old:
-            print(f"[V2 Fallback] V2 found 0 items, using old parser which found {len(items_old)}")
-            items = items_old
-
-    # Get raw text for total/tax detection
+    # Get raw text for total/tax detection (needed for smart fallback)
     raw_text = get_raw_text(vision_response)
 
-    # Detect subtotal, total and tax from receipt
+    # Detect subtotal early for smart fallback comparison
     detected_subtotal = detect_receipt_subtotal(raw_text)
     detected_total = detect_receipt_total(raw_text)
     detected_tax = detect_receipt_tax(raw_text)
 
-    # Calculate sum of parsed items
+    # Determine expected subtotal for validation
+    expected_subtotal = None
+    if detected_subtotal is not None:
+        expected_subtotal = detected_subtotal
+    elif detected_total is not None and detected_tax is not None:
+        expected_subtotal = detected_total - detected_tax
+
+    # Parse items using V2 parser first
+    items = parse_receipt_items_v2(vision_response)
+    items_old = parse_receipt_items_v1(vision_response)
+
+    # Smart fallback: compare V2 and old parser results
+    v2_subtotal = sum(item['price'] for item in items)
+    old_subtotal = sum(item['price'] for item in items_old)
+
+    use_old_parser = False
+    fallback_reason = None
+
+    if not items and items_old:
+        # V2 found nothing, old parser found something
+        use_old_parser = True
+        fallback_reason = f"V2 found 0 items, old parser found {len(items_old)}"
+    elif expected_subtotal is not None:
+        # Compare which parser is closer to the expected subtotal
+        v2_diff = abs(v2_subtotal - expected_subtotal)
+        old_diff = abs(old_subtotal - expected_subtotal)
+
+        # Use old parser if it's significantly closer to expected subtotal
+        # (at least $2 closer and within $1 of expected)
+        if old_diff < v2_diff - 200 and old_diff <= 100:
+            use_old_parser = True
+            fallback_reason = (
+                f"Old parser closer to subtotal: "
+                f"V2=${v2_subtotal/100:.2f} (diff=${v2_diff/100:.2f}), "
+                f"Old=${old_subtotal/100:.2f} (diff=${old_diff/100:.2f}), "
+                f"Expected=${expected_subtotal/100:.2f}"
+            )
+
+    if use_old_parser:
+        print(f"[V2 Fallback] {fallback_reason}")
+        items = items_old
+
+    # Calculate sum of parsed items (for final validation)
     calculated_subtotal = sum(item['price'] for item in items)
 
     # Validate and generate warning if needed
     validation_warning = None
-
-    # Determine expected subtotal - prefer detected subtotal over calculated
-    expected_subtotal = None
-    if detected_subtotal is not None:
-        # Best case: we have an explicit subtotal on the receipt
-        expected_subtotal = detected_subtotal
-    elif detected_total is not None and detected_tax is not None:
-        # Fallback: calculate subtotal from total minus tax
-        expected_subtotal = detected_total - detected_tax
 
     if expected_subtotal is not None:
         # Check if our parsed items match expected subtotal
