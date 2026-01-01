@@ -1,0 +1,36 @@
+# Fly.io Configuration for Splitwiser
+# Deploy with: fly deploy
+
+app = 'splitwiser'
+primary_region = 'sjc'
+
+[build]
+  dockerfile = "Dockerfile.fly"
+
+[env]
+  DATABASE_PATH = "/data/db.sqlite3"
+  DATA_DIR = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "30s"
+  method = "GET"
+  path = "/api/docs"
+  timeout = "10s"
+
+[mounts]
+  source = "splitwiser_data"
+  destination = "/data"
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1

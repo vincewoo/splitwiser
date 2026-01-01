@@ -278,3 +278,176 @@ sudo docker cp splitwiser-backend:/data/db.sqlite3 ./backup.sqlite3
 - Tailscale provides encrypted tunnel for all traffic
 - HTTPS is terminated at Tailscale Funnel (automatic certificates)
 - Database is only accessible within the container network
+
+---
+
+# Fly.io Deployment (Alternative)
+
+This section covers deploying Splitwiser to Fly.io instead of Synology NAS.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Fly.io Edge Network                   │
+│                  (HTTPS termination)                     │
+│                    port 443 → 8080                       │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────┐
+│              Unified Container (Supervisor)              │
+│  ┌────────────────┐  ┌────────────────────────────────┐ │
+│  │  Nginx :8080   │  │  FastAPI :8000 (internal)      │ │
+│  │  (React SPA)   │──▶│  SQLite: /data/db.sqlite3     │ │
+│  └────────────────┘  └────────────────────────────────┘ │
+│                          │                               │
+│                    ┌─────▼────┐                          │
+│                    │ Fly Vol  │                          │
+│                    │  /data   │                          │
+│                    └──────────┘                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Prerequisites
+
+- [Fly.io account](https://fly.io)
+- [flyctl CLI](https://fly.io/docs/hands-on/install-flyctl/) installed
+
+## Initial Setup
+
+### 1. Login to Fly.io
+
+```bash
+fly auth login
+```
+
+### 2. Create the app (first time only)
+
+```bash
+cd /path/to/splitwiser
+fly apps create splitwiser
+```
+
+### 3. Create persistent volume
+
+```bash
+fly volumes create splitwiser_data --region sjc --size 1
+```
+
+### 4. Set secrets
+
+```bash
+# Required: JWT secret key
+fly secrets set SECRET_KEY="your-secure-secret-key-here"
+
+# Optional: Google Cloud credentials for OCR (base64 encoded)
+cat path/to/google-credentials.json | base64 | fly secrets set GOOGLE_CREDENTIALS_BASE64=-
+```
+
+### 5. Deploy
+
+```bash
+fly deploy
+```
+
+## Migrating from Synology
+
+To migrate your existing database from Synology:
+
+### 1. Export database from Synology
+
+```bash
+# On your local machine
+ssh user@synology "sudo docker cp splitwiser-backend:/data/db.sqlite3 /tmp/"
+scp user@synology:/tmp/db.sqlite3 ./db.sqlite3
+```
+
+### 2. Upload to Fly.io
+
+```bash
+# Connect to Fly.io instance
+fly ssh console
+
+# Inside the container:
+# Leave the console (Ctrl+D) and use sftp instead
+```
+
+```bash
+# Upload using sftp
+fly sftp shell
+put db.sqlite3 /data/db.sqlite3
+```
+
+### 3. Restart the app
+
+```bash
+fly apps restart splitwiser
+```
+
+## GitHub Actions (CI/CD)
+
+### 1. Get Fly.io API token
+
+```bash
+fly tokens create deploy -x 999999h
+```
+
+### 2. Add GitHub secret
+
+Go to your repo → Settings → Secrets and variables → Actions → New repository secret:
+
+| Secret | Value |
+|--------|-------|
+| `FLY_API_TOKEN` | The token from step 1 |
+
+### 3. Deploy
+
+Push to `main` branch to trigger automatic deployment via `.github/workflows/deploy-fly.yml`.
+
+## Useful Commands
+
+```bash
+# View app status
+fly status
+
+# View logs
+fly logs
+
+# SSH into container
+fly ssh console
+
+# Scale to 0 (pause - saves money)
+fly scale count 0
+
+# Scale back up
+fly scale count 1
+
+# Check volume
+fly volumes list
+```
+
+## Troubleshooting
+
+### Check container processes
+```bash
+fly ssh console
+ps aux
+```
+
+### View supervisor logs
+```bash
+fly ssh console
+cat /var/log/supervisor/supervisord.log
+```
+
+### Database access
+```bash
+fly ssh console
+sqlite3 /data/db.sqlite3
+```
+
+## Costs
+
+- **Free tier**: 3 shared-cpu-1x VMs with 256MB RAM
+- **Volume**: $0.15/GB/month
+- Estimated monthly cost: **~$0** (within free tier) to **~$5** depending on usage

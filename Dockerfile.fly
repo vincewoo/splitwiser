@@ -1,0 +1,58 @@
+# Multi-stage Dockerfile for Fly.io deployment
+# Combines frontend and backend into a single container
+
+# ============================================
+# Stage 1: Build Frontend
+# ============================================
+FROM node:20-alpine AS frontend-build
+
+WORKDIR /app/frontend
+
+# Copy package files for better caching
+COPY frontend/package*.json ./
+RUN npm ci
+
+# Copy source and build
+COPY frontend/ ./
+RUN npm run build
+
+# ============================================
+# Stage 2: Production Image
+# ============================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install nginx, supervisor, and curl (for healthcheck)
+RUN apt-get update && apt-get install -y \
+    nginx \
+    supervisor \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python requirements and install
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend application
+COPY backend/ ./
+
+# Copy built frontend from build stage
+COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html
+
+# Copy nginx config for Fly.io
+COPY frontend/nginx-fly.conf /etc/nginx/sites-available/default
+RUN rm -f /etc/nginx/sites-enabled/default && \
+    ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+
+# Copy supervisor config
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Create data directory for SQLite
+RUN mkdir -p /data
+
+# Expose the port nginx listens on
+EXPOSE 8080
+
+# Start supervisor which manages nginx and uvicorn
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
