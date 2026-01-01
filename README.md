@@ -296,18 +296,10 @@ source venv/bin/activate
 pytest tests/test_main.py
 ```
 
-### Building for Production
+### Deployment (Fly.io)
 
-```bash
-# Frontend
-cd frontend
-npm run build
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full instructions on deploying to Fly.io.
 
-# Backend
-cd backend
-# Set production environment variables
-# Deploy with gunicorn or similar WSGI server
-```
 
 ## Environment Variables
 

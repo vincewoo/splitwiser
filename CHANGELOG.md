@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-01-01
+
+### Added
+
+#### Infrastructure Migration (Synology → Fly.io)
+- **Complete Platform Migration**: Moved application from Synology NAS to Fly.io for improved scalability and reliability
+- **Deployment Configuration**: Added `Dockerfile.fly`, `fly.toml`, and `.github/workflows/deploy.yml`
+- **Continuous Deployment**: Automated deployment pipeline via GitHub Actions on push to main
+- **Secrets Management**: Integrated Fly.io secrets for API keys and database credentials
+
+#### Features
+- **Itemized Tax & Tips**: Separated tax and tip fields in itemized expenses for more accurate splitting
+- **Fly.io Support**: Added persistent volume storage for SQLite database on Fly.io
+- **Documentation**: Updated README and DEPLOYMENT guides for the new infrastructure
+
+### Fixed
+
+- **Guest Claiming**: Fixed critical bugs where managed guests would disappear or unlink when claimed by a registered user
+- **Date Timezones**: Resolved off-by-one day display issues caused by timezone discrepancies (normalized to UTC)
+- **Public Expense View**: Fixed 401 Unauthorized error when viewing expense details via public share links
+- **Infrastructure**: Removed legacy Synology deployment artifacts (`docker-compose.yml`, `query_prod_db.sh`)
+
+### Changed
+
+- **Refactoring**: Cleaned up project root by removing unused scripts and configuration files
+- **Documentation**: Comprehensive updates to reflect the shift from Synology to Fly.io
+
+
 ### Added - 2025-12-29
 
 #### Mark as Paid Feature in Simplify Debts Modal

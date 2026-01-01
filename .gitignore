@@ -16,3 +16,6 @@ backend/data/
 
 # Secrets (Google Cloud credentials, etc.)
 secrets/
+.pytest_cache/
+.claude/
+data/
