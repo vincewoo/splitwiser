@@ -307,19 +307,92 @@ def get_public_group_expenses(
         models.Expense.group_id == group.id
     ).order_by(models.Expense.date.desc()).all()
 
-    # Include splits for each expense
+    if not expenses:
+        return []
+
+    expense_ids = [e.id for e in expenses]
+
+    # Batch fetch splits
+    all_splits = db.query(models.ExpenseSplit).filter(
+        models.ExpenseSplit.expense_id.in_(expense_ids)
+    ).all()
+
+    # Group splits by expense
+    splits_by_expense = {}
+    user_ids = set()
+    guest_ids = set()
+
+    for split in all_splits:
+        if split.expense_id not in splits_by_expense:
+            splits_by_expense[split.expense_id] = []
+        splits_by_expense[split.expense_id].append(split)
+
+        if split.is_guest:
+            guest_ids.add(split.user_id)
+        else:
+            user_ids.add(split.user_id)
+
+    # Check for ITEMIZED expenses to load items
+    itemized_expense_ids = [e.id for e in expenses if e.split_type == "ITEMIZED"]
+    items_by_expense = {}
+
+    if itemized_expense_ids:
+        all_items = db.query(models.ExpenseItem).filter(
+            models.ExpenseItem.expense_id.in_(itemized_expense_ids)
+        ).all()
+
+        if all_items:
+            item_ids = [i.id for i in all_items]
+            all_assignments = db.query(models.ExpenseItemAssignment).filter(
+                models.ExpenseItemAssignment.expense_item_id.in_(item_ids)
+            ).all()
+
+            # Group assignments by item
+            assignments_by_item = {}
+            for assignment in all_assignments:
+                if assignment.expense_item_id not in assignments_by_item:
+                    assignments_by_item[assignment.expense_item_id] = []
+                assignments_by_item[assignment.expense_item_id].append(assignment)
+
+                if assignment.is_guest:
+                    guest_ids.add(assignment.user_id)
+                else:
+                    user_ids.add(assignment.user_id)
+
+            # Group items by expense
+            for item in all_items:
+                if item.expense_id not in items_by_expense:
+                    items_by_expense[item.expense_id] = []
+
+                # Attach pre-fetched assignments to item object for later use
+                # (We'll use a temporary attribute _assignments on the object or just match by ID)
+                item._assignments = assignments_by_item.get(item.id, [])
+                items_by_expense[item.expense_id].append(item)
+
+    # Batch fetch users and guests
+    users = {}
+    if user_ids:
+        user_records = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+        users = {u.id: u for u in user_records}
+
+    guests = {}
+    if guest_ids:
+        guest_records = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids)).all()
+        guests = {g.id: g for g in guest_records}
+
+    # Construct result
     result = []
     for expense in expenses:
-        splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
-
         # Build splits with user names
         splits_with_names = []
-        for split in splits:
+        expense_splits = splits_by_expense.get(expense.id, [])
+
+        for split in expense_splits:
             if split.is_guest:
-                guest = db.query(models.GuestMember).filter(models.GuestMember.id == split.user_id).first()
-                user_name = get_guest_display_name(guest, db)
+                guest = guests.get(split.user_id)
+                user_name = get_guest_display_name(guest, db) if guest else "Unknown Guest"
             else:
-                user = db.query(models.User).filter(models.User.id == split.user_id).first()
+                user = users.get(split.user_id)
                 user_name = (user.full_name or user.email) if user else "Unknown User"
 
             splits_with_names.append(schemas.ExpenseSplitDetail(
@@ -336,26 +409,19 @@ def get_public_group_expenses(
         # Build items
         items_data = []
         if expense.split_type == "ITEMIZED":
-            expense_items = db.query(models.ExpenseItem).filter(
-                models.ExpenseItem.expense_id == expense.id
-            ).all()
+            expense_items = items_by_expense.get(expense.id, [])
 
             for item in expense_items:
-                assignments = db.query(models.ExpenseItemAssignment).filter(
-                    models.ExpenseItemAssignment.expense_item_id == item.id
-                ).all()
-
                 assignment_details = []
+                # Use the _assignments attribute we attached earlier
+                assignments = getattr(item, '_assignments', [])
+
                 for a in assignments:
                     if a.is_guest:
-                        guest = db.query(models.GuestMember).filter(
-                            models.GuestMember.id == a.user_id
-                        ).first()
-                        name = get_guest_display_name(guest, db)
+                        guest = guests.get(a.user_id)
+                        name = get_guest_display_name(guest, db) if guest else "Unknown Guest"
                     else:
-                        user = db.query(models.User).filter(
-                            models.User.id == a.user_id
-                        ).first()
+                        user = users.get(a.user_id)
                         name = (user.full_name or user.email) if user else "Unknown"
 
                     assignment_details.append(schemas.ExpenseItemAssignmentDetail(
