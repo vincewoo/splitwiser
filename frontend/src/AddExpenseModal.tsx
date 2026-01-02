@@ -73,6 +73,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [payerIsGuest, setPayerIsGuest] = useState<boolean>(false);
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
     const [notes, setNotes] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [alertDialog, setAlertDialog] = useState<{
         isOpen: boolean;
         title: string;
@@ -280,65 +281,70 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
             // Helper function to finalize itemized expense
             const finalizeItemizedExpense = async () => {
-                const allItems = [...itemizedExpense.itemizedItems];
-                const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
-                const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
+                setIsSubmitting(true);
+                try {
+                    const allItems = [...itemizedExpense.itemizedItems];
+                    const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
+                    const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
 
-                // Add Tax as a separate item if present
-                if (tax > 0) {
-                    allItems.push({
-                        description: 'Tax',
-                        price: tax,
-                        is_tax_tip: true,
-                        assignments: []
-                    });
-                }
-
-                // Add Tip as a separate item if present
-                if (tip > 0) {
-                    allItems.push({
-                        description: 'Tip',
-                        price: tip,
-                        is_tax_tip: true,
-                        assignments: []
-                    });
-                }
-
-                const itemsTotal = allItems.reduce((sum, item) => sum + item.price, 0);
-
-                const itemizedPayload = {
-                    description,
-                    amount: itemsTotal,
-                    currency,
-                    date: expenseDate,
-                    payer_id: payerId,
-                    payer_is_guest: payerIsGuest,
-                    group_id: selectedGroupId,
-                    split_type: 'ITEMIZED',
-                    items: allItems,
-                    splits: [],
-                    icon: selectedIcon,
-                    receipt_image_path: receiptImagePath,
-                    notes: notes
-                };
-
-                const result = await offlineExpensesApi.create(itemizedPayload);
-
-                if (result.success) {
-                    recordCurrencyUsage(currency);
-                    if (result.offline) {
-                        console.log('Expense created offline and queued for sync');
+                    // Add Tax as a separate item if present
+                    if (tax > 0) {
+                        allItems.push({
+                            description: 'Tax',
+                            price: tax,
+                            is_tax_tip: true,
+                            assignments: []
+                        });
                     }
-                    onExpenseAdded();
-                    onClose();
-                    resetForm();
-                } else {
-                    setAlertDialog({
-                        isOpen: true,
-                        title: 'Error',
-                        message: 'Failed to add expense',
-                        type: 'error'
-                    });
+
+                    // Add Tip as a separate item if present
+                    if (tip > 0) {
+                        allItems.push({
+                            description: 'Tip',
+                            price: tip,
+                            is_tax_tip: true,
+                            assignments: []
+                        });
+                    }
+
+                    const itemsTotal = allItems.reduce((sum, item) => sum + item.price, 0);
+
+                    const itemizedPayload = {
+                        description,
+                        amount: itemsTotal,
+                        currency,
+                        date: expenseDate,
+                        payer_id: payerId,
+                        payer_is_guest: payerIsGuest,
+                        group_id: selectedGroupId,
+                        split_type: 'ITEMIZED',
+                        items: allItems,
+                        splits: [],
+                        icon: selectedIcon,
+                        receipt_image_path: receiptImagePath,
+                        notes: notes
+                    };
+
+                    const result = await offlineExpensesApi.create(itemizedPayload);
+
+                    if (result.success) {
+                        recordCurrencyUsage(currency);
+                        if (result.offline) {
+                            console.log('Expense created offline and queued for sync');
+                        }
+                        onExpenseAdded();
+                        onClose();
+                        resetForm();
+                    } else {
+                        setAlertDialog({
+                            isOpen: true,
+                            title: 'Error',
+                            message: 'Failed to add expense',
+                            type: 'error'
+                        });
+                    }
+                } finally {
+                    setIsSubmitting(false);
                 }
             };
 
@@ -359,28 +365,33 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             return;
         }
 
-        const result = await offlineExpensesApi.create(payload);
+        setIsSubmitting(true);
+        try {
+            const result = await offlineExpensesApi.create(payload);
 
-        if (result.success) {
-            // Record currency usage for sorting
-            recordCurrencyUsage(currency);
+            if (result.success) {
+                // Record currency usage for sorting
+                recordCurrencyUsage(currency);
 
-            // Show feedback if created offline
-            if (result.offline) {
-                console.log('Expense created offline and queued for sync');
+                // Show feedback if created offline
+                if (result.offline) {
+                    console.log('Expense created offline and queued for sync');
+                }
+
+                onExpenseAdded();
+                onClose();
+                // Reset state
+                resetForm();
+            } else {
+                setAlertDialog({
+                    isOpen: true,
+                    title: 'Error',
+                    message: 'Failed to add expense',
+                    type: 'error'
+                });
             }
-
-            onExpenseAdded();
-            onClose();
-            // Reset state
-            resetForm();
-        } else {
-            setAlertDialog({
-                isOpen: true,
-                title: 'Error',
-                message: 'Failed to add expense',
-                type: 'error'
-            });
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -879,8 +890,10 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     </div>
 
                     <div className="sticky bottom-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4 sm:p-5 flex justify-end space-x-3">
-                        <button type="button" onClick={onClose} className="px-4 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded min-h-[44px]">Cancel</button>
-                        <button type="submit" className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 min-h-[44px]">Save</button>
+                        <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded min-h-[44px] disabled:opacity-50">Cancel</button>
+                        <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed">
+                            {isSubmitting ? 'Saving...' : 'Save'}
+                        </button>
                     </div>
                 </form>
 

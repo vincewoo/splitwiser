@@ -76,6 +76,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const [selectedParticipantKeys, setSelectedParticipantKeys] = useState<string[]>([]);
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [alertDialog, setAlertDialog] = useState<{
         isOpen: boolean;
         title: string;
@@ -405,62 +406,67 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
             // Helper function to finalize itemized expense
             const finalizeItemizedUpdate = async () => {
-                const allItems = [...itemizedExpense.itemizedItems];
-                const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
-                const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
+                setIsSubmitting(true);
+                try {
+                    const allItems = [...itemizedExpense.itemizedItems];
+                    const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
+                    const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
 
-                // Add Tax as a separate item if present
-                if (tax > 0) {
-                    allItems.push({
-                        description: 'Tax',
-                        price: tax,
-                        is_tax_tip: true,
-                        assignments: []
-                    });
-                }
-
-                // Add Tip as a separate item if present
-                if (tip > 0) {
-                    allItems.push({
-                        description: 'Tip',
-                        price: tip,
-                        is_tax_tip: true,
-                        assignments: []
-                    });
-                }
-
-                const itemsTotal = allItems.reduce((sum, item) => sum + item.price, 0);
-
-                const itemizedPayload = {
-                    description,
-                    amount: itemsTotal,
-                    currency,
-                    date: expenseDate,
-                    payer_id: payerId,
-                    payer_is_guest: payerIsGuest,
-                    split_type: 'ITEMIZED',
-                    items: allItems,
-                    splits: [],
-                    icon: selectedIcon,
-                    notes
-                };
-
-                const result = await offlineExpensesApi.update(expenseId!, itemizedPayload);
-
-                if (result.success) {
-                    if (result.offline) {
-                        console.log('Expense updated offline and queued for sync');
+                    // Add Tax as a separate item if present
+                    if (tax > 0) {
+                        allItems.push({
+                            description: 'Tax',
+                            price: tax,
+                            is_tax_tip: true,
+                            assignments: []
+                        });
                     }
-                    setIsEditing(false);
-                    onExpenseUpdated();
-                    onClose();
-                } else {
-                    setAlertDialog({
-                        isOpen: true,
-                        title: 'Error',
-                        message: 'Failed to update expense',
-                        type: 'error'
-                    });
+
+                    // Add Tip as a separate item if present
+                    if (tip > 0) {
+                        allItems.push({
+                            description: 'Tip',
+                            price: tip,
+                            is_tax_tip: true,
+                            assignments: []
+                        });
+                    }
+
+                    const itemsTotal = allItems.reduce((sum, item) => sum + item.price, 0);
+
+                    const itemizedPayload = {
+                        description,
+                        amount: itemsTotal,
+                        currency,
+                        date: expenseDate,
+                        payer_id: payerId,
+                        payer_is_guest: payerIsGuest,
+                        split_type: 'ITEMIZED',
+                        items: allItems,
+                        splits: [],
+                        icon: selectedIcon,
+                        notes
+                    };
+
+                    const result = await offlineExpensesApi.update(expenseId!, itemizedPayload);
+
+                    if (result.success) {
+                        if (result.offline) {
+                            console.log('Expense updated offline and queued for sync');
+                        }
+                        setIsEditing(false);
+                        onExpenseUpdated();
+                        onClose();
+                    } else {
+                        setAlertDialog({
+                            isOpen: true,
+                            title: 'Error',
+                            message: 'Failed to update expense',
+                            type: 'error'
+                        });
+                    }
+                } finally {
+                    setIsSubmitting(false);
                 }
             };
 
@@ -481,22 +487,27 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             return;
         }
 
-        const result = await offlineExpensesApi.update(expenseId!, payload);
+        setIsSubmitting(true);
+        try {
+            const result = await offlineExpensesApi.update(expenseId!, payload);
 
-        if (result.success) {
-            if (result.offline) {
-                console.log('Expense updated offline and queued for sync');
+            if (result.success) {
+                if (result.offline) {
+                    console.log('Expense updated offline and queued for sync');
+                }
+                setIsEditing(false);
+                onExpenseUpdated();
+                onClose();
+            } else {
+                setAlertDialog({
+                    isOpen: true,
+                    title: 'Error',
+                    message: 'Failed to update expense',
+                    type: 'error'
+                });
             }
-            setIsEditing(false);
-            onExpenseUpdated();
-            onClose();
-        } else {
-            setAlertDialog({
-                isOpen: true,
-                title: 'Error',
-                message: 'Failed to update expense',
-                type: 'error'
-            });
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -851,9 +862,10 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                     <button
                                         type="button"
                                         onClick={handleSave}
-                                        className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 min-h-[44px]"
+                                        disabled={isSubmitting}
+                                        className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Save
+                                        {isSubmitting ? 'Saving...' : 'Save'}
                                     </button>
                                 </div>
                             </div>
