@@ -59,7 +59,8 @@ class Expense(Base):
     date = Column(String) # ISO date string
     payer_id = Column(Integer)
     payer_is_guest = Column(Boolean, default=False)
-    group_id = Column(Integer, nullable=True)
+    # Optimized: Index added for frequent filtering by group
+    group_id = Column(Integer, nullable=True, index=True)
     created_by_id = Column(Integer)
     exchange_rate = Column(String, nullable=True) # Rate from currency to USD on expense date (stored as float)
     split_type = Column(String, default="EQUAL") # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
@@ -71,8 +72,9 @@ class ExpenseSplit(Base):
     __tablename__ = "expense_splits"
 
     id = Column(Integer, primary_key=True, index=True)
-    expense_id = Column(Integer)
-    user_id = Column(Integer)
+    # Optimized: Indexes added for frequent joins and lookups
+    expense_id = Column(Integer, index=True)
+    user_id = Column(Integer, index=True)
     is_guest = Column(Boolean, default=False)
     amount_owed = Column(Integer) # The amount this user owes
     percentage = Column(Integer, nullable=True) # For percentage splits
