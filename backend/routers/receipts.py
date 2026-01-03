@@ -5,7 +5,7 @@ import os
 import uuid
 import io
 from PIL import Image, UnidentifiedImageError
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request
 from sqlalchemy.orm import Session
 
 import models
@@ -19,6 +19,7 @@ from ocr.parser_v2 import parse_receipt_items_v2, get_raw_text, parse_receipt_wi
 # Receipt directory path
 DATA_DIR = os.getenv("DATA_DIR", "data")
 RECEIPT_DIR = os.path.join(DATA_DIR, "receipts")
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 router = APIRouter(tags=["receipts"])
@@ -26,6 +27,7 @@ router = APIRouter(tags=["receipts"])
 
 @router.post("/ocr/scan-receipt")
 async def scan_receipt(
+    request: Request,
     file: UploadFile = File(...),
     current_user: Annotated[models.User, Depends(get_current_user)] = None
 ):
@@ -47,9 +49,28 @@ async def scan_receipt(
             detail="Invalid file type. Only JPEG, PNG, and WebP images are supported."
         )
 
+    # Check content length header
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_FILE_SIZE:
+                 raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024)}MB."
+                )
+        except ValueError:
+            pass # Ignore malformed header, we'll check actual size
+
     try:
-        # Read image file
-        image_content = await file.read()
+        # Read image file safely
+        # We read one byte more than the max to detect if it exceeds the limit
+        image_content = await file.read(MAX_FILE_SIZE + 1)
+
+        if len(image_content) > MAX_FILE_SIZE:
+             raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size is {MAX_FILE_SIZE / (1024 * 1024)}MB."
+            )
 
         # Security: Verify image content and determine extension
         try:
