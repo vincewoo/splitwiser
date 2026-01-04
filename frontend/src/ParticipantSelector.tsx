@@ -124,6 +124,7 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
                                     key={key}
                                     type="button"
                                     onClick={() => toggleParticipant(p)}
+                                    aria-pressed={isSelected}
                                     className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors min-h-[44px] ${isSelected
                                             ? p.isGuest
                                                 ? 'bg-orange-50 dark:bg-orange-900/30 border-orange-500 dark:border-orange-600 text-orange-900 dark:text-orange-200'

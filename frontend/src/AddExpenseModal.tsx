@@ -727,7 +727,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                     key={key}
                                                     type="button"
                                                     onClick={toggleFn}
-                                                    className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${isSelected
+                                                    aria-pressed={isSelected}
+                                                    className={`px-4 py-2 rounded-full text-sm border min-h-[44px] transition-all duration-200 ${isSelected
                                                         ? participant.isGuest
                                                             ? 'bg-orange-100 dark:bg-orange-900/30 border-orange-500 dark:border-orange-600 text-orange-700 dark:text-orange-300'
                                                             : 'bg-teal-100 dark:bg-teal-900/30 border-teal-500 dark:border-teal-600 text-teal-700 dark:text-teal-300'

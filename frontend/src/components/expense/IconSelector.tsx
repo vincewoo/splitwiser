@@ -164,6 +164,7 @@ const IconSelector: React.FC<IconSelectorProps> = ({ selectedIcon, onIconSelect 
                                                 key={icon}
                                                 type="button"
                                                 onClick={() => handleIconClick(icon)}
+                                                aria-label={`Select ${icon}`}
                                                 className={`w-12 h-12 rounded-lg border-2 flex items-center justify-center text-2xl min-h-[44px] transition-colors ${selectedIcon === icon
                                                     ? 'border-teal-500 dark:border-teal-600 bg-teal-50 dark:bg-teal-900/30'
                                                     : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
