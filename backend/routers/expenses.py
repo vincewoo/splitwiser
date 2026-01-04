@@ -493,6 +493,16 @@ def get_group_expenses(
         guest_records = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids)).all()
         guests = {g.id: g for g in guest_records}
 
+    # Optimization: Batch fetch users who claimed guests to avoid N+1 queries
+    claimed_user_ids = {g.claimed_by_id for g in guests.values() if g.claimed_by_id}
+    # Only fetch users we haven't already fetched
+    missing_claimed_ids = claimed_user_ids - set(users.keys())
+
+    if missing_claimed_ids:
+        claimed_users = db.query(models.User).filter(models.User.id.in_(missing_claimed_ids)).all()
+        for u in claimed_users:
+            users[u.id] = u
+
     # 4. Assemble the result
     result = []
     for expense in expenses:
@@ -503,7 +513,15 @@ def get_group_expenses(
         for split in expense_splits:
             if split.is_guest:
                 guest = guests.get(split.user_id)
-                user_name = get_guest_display_name(guest, db) if guest else "Unknown Guest"
+                if guest:
+                    # Optimized: Use pre-fetched users dictionary instead of querying DB
+                    if guest.claimed_by_id and guest.claimed_by_id in users:
+                        claimed_user = users[guest.claimed_by_id]
+                        user_name = (claimed_user.full_name or claimed_user.email)
+                    else:
+                        user_name = guest.name
+                else:
+                    user_name = "Unknown Guest"
             else:
                 user = users.get(split.user_id)
                 user_name = (user.full_name or user.email) if user else "Unknown User"
