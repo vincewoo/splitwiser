@@ -803,6 +803,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                 <button
                                                     type="button"
                                                     onClick={() => setOcrValidationWarning(null)}
+                                                    aria-label="Dismiss warning"
                                                     className="text-yellow-500 hover:text-yellow-700 dark:hover:text-yellow-300 flex-shrink-0"
                                                 >
                                                     ✕

@@ -71,6 +71,7 @@ const IconSelector: React.FC<IconSelectorProps> = ({ selectedIcon, onIconSelect 
                 onClick={() => setIsModalOpen(true)}
                 className="w-12 h-12 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 flex items-center justify-center text-2xl transition-colors min-h-[44px] flex-shrink-0"
                 title="Select icon"
+                aria-label="Select icon"
             >
                 {selectedIcon || <span className="text-gray-400 dark:text-gray-500 text-xl">+</span>}
             </button>
@@ -90,6 +91,7 @@ const IconSelector: React.FC<IconSelectorProps> = ({ selectedIcon, onIconSelect 
                             <button
                                 type="button"
                                 onClick={() => setIsModalOpen(false)}
+                                aria-label="Close icon selector"
                                 className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none"
                             >
                                 ×
