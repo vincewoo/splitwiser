@@ -11,3 +11,8 @@
 **Vulnerability:** Input fields in schemas (like user full_name, expense description, etc.) lacked length constraints, allowing for potentially unbounded strings which could lead to DoS or database issues.
 **Learning:** Pydantic models by default validate types but not lengths. Explicit `Field(..., max_length=X)` is required.
 **Prevention:** Always define `min_length` and `max_length` for string fields in Pydantic schemas. Use `EmailStr` for emails.
+
+## 2025-02-18 - Information Leakage in Error Handling
+**Vulnerability:** The receipt OCR endpoint caught generic exceptions and returned their string representation `str(e)` in the HTTP 500 response body. This could potentially expose sensitive internal details (path structures, DB connection strings, library versions) to attackers.
+**Learning:** Developers often return raw error messages to debug easier, but forget to sanitize them for production.
+**Prevention:** Catch exceptions and log the full traceback to server logs (stderr/stdout), but return a generic "Something went wrong" message to the API client.

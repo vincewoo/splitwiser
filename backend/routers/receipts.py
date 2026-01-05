@@ -164,5 +164,5 @@ async def scan_receipt(
         traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"OCR processing failed: {str(e)}"
+            detail="OCR processing failed. Please try again or check the file."
         )
