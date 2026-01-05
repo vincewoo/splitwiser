@@ -66,19 +66,75 @@ def get_group(
         models.User, models.GroupMember.user_id == models.User.id
     ).filter(models.GroupMember.group_id == group_id).all()
 
+    # Get unclaimed guests
+    guests = db.query(models.GuestMember).filter(
+        models.GuestMember.group_id == group_id,
+        models.GuestMember.claimed_by_id == None
+    ).all()
+
+    # Optimized: Batch fetch managers for members and guests to avoid N+1 queries
+    # Collect all manager IDs
+    manager_user_ids = set()
+    manager_guest_ids = set()
+
+    # Check members for managers
+    for gm, _ in members_query:
+        if gm.managed_by_id:
+            if gm.managed_by_type == 'user':
+                manager_user_ids.add(gm.managed_by_id)
+            elif gm.managed_by_type == 'guest':
+                manager_guest_ids.add(gm.managed_by_id)
+
+    # Check guests for managers
+    for g in guests:
+        if g.managed_by_id:
+            if g.managed_by_type == 'user':
+                manager_user_ids.add(g.managed_by_id)
+            elif g.managed_by_type == 'guest':
+                manager_guest_ids.add(g.managed_by_id)
+
+    # Batch fetch manager users
+    manager_users = {}
+    if manager_user_ids:
+        users = db.query(models.User).filter(models.User.id.in_(manager_user_ids)).all()
+        manager_users = {u.id: (u.full_name or u.email) for u in users}
+
+    # Batch fetch manager guests
+    manager_guests = {}
+    if manager_guest_ids:
+        guest_managers = db.query(models.GuestMember).filter(models.GuestMember.id.in_(manager_guest_ids)).all()
+
+        # Helper map for guest objects
+        manager_guests = {g.id: g for g in guest_managers}
+
+        # Prefetch users for claimed guests to resolve their display names without N+1 queries
+        claimed_user_ids = {g.claimed_by_id for g in guest_managers if g.claimed_by_id}
+        if claimed_user_ids:
+            claimed_users = db.query(models.User).filter(models.User.id.in_(claimed_user_ids)).all()
+            claimed_user_map = {u.id: u for u in claimed_users}
+
+            # Resolve names: Use claimed user's name if claimed, otherwise use guest name
+            final_manager_guest_names = {}
+            for g_id, g in manager_guests.items():
+                if g.claimed_by_id and g.claimed_by_id in claimed_user_map:
+                    u = claimed_user_map[g.claimed_by_id]
+                    final_manager_guest_names[g_id] = u.full_name or u.email
+                else:
+                    final_manager_guest_names[g_id] = g.name
+            manager_guests = final_manager_guest_names # Now maps ID -> Name string
+        else:
+            # No claimed guests, just use names
+            manager_guests = {g_id: g.name for g_id, g in manager_guests.items()}
+
     # Populate managed_by_name for each member
     members = []
     for gm, user in members_query:
         managed_by_name = None
         if gm.managed_by_id:
             if gm.managed_by_type == 'user':
-                manager = db.query(models.User).filter(models.User.id == gm.managed_by_id).first()
-                if manager:
-                    managed_by_name = manager.full_name or manager.email
+                managed_by_name = manager_users.get(gm.managed_by_id)
             elif gm.managed_by_type == 'guest':
-                manager_guest = db.query(models.GuestMember).filter(models.GuestMember.id == gm.managed_by_id).first()
-                if manager_guest:
-                    managed_by_name = get_guest_display_name(manager_guest, db)
+                managed_by_name = manager_guests.get(gm.managed_by_id)
 
         members.append(schemas.GroupMember(
             id=gm.id,
@@ -90,25 +146,15 @@ def get_group(
             managed_by_name=managed_by_name
         ))
 
-    # Get unclaimed guests
-    guests = db.query(models.GuestMember).filter(
-        models.GuestMember.group_id == group_id,
-        models.GuestMember.claimed_by_id == None
-    ).all()
-
     # Populate managed_by_name for each guest
     guests_with_manager_names = []
     for g in guests:
         managed_by_name = None
         if g.managed_by_id:
             if g.managed_by_type == 'user':
-                manager = db.query(models.User).filter(models.User.id == g.managed_by_id).first()
-                if manager:
-                    managed_by_name = manager.full_name or manager.email
+                managed_by_name = manager_users.get(g.managed_by_id)
             elif g.managed_by_type == 'guest':
-                manager_guest = db.query(models.GuestMember).filter(models.GuestMember.id == g.managed_by_id).first()
-                if manager_guest:
-                    managed_by_name = manager_guest.name
+                managed_by_name = manager_guests.get(g.managed_by_id)
 
         guests_with_manager_names.append(schemas.GuestMember(
             id=g.id,
