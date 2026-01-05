@@ -53,6 +53,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                             <button
                                 type="button"
                                 onClick={() => onRemoveItem(idx)}
+                                aria-label="Remove item"
                                 className="text-red-400 hover:text-red-600 text-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
                             >
                                 ×

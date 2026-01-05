@@ -145,6 +145,7 @@ const FriendDetailPage: React.FC = () => {
                         <div className="flex items-center gap-2 lg:gap-4 min-w-0">
                             <button
                                 onClick={() => navigate('/')}
+                                aria-label="Back to dashboard"
                                 className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
                             >
                                 &larr;
