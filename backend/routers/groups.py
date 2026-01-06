@@ -523,11 +523,23 @@ def get_public_group_balances(
     # Get all expenses in group
     expenses = db.query(models.Expense).filter(models.Expense.group_id == group.id).all()
 
+    # Batch fetch splits for all expenses
+    expense_ids = [e.id for e in expenses]
+    splits_by_expense = {}
+    if expense_ids:
+        all_splits = db.query(models.ExpenseSplit).filter(
+            models.ExpenseSplit.expense_id.in_(expense_ids)
+        ).all()
+        for split in all_splits:
+            if split.expense_id not in splits_by_expense:
+                splits_by_expense[split.expense_id] = []
+            splits_by_expense[split.expense_id].append(split)
+
     # Calculate net balances per participant (keyed by (id, is_guest) tuple)
     net_balances = {}  # (user_id, is_guest) -> {currency -> amount}
 
     for expense in expenses:
-        splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+        splits = splits_by_expense.get(expense.id, [])
 
         for split in splits:
             key = (split.user_id, split.is_guest)
@@ -594,6 +606,13 @@ def get_public_group_balances(
 
             del net_balances[guest_key]
 
+    # Batch fetch users for managed members
+    managed_user_ids = {m.user_id for m in managed_members}
+    managed_users_map = {}
+    if managed_user_ids:
+        managed_users = db.query(models.User).filter(models.User.id.in_(managed_user_ids)).all()
+        managed_users_map = {u.id: u for u in managed_users}
+
     # Aggregate managed member balances with their managers
     for managed_member in managed_members:
         member_key = (managed_member.user_id, False)
@@ -611,7 +630,7 @@ def get_public_group_balances(
                 net_balances[manager_key][currency] += amount
 
                 # Get member name for breakdown
-                member_user = db.query(models.User).filter(models.User.id == managed_member.user_id).first()
+                member_user = managed_users_map.get(managed_member.user_id)
                 member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
 
                 breakdown_key = (managed_member.managed_by_id, manager_is_guest, currency)
@@ -623,14 +642,50 @@ def get_public_group_balances(
 
     from utils.currency import format_currency  # Import here to avoid circular dependencies if any, though likely fine at top
 
+    # Batch fetch remaining participants (Users and GuestMembers)
+    user_ids_to_fetch = set()
+    guest_ids_to_fetch = set()
+
+    for participant_id, is_guest in net_balances.keys():
+        if is_guest:
+            guest_ids_to_fetch.add(participant_id)
+        else:
+            user_ids_to_fetch.add(participant_id)
+
+    users_map = {}
+    if user_ids_to_fetch:
+        users = db.query(models.User).filter(models.User.id.in_(user_ids_to_fetch)).all()
+        users_map = {u.id: u for u in users}
+
+    guests_map = {}
+    if guest_ids_to_fetch:
+        guests = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids_to_fetch)).all()
+        guests_map = {g.id: g for g in guests}
+
+        # Also need to resolve names for guests which might require claimed user fetching
+        claimed_ids = {g.claimed_by_id for g in guests if g.claimed_by_id}
+        # Add to users_map if not already there (though likely distinct set from user_ids_to_fetch)
+        missing_claimed_ids = claimed_ids - set(users_map.keys())
+        if missing_claimed_ids:
+            claimed_users = db.query(models.User).filter(models.User.id.in_(missing_claimed_ids)).all()
+            for u in claimed_users:
+                users_map[u.id] = u
+
     # Build response with participant details
     result = []
     for (participant_id, is_guest), currencies in net_balances.items():
         if is_guest:
-            guest = db.query(models.GuestMember).filter(models.GuestMember.id == participant_id).first()
-            name = get_guest_display_name(guest, db)
+            guest = guests_map.get(participant_id)
+            if guest:
+                if guest.claimed_by_id and guest.claimed_by_id in users_map:
+                    u = users_map[guest.claimed_by_id]
+                    name = u.full_name or u.email
+                else:
+                    name = guest.name
+            else:
+                name = "Unknown Guest"
         else:
-            user = db.query(models.User).filter(models.User.id == participant_id).first()
+            user = users_map.get(participant_id)
             name = (user.full_name or user.email) if user else "Unknown User"
 
         for currency, amount in currencies.items():
