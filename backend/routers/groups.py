@@ -769,13 +769,75 @@ def get_public_expense_detail(
     # Fetch splits
     splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
 
+    # Collect user/guest IDs for batch fetching
+    user_ids = set()
+    guest_ids = set()
+
+    for split in splits:
+        if split.is_guest:
+            guest_ids.add(split.user_id)
+        else:
+            user_ids.add(split.user_id)
+
+    # Fetch items and assignments if itemized
+    expense_items = []
+    assignments_by_item = {}
+
+    if expense.split_type == "ITEMIZED":
+        expense_items = db.query(models.ExpenseItem).filter(
+            models.ExpenseItem.expense_id == expense.id
+        ).all()
+
+        if expense_items:
+            item_ids = [i.id for i in expense_items]
+            all_assignments = db.query(models.ExpenseItemAssignment).filter(
+                models.ExpenseItemAssignment.expense_item_id.in_(item_ids)
+            ).all()
+
+            for a in all_assignments:
+                if a.expense_item_id not in assignments_by_item:
+                    assignments_by_item[a.expense_item_id] = []
+                assignments_by_item[a.expense_item_id].append(a)
+
+                if a.is_guest:
+                    guest_ids.add(a.user_id)
+                else:
+                    user_ids.add(a.user_id)
+
+    # Batch fetch users
+    users = {}
+    if user_ids:
+        user_records = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+        users = {u.id: u for u in user_records}
+
+    # Batch fetch guests
+    guests = {}
+    if guest_ids:
+        guest_records = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids)).all()
+        guests = {g.id: g for g in guest_records}
+
+        # Batch fetch claimed users for guests
+        claimed_ids = {g.claimed_by_id for g in guest_records if g.claimed_by_id}
+        missing_claimed_ids = claimed_ids - set(users.keys())
+        if missing_claimed_ids:
+            claimed_users = db.query(models.User).filter(models.User.id.in_(missing_claimed_ids)).all()
+            for u in claimed_users:
+                users[u.id] = u
+
     splits_with_names = []
     for split in splits:
         if split.is_guest:
-            guest = db.query(models.GuestMember).filter(models.GuestMember.id == split.user_id).first()
-            user_name = guest.name if guest else "Unknown Guest"
+            guest = guests.get(split.user_id)
+            if guest:
+                if guest.claimed_by_id and guest.claimed_by_id in users:
+                    u = users[guest.claimed_by_id]
+                    user_name = u.full_name or u.email
+                else:
+                    user_name = guest.name
+            else:
+                user_name = "Unknown Guest"
         else:
-            user = db.query(models.User).filter(models.User.id == split.user_id).first()
+            user = users.get(split.user_id)
             user_name = (user.full_name or user.email) if user else "Unknown User"
 
         splits_with_names.append(schemas.ExpenseSplitDetail(
@@ -789,29 +851,26 @@ def get_public_expense_detail(
             user_name=user_name
         ))
 
-    # Fetch items if itemized
+    # Build items data
     items_data = []
     if expense.split_type == "ITEMIZED":
-        expense_items = db.query(models.ExpenseItem).filter(
-            models.ExpenseItem.expense_id == expense.id
-        ).all()
-
         for item in expense_items:
-            assignments = db.query(models.ExpenseItemAssignment).filter(
-                models.ExpenseItemAssignment.expense_item_id == item.id
-            ).all()
-
             assignment_details = []
+            assignments = assignments_by_item.get(item.id, [])
+
             for a in assignments:
                 if a.is_guest:
-                    guest = db.query(models.GuestMember).filter(
-                        models.GuestMember.id == a.user_id
-                    ).first()
-                    name = guest.name if guest else "Unknown Guest"
+                    guest = guests.get(a.user_id)
+                    if guest:
+                        if guest.claimed_by_id and guest.claimed_by_id in users:
+                            u = users[guest.claimed_by_id]
+                            name = u.full_name or u.email
+                        else:
+                            name = guest.name
+                    else:
+                        name = "Unknown Guest"
                 else:
-                    user = db.query(models.User).filter(
-                        models.User.id == a.user_id
-                    ).first()
+                    user = users.get(a.user_id)
                     name = (user.full_name or user.email) if user else "Unknown"
 
                 assignment_details.append(schemas.ExpenseItemAssignmentDetail(
