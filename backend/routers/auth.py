@@ -12,12 +12,13 @@ import auth
 from database import get_db
 from dependencies import get_current_user
 from utils.validation import get_user_by_email
+from utils.rate_limiter import auth_rate_limiter
 
 
 router = APIRouter(tags=["auth"])
 
 
-@router.post("/register", response_model=schemas.Token)
+@router.post("/register", response_model=schemas.Token, dependencies=[Depends(auth_rate_limiter)])
 def register_user(
     user: schemas.UserCreate, 
     db: Session = Depends(get_db)
@@ -163,7 +164,7 @@ def register_user(
         raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
 
 
-@router.post("/token")
+@router.post("/token", dependencies=[Depends(auth_rate_limiter)])
 def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session = Depends(get_db)):
     user = get_user_by_email(db, form_data.username)
     if not user or not auth.verify_password(form_data.password, user.hashed_password):
