@@ -28,13 +28,29 @@ def calculate_net_balances(
     # Get all expenses in group
     expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
 
+    if not expenses:
+        return {}
+
+    # Optimization: Batch fetch all splits for these expenses to avoid N+1 queries
+    expense_ids = [e.id for e in expenses]
+    all_splits = db.query(models.ExpenseSplit).filter(
+        models.ExpenseSplit.expense_id.in_(expense_ids)
+    ).all()
+
+    # Group splits by expense_id
+    splits_by_expense = {}
+    for split in all_splits:
+        if split.expense_id not in splits_by_expense:
+            splits_by_expense[split.expense_id] = []
+        splits_by_expense[split.expense_id].append(split)
+
     # Calculate raw net balances per participant
     if target_currency:
         # Single currency mode - convert everything to target currency
         net_balances = {}  # (user_id, is_guest) -> amount
 
         for expense in expenses:
-            splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+            splits = splits_by_expense.get(expense.id, [])
 
             for split in splits:
                 # First convert to USD using historical rate, then to target currency
@@ -65,7 +81,7 @@ def calculate_net_balances(
         net_balances = {}  # (user_id, is_guest) -> {currency -> amount}
 
         for expense in expenses:
-            splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+            splits = splits_by_expense.get(expense.id, [])
 
             for split in splits:
                 key = (split.user_id, split.is_guest)
