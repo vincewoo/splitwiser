@@ -1,6 +1,6 @@
 """Balances router: balance calculations and debt simplification."""
 
-from typing import Annotated
+from typing import Annotated, Dict, List, Tuple
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -54,10 +54,23 @@ def get_group_balances(
 
     # Get all expenses to recalculate raw balances for breakdown
     expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
+
+    # Optimization: Batch fetch splits for all expenses
+    expense_ids = [e.id for e in expenses]
+    splits_by_expense = {}
+    if expense_ids:
+        all_splits = db.query(models.ExpenseSplit).filter(
+            models.ExpenseSplit.expense_id.in_(expense_ids)
+        ).all()
+        for split in all_splits:
+            if split.expense_id not in splits_by_expense:
+                splits_by_expense[split.expense_id] = []
+            splits_by_expense[split.expense_id].append(split)
+
     raw_balances = {}  # (user_id, is_guest) -> {currency -> amount}
 
     for expense in expenses:
-        splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+        splits = splits_by_expense.get(expense.id, [])
         for split in splits:
             key = (split.user_id, split.is_guest)
             if key not in raw_balances:
@@ -73,6 +86,53 @@ def get_group_balances(
                 raw_balances[payer_key][expense.currency] = 0
             raw_balances[payer_key][expense.currency] += split.amount_owed
 
+    # Batch fetch users and guests to avoid N+1 queries during display name resolution
+    user_ids_to_fetch = set()
+    guest_ids_to_fetch = set()
+
+    # Collect IDs from net_balances keys
+    for (pid, is_guest) in net_balances.keys():
+        if is_guest:
+            guest_ids_to_fetch.add(pid)
+        else:
+            user_ids_to_fetch.add(pid)
+
+    # Collect IDs from managed guests/members
+    for g in managed_guests:
+        guest_ids_to_fetch.add(g.id)
+        if g.managed_by_type == 'user' and g.managed_by_id:
+            user_ids_to_fetch.add(g.managed_by_id)
+        elif g.managed_by_type == 'guest' and g.managed_by_id:
+            guest_ids_to_fetch.add(g.managed_by_id)
+        if g.claimed_by_id:
+            user_ids_to_fetch.add(g.claimed_by_id)
+
+    for m in managed_members:
+        user_ids_to_fetch.add(m.user_id)
+        if m.managed_by_type == 'user' and m.managed_by_id:
+            user_ids_to_fetch.add(m.managed_by_id)
+        elif m.managed_by_type == 'guest' and m.managed_by_id:
+            guest_ids_to_fetch.add(m.managed_by_id)
+
+    # Fetch users
+    users_map = {}
+    if user_ids_to_fetch:
+        users = db.query(models.User).filter(models.User.id.in_(user_ids_to_fetch)).all()
+        users_map = {u.id: u for u in users}
+
+    # Fetch guests
+    guests_map = {}
+    if guest_ids_to_fetch:
+        guests = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids_to_fetch)).all()
+        guests_map = {g.id: g for g in guests}
+
+    # Helper function to get display name using prefetched maps
+    def get_prefetched_guest_display_name(guest_obj):
+        if guest_obj.claimed_by_id and guest_obj.claimed_by_id in users_map:
+            u = users_map[guest_obj.claimed_by_id]
+            return u.full_name or u.email
+        return guest_obj.name
+
     # Build breakdown for managed guests
     # Use dict to deduplicate by name within each breakdown key
     for guest in managed_guests:
@@ -84,7 +144,7 @@ def get_group_balances(
         manager_is_guest = (guest.managed_by_type == 'guest')
 
         if guest_key in raw_balances:
-            display_name = get_guest_display_name(guest, db)
+            display_name = get_prefetched_guest_display_name(guest)
             for currency, amount in raw_balances[guest_key].items():
                 breakdown_key = (guest.managed_by_id, manager_is_guest, currency)
                 if breakdown_key not in manager_guest_breakdown:
@@ -100,7 +160,7 @@ def get_group_balances(
         manager_is_guest = (managed_member.managed_by_type == 'guest')
 
         if member_key in raw_balances:
-            member_user = db.query(models.User).filter(models.User.id == managed_member.user_id).first()
+            member_user = users_map.get(managed_member.user_id)
             member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
             for currency, amount in raw_balances[member_key].items():
                 breakdown_key = (managed_member.managed_by_id, manager_is_guest, currency)
@@ -131,7 +191,7 @@ def get_group_balances(
             breakdown_key = (guest.managed_by_id, manager_is_guest)
 
             if guest_key in raw_balances:
-                display_name = get_guest_display_name(guest, db)
+                display_name = get_prefetched_guest_display_name(guest)
                 total_amount = 0
                 # Convert all currencies to target currency
                 for currency, amount in raw_balances[guest_key].items():
@@ -154,7 +214,7 @@ def get_group_balances(
             breakdown_key = (managed_member.managed_by_id, manager_is_guest)
 
             if member_key in raw_balances:
-                member_user = db.query(models.User).filter(models.User.id == managed_member.user_id).first()
+                member_user = users_map.get(managed_member.user_id)
                 member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
                 total_amount = 0
                 # Convert all currencies to target currency
@@ -176,10 +236,10 @@ def get_group_balances(
                 continue
 
             if is_guest:
-                guest = db.query(models.GuestMember).filter(models.GuestMember.id == participant_id).first()
+                guest = guests_map.get(participant_id)
                 name = guest.name if guest else "Unknown Guest"
             else:
-                user = db.query(models.User).filter(models.User.id == participant_id).first()
+                user = users_map.get(participant_id)
                 name = (user.full_name or user.email) if user else "Unknown User"
 
             # Build managed guests list for this participant
@@ -203,10 +263,10 @@ def get_group_balances(
         # Multi-currency mode - net_balances is {(user_id, is_guest): {currency: amount}}
         for (participant_id, is_guest), currencies in net_balances.items():
             if is_guest:
-                guest = db.query(models.GuestMember).filter(models.GuestMember.id == participant_id).first()
+                guest = guests_map.get(participant_id)
                 name = guest.name if guest else "Unknown Guest"
             else:
-                user = db.query(models.User).filter(models.User.id == participant_id).first()
+                user = users_map.get(participant_id)
                 name = (user.full_name or user.email) if user else "Unknown User"
 
             for currency, amount in currencies.items():
