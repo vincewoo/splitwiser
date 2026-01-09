@@ -751,9 +751,9 @@ const GroupDetailPage: React.FC = () => {
                     ) : (
                         <div className="divide-y">
                             {(isExpensesExpanded ? filteredExpenses : filteredExpenses.slice(0, 5)).map(expense => (
-                                <div
+                                <button
                                     key={expense.id}
-                                    className="py-3 flex items-start lg:items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 -mx-2 px-2 rounded gap-2"
+                                    className="w-full text-left py-3 flex items-start lg:items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 -mx-2 px-2 rounded gap-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                     onClick={() => handleExpenseClick(expense.id)}
                                 >
                                     <div className="flex items-start lg:items-center gap-2 lg:gap-4 min-w-0 flex-1">
@@ -777,7 +777,7 @@ const GroupDetailPage: React.FC = () => {
                                     <div className="text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-100 flex-shrink-0">
                                         {formatMoney(expense.amount, expense.currency)}
                                     </div>
-                                </div>
+                                </button>
                             ))}
                             {filteredExpenses.length > 5 && (
                                 <div className="pt-3 text-center">
@@ -797,29 +797,43 @@ const GroupDetailPage: React.FC = () => {
 
                 {/* Balances Section - Collapsible */}
                 <div className="bg-white dark:bg-gray-800 rounded shadow-sm dark:shadow-gray-900/50 mb-4">
-                    <div
-                        className="w-full p-4 lg:p-6 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700"
-                    >
-                        <div
+                    <div className="flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t">
+                        <button
                             onClick={() => setIsBalancesExpanded(!isBalancesExpanded)}
-                            className="flex-1 cursor-pointer"
+                            className="flex-1 p-4 lg:p-6 text-left focus:outline-none focus:bg-gray-50 dark:focus:bg-gray-700"
+                            aria-expanded={isBalancesExpanded}
+                            aria-controls="balances-section"
                         >
-                            <h2 className="text-base lg:text-lg font-medium text-gray-900 dark:text-gray-100">
-                                Group Balances
-                            </h2>
-                            {isBalancesExpanded && group?.default_currency && balances.length > 0 && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    {showInGroupCurrency
-                                        ? `Displaying in ${group.default_currency}`
-                                        : `Grouped by currency`}
-                                </p>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-base lg:text-lg font-medium text-gray-900 dark:text-gray-100">
+                                        Group Balances
+                                    </h2>
+                                    {isBalancesExpanded && group?.default_currency && balances.length > 0 && (
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                            {showInGroupCurrency
+                                                ? `Displaying in ${group.default_currency}`
+                                                : `Grouped by currency`}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    {/* Spacer for when currency toggle is visible to prevent jumpiness,
+                                        though in this layout it might not be strictly necessary as toggle is absolute or flexed.
+                                        But here we just want the +/- to be part of the button visually.
+                                    */}
+                                </div>
+                            </div>
+                        </button>
+
+                        <div className="flex items-center gap-4 pr-4 lg:pr-6 pointer-events-none">
                             {isBalancesExpanded && group?.default_currency && balances.length > 0 && (
                                 <button
-                                    onClick={() => setShowInGroupCurrency(!showInGroupCurrency)}
-                                    className="text-xs px-2 lg:px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded border border-gray-300 dark:border-gray-600 whitespace-nowrap"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowInGroupCurrency(!showInGroupCurrency);
+                                    }}
+                                    className="pointer-events-auto text-xs px-2 lg:px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded border border-gray-300 dark:border-gray-600 whitespace-nowrap z-10"
                                 >
                                     {showInGroupCurrency
                                         ? `By currency`
@@ -827,8 +841,8 @@ const GroupDetailPage: React.FC = () => {
                                 </button>
                             )}
                             <span
-                                onClick={() => setIsBalancesExpanded(!isBalancesExpanded)}
-                                className="text-gray-400 dark:text-gray-500 text-xl cursor-pointer"
+                                className="text-gray-400 dark:text-gray-500 text-xl pointer-events-none"
+                                aria-hidden="true"
                             >
                                 {isBalancesExpanded ? '−' : '+'}
                             </span>
@@ -836,7 +850,7 @@ const GroupDetailPage: React.FC = () => {
                     </div>
 
                     {isBalancesExpanded && (
-                        <div className="px-4 lg:px-6 pb-4 lg:pb-6 border-t dark:border-gray-700">
+                        <div id="balances-section" className="px-4 lg:px-6 pb-4 lg:pb-6 border-t dark:border-gray-700">
                             {balances.length === 0 ? (
                                 <p className="text-gray-500 dark:text-gray-400 italic text-sm mt-4">No balances yet</p>
                             ) : (
@@ -870,18 +884,20 @@ const GroupDetailPage: React.FC = () => {
                 <div className="bg-white dark:bg-gray-800 rounded shadow-sm dark:shadow-gray-900/50">
                     <button
                         onClick={() => setIsMembersExpanded(!isMembersExpanded)}
-                        className="w-full p-4 lg:p-6 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="w-full p-4 lg:p-6 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:bg-gray-50 dark:focus:bg-gray-700"
+                        aria-expanded={isMembersExpanded}
+                        aria-controls="members-section"
                     >
                         <h2 className="text-base lg:text-lg font-medium text-gray-900 dark:text-gray-100">
                             Members ({(group.members || []).length + (group.guests?.length || 0)})
                         </h2>
-                        <span className="text-gray-400 dark:text-gray-500 text-xl">
+                        <span className="text-gray-400 dark:text-gray-500 text-xl" aria-hidden="true">
                             {isMembersExpanded ? '−' : '+'}
                         </span>
                     </button>
 
                     {isMembersExpanded && (
-                        <div className="px-4 lg:px-6 pb-4 lg:pb-6 border-t dark:border-gray-700">
+                        <div id="members-section" className="px-4 lg:px-6 pb-4 lg:pb-6 border-t dark:border-gray-700">
                             {/* Splitwisers Section */}
                             {(group.members || []).length > 0 && (
                                 <div className="mt-4">

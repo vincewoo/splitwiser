@@ -1,3 +1,3 @@
-## 2026-01-04 - Accessible Toggle States
-**Learning:** Adding `aria-pressed` to toggle buttons (like participant selectors) is critical for screen reader users to understand state changes. Visual feedback alone (color change) is insufficient.
-**Action:** When implementing custom toggle buttons or multi-select lists, always bind `aria-pressed={isSelected}` and ensure smooth transitions (`transition-all`) for better perceived responsiveness.
+## 2026-01-09 - Accessibility in Complex Collapsible Headers
+**Learning:** Collapsible headers that contain other interactive elements (like a currency toggle inside a header row) present a semantic challenge. Nesting buttons is invalid HTML.
+**Action:** The solution is to split the visual row into a main `<button>` for the toggle action (occupying the majority of the space) and a separate container for the other interactive elements. Use `pointer-events-none` on the secondary container to prevent it from blocking the main button's click area, while re-enabling `pointer-events-auto` on the specific interactive children.
