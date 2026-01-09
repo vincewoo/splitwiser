@@ -145,20 +145,97 @@ def get_friend_expenses(
         )
     ).order_by(models.Expense.date.desc(), models.Expense.id.desc()).all()
 
+    if not expenses:
+        return []
+
+    expense_ids = [e.id for e in expenses]
+
+    # Batch fetch all splits
+    all_splits = db.query(models.ExpenseSplit).filter(
+        models.ExpenseSplit.expense_id.in_(expense_ids)
+    ).all()
+
+    splits_by_expense = defaultdict(list)
+    user_ids = set()
+    guest_ids = set()
+
+    for split in all_splits:
+        splits_by_expense[split.expense_id].append(split)
+        if split.is_guest:
+            guest_ids.add(split.user_id)
+        else:
+            user_ids.add(split.user_id)
+
+    # Batch fetch groups
+    group_ids = {e.group_id for e in expenses if e.group_id}
+    groups_map = {}
+    if group_ids:
+        groups = db.query(models.Group).filter(models.Group.id.in_(group_ids)).all()
+        groups_map = {g.id: g for g in groups}
+
+    # Batch fetch items for ITEMIZED expenses
+    itemized_expense_ids = [e.id for e in expenses if e.split_type == "ITEMIZED"]
+    items_by_expense = defaultdict(list)
+
+    if itemized_expense_ids:
+        items = db.query(models.ExpenseItem).filter(
+            models.ExpenseItem.expense_id.in_(itemized_expense_ids)
+        ).all()
+
+        if items:
+            item_ids = [i.id for i in items]
+            assignments = db.query(models.ExpenseItemAssignment).filter(
+                models.ExpenseItemAssignment.expense_item_id.in_(item_ids)
+            ).all()
+
+            assignments_by_item = defaultdict(list)
+            for a in assignments:
+                assignments_by_item[a.expense_item_id].append(a)
+                if a.is_guest:
+                    guest_ids.add(a.user_id)
+                else:
+                    user_ids.add(a.user_id)
+
+            for item in items:
+                # Attach assignments to item for easier access later
+                item._assignments = assignments_by_item[item.id]
+                items_by_expense[item.expense_id].append(item)
+
+    # Batch fetch guests
+    guests_map = {}
+    if guest_ids:
+        guests = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids)).all()
+        guests_map = {g.id: g for g in guests}
+
+        # Collect claimed users
+        claimed_user_ids = {g.claimed_by_id for g in guests if g.claimed_by_id}
+        user_ids.update(claimed_user_ids)
+
+    # Batch fetch users
+    users_map = {}
+    if user_ids:
+        users = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+        users_map = {u.id: u for u in users}
+
     result = []
     for expense in expenses:
         # Get splits with user names
-        splits = db.query(models.ExpenseSplit).filter(
-            models.ExpenseSplit.expense_id == expense.id
-        ).all()
+        splits = splits_by_expense[expense.id]
 
         splits_with_names = []
         for split in splits:
             if split.is_guest:
-                guest = db.query(models.GuestMember).filter(models.GuestMember.id == split.user_id).first()
-                user_name = get_guest_display_name(guest, db)
+                guest = guests_map.get(split.user_id)
+                if guest:
+                    if guest.claimed_by_id and guest.claimed_by_id in users_map:
+                        u = users_map[guest.claimed_by_id]
+                        user_name = u.full_name or u.email
+                    else:
+                        user_name = guest.name
+                else:
+                    user_name = "Unknown Guest"
             else:
-                user = db.query(models.User).filter(models.User.id == split.user_id).first()
+                user = users_map.get(split.user_id)
                 user_name = (user.full_name or user.email) if user else "Unknown User"
 
             splits_with_names.append(schemas.ExpenseSplitDetail(
@@ -175,33 +252,32 @@ def get_friend_expenses(
         # Get group name if expense is in a group
         group_name = None
         if expense.group_id:
-            group = db.query(models.Group).filter(models.Group.id == expense.group_id).first()
+            group = groups_map.get(expense.group_id)
             group_name = group.name if group else None
 
         # Load items for ITEMIZED expenses
         items_data = []
         split_type = expense.split_type or "EQUAL"
         if split_type == "ITEMIZED":
-            expense_items = db.query(models.ExpenseItem).filter(
-                models.ExpenseItem.expense_id == expense.id
-            ).all()
+            expense_items = items_by_expense.get(expense.id, [])
 
             for item in expense_items:
-                assignments = db.query(models.ExpenseItemAssignment).filter(
-                    models.ExpenseItemAssignment.expense_item_id == item.id
-                ).all()
+                assignments = getattr(item, '_assignments', [])
 
                 assignment_details = []
                 for a in assignments:
                     if a.is_guest:
-                        guest = db.query(models.GuestMember).filter(
-                            models.GuestMember.id == a.user_id
-                        ).first()
-                        name = get_guest_display_name(guest, db)
+                        guest = guests_map.get(a.user_id)
+                        if guest:
+                            if guest.claimed_by_id and guest.claimed_by_id in users_map:
+                                u = users_map[guest.claimed_by_id]
+                                name = u.full_name or u.email
+                            else:
+                                name = guest.name
+                        else:
+                            name = "Unknown Guest"
                     else:
-                        user = db.query(models.User).filter(
-                            models.User.id == a.user_id
-                        ).first()
+                        user = users_map.get(a.user_id)
                         name = (user.full_name or user.email) if user else "Unknown"
 
                     assignment_details.append(schemas.ExpenseItemAssignmentDetail(
@@ -284,6 +360,19 @@ def get_friend_balance(
         )
     ).all()
 
+    if not expenses:
+        return []
+
+    # Batch fetch splits
+    expense_ids = [e.id for e in expenses]
+    splits_by_expense = defaultdict(list)
+    if expense_ids:
+        all_splits = db.query(models.ExpenseSplit).filter(
+            models.ExpenseSplit.expense_id.in_(expense_ids)
+        ).all()
+        for s in all_splits:
+            splits_by_expense[s.expense_id].append(s)
+
     # Calculate balance per currency
     # Positive = friend owes current user, Negative = current user owes friend
     balances: dict[str, float] = defaultdict(float)
@@ -292,9 +381,7 @@ def get_friend_balance(
         currency = expense.currency
 
         # Get splits for this expense
-        splits = db.query(models.ExpenseSplit).filter(
-            models.ExpenseSplit.expense_id == expense.id
-        ).all()
+        splits = splits_by_expense[expense.id]
 
         # Find what the friend owes in this expense
         friend_split = next(
