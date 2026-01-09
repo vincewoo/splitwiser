@@ -16,3 +16,8 @@
 **Vulnerability:** The receipt OCR endpoint caught generic exceptions and returned their string representation `str(e)` in the HTTP 500 response body. This could potentially expose sensitive internal details (path structures, DB connection strings, library versions) to attackers.
 **Learning:** Developers often return raw error messages to debug easier, but forget to sanitize them for production.
 **Prevention:** Catch exceptions and log the full traceback to server logs (stderr/stdout), but return a generic "Something went wrong" message to the API client.
+
+## 2025-02-18 - Missing Rate Limiting on Expensive Endpoint
+**Vulnerability:** The receipt scanning endpoint (`/ocr/scan-receipt`) was not rate-limited, allowing potential Cost Denial of Service (DoS) by exhausting the Google Cloud Vision API quota or incurring high costs.
+**Learning:** Authentication rate limits are often insufficient for resource-intensive or costly operations. Expensive endpoints require dedicated, stricter limits.
+**Prevention:** Identify endpoints that trigger external API calls or heavy processing and apply specific rate limiters (e.g., 5 requests/minute) distinct from general API limits.

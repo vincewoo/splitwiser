@@ -52,3 +52,6 @@ class RateLimiter:
 # 5 requests per minute for sensitive auth operations
 # Note: In a real distributed system, use Redis. For this app, memory is fine.
 auth_rate_limiter = RateLimiter(requests_limit=5, time_window=60)
+
+# 5 requests per minute for expensive OCR operations
+ocr_rate_limiter = RateLimiter(requests_limit=5, time_window=60)
