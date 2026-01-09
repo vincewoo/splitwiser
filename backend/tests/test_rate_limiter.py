@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from main import app
-from utils.rate_limiter import RateLimiter, auth_rate_limiter
+from utils.rate_limiter import RateLimiter, auth_rate_limiter, ocr_rate_limiter
 
 client = TestClient(app)
 
@@ -49,6 +49,43 @@ def test_register_rate_limiting():
         # The 6th request should be rate limited
         response = client.post(url, json=data)
         assert response.status_code == 429
+
+    finally:
+        app.dependency_overrides = {}
+
+def test_ocr_rate_limiting():
+    # Override the OCR rate limiter with a strict one
+    test_limiter = RateLimiter(requests_limit=5, time_window=60)
+    app.dependency_overrides[ocr_rate_limiter] = test_limiter
+
+    try:
+        url = "/ocr/scan-receipt"
+
+        # We need to send a valid-looking file to pass the initial checks
+        # Create a small dummy image
+        file_content = b"fake image content"
+        files = {"file": ("test.jpg", file_content, "image/jpeg")}
+
+        # Since we're just testing the rate limiter which runs BEFORE the endpoint logic (as a dependency),
+        # we don't need to mock the OCR service if the rate limiter triggers first.
+        # However, FastAPI dependencies run *before* the path operation function.
+        # If the rate limiter allows the request, the path operation runs, and fails on invalid image.
+        # That's fine, we just want to see it NOT return 429 for the first 5, and return 429 for the 6th.
+
+        # Send 5 requests
+        for i in range(5):
+            # We must recreate the file object for each request because it gets closed
+            files = {"file": ("test.jpg", file_content, "image/jpeg")}
+            response = client.post(url, files=files)
+
+            # Should NOT be 429. It might be 400 (Invalid image) or 500 (OCR failed), but not 429.
+            assert response.status_code != 429, f"Request {i+1} was rate limited unexpectedly. Status: {response.status_code}"
+
+        # The 6th request should be rate limited
+        files = {"file": ("test.jpg", file_content, "image/jpeg")}
+        response = client.post(url, files=files)
+        assert response.status_code == 429, "6th request should have been rate limited"
+        assert response.json()["detail"] == "Too many requests. Please try again later."
 
     finally:
         app.dependency_overrides = {}

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db
 from dependencies import get_current_user
+from utils.rate_limiter import ocr_rate_limiter
 from ocr.service import ocr_service
 from ocr.parser import parse_receipt_items
 from ocr.parser_v2 import parse_receipt_items_v2, get_raw_text, parse_receipt_with_validation
@@ -25,7 +26,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 router = APIRouter(tags=["receipts"])
 
 
-@router.post("/ocr/scan-receipt")
+@router.post("/ocr/scan-receipt", dependencies=[Depends(ocr_rate_limiter)])
 async def scan_receipt(
     request: Request,
     file: UploadFile = File(...),
