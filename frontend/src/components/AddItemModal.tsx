@@ -56,6 +56,7 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ isOpen, onClose, onAdd }) =
                         <button
                             type="button"
                             onClick={onClose}
+                            aria-label="Close modal"
                             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 min-w-[44px] min-h-[44px] flex items-center justify-center"
                         >
                             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
