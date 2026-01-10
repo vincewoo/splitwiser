@@ -76,7 +76,7 @@ const AccountSettingsPage = () => {
         return;
       }
 
-      const response = await api.profile.updateProfile(updates);
+      await api.profile.updateProfile(updates);
 
       if (updates.email) {
         setProfileSuccess('Profile updated. Please check your new email address to verify the change.');
