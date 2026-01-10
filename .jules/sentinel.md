@@ -7,6 +7,7 @@
 **Vulnerability:** The receipt scanning endpoint read the entire uploaded file into memory without checking its size, creating a Denial of Service (DoS) risk via memory exhaustion.
 **Learning:** Frameworks like FastAPI/Starlette provide tools (`UploadFile`) that handle large files by spooling to disk, but application logic often inadvertently negates this by calling `await file.read()`, loading everything into RAM.
 **Prevention:** Always enforce a `Content-Length` header check before reading, and/or stream the file reading with a size limit check. Added a 10MB limit to `scan_receipt`.
+
 ## 2025-02-18 - Input Validation Vulnerability
 **Vulnerability:** Input fields in schemas (like user full_name, expense description, etc.) lacked length constraints, allowing for potentially unbounded strings which could lead to DoS or database issues.
 **Learning:** Pydantic models by default validate types but not lengths. Explicit `Field(..., max_length=X)` is required.
@@ -21,3 +22,8 @@
 **Vulnerability:** The receipt scanning endpoint (`/ocr/scan-receipt`) was not rate-limited, allowing potential Cost Denial of Service (DoS) by exhausting the Google Cloud Vision API quota or incurring high costs.
 **Learning:** Authentication rate limits are often insufficient for resource-intensive or costly operations. Expensive endpoints require dedicated, stricter limits.
 **Prevention:** Identify endpoints that trigger external API calls or heavy processing and apply specific rate limiters (e.g., 5 requests/minute) distinct from general API limits.
+
+## 2025-02-18 - Rate Limiting Bypass via Reverse Proxy
+**Vulnerability:** The rate limiter used `request.client.host` to identify users. Since the application runs behind an Nginx reverse proxy (on the same machine/container), all requests appeared to come from `127.0.0.1`. This meant all users shared the same rate limit bucket, leading to a self-inflicted Denial of Service where one active user could block everyone else.
+**Learning:** In containerized or proxied environments, `request.client.host` often reflects the proxy's IP, not the actual user. Trusting it blindly effectively disables per-user rate limiting.
+**Prevention:** Always check for `X-Forwarded-For` or `X-Real-IP` headers when deployed behind a proxy. Configure the application middleware (like `ProxyHeadersMiddleware`) or manually handle these headers in security-critical components like rate limiters.

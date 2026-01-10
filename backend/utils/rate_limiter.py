@@ -11,8 +11,21 @@ class RateLimiter:
         self.cleanup_interval = 600  # Cleanup every 10 minutes
         self.last_cleanup = time.time()
 
+    def _get_client_ip(self, request: Request) -> str:
+        """
+        Get the real client IP, respecting X-Forwarded-For if behind a proxy.
+        Prioritize X-Forwarded-For > request.client.host
+        """
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            # X-Forwarded-For: <client>, <proxy1>, <proxy2>
+            # We want the first one (the client)
+            return forwarded_for.split(",")[0].strip()
+
+        return request.client.host or "127.0.0.1"
+
     async def __call__(self, request: Request):
-        client_ip = request.client.host
+        client_ip = self._get_client_ip(request)
         current_time = time.time()
 
         # Periodic cleanup to prevent memory leaks
