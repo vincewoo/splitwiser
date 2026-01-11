@@ -74,13 +74,6 @@ const ItemPreviewEditor: React.FC<ItemPreviewEditorProps> = ({
         img.src = imageUrl;
     }, [imageUrl]);
 
-    // Re-extract region images when regions change
-    useEffect(() => {
-        if (imageLoaded && imageRef.current) {
-            extractRegionImages(imageRef.current);
-        }
-    }, [regions, imageLoaded]);
-
     // Extract cropped images for each region
     const extractRegionImages = (img: HTMLImageElement) => {
         const newRegionImages = new Map<string, string>();
@@ -113,6 +106,13 @@ const ItemPreviewEditor: React.FC<ItemPreviewEditorProps> = ({
 
         setRegionImages(newRegionImages);
     };
+
+    // Re-extract region images when regions change
+    useEffect(() => {
+        if (imageLoaded && imageRef.current) {
+            extractRegionImages(imageRef.current);
+        }
+    }, [regions, imageLoaded]);
 
     // Helper: Get confidence color
     const getConfidenceColor = (confidence?: number): { border: string; bg: string; label: string } => {
@@ -384,15 +384,22 @@ const ItemPreviewEditor: React.FC<ItemPreviewEditorProps> = ({
     // Calculate total
     const total = items.reduce((sum, item) => sum + item.price, 0);
 
-    // Helper: Calculate line path for SVG connection
-    const getConnectionPath = () => {
-        if (!selectedRegionId && !hoveredItemId) return '';
+    const [connectionPath, setConnectionPath] = useState('');
+
+    useEffect(() => {
+        if (!selectedRegionId && !hoveredItemId) {
+            setConnectionPath('');
+            return;
+        }
 
         const targetId = (selectedRegionId || hoveredItemId) as string;
         const box = regions.find(b => b.id === targetId);
         const item = items.find(i => i.region_id === targetId);
 
-        if (!box || !item || !canvasRef.current) return '';
+        if (!box || !item || !canvasRef.current) {
+            setConnectionPath('');
+            return;
+        }
 
         const canvas = canvasRef.current;
         const canvasRect = canvas.getBoundingClientRect();
@@ -410,7 +417,10 @@ const ItemPreviewEditor: React.FC<ItemPreviewEditorProps> = ({
 
         // Item position (relative to viewport) - approximate
         const itemElement = itemRefs.current.get(targetId);
-        if (!itemElement) return '';
+        if (!itemElement) {
+            setConnectionPath('');
+            return;
+        }
 
         const itemRect = itemElement.getBoundingClientRect();
         const endX = canvasRect.width + 24; // Gap between panels
@@ -420,8 +430,8 @@ const ItemPreviewEditor: React.FC<ItemPreviewEditorProps> = ({
         const controlX1 = startX + (endX - startX) * 0.4;
         const controlX2 = startX + (endX - startX) * 0.6;
 
-        return `M ${startX} ${startY} C ${controlX1} ${startY}, ${controlX2} ${endY}, ${endX} ${endY}`;
-    };
+        setConnectionPath(`M ${startX} ${startY} C ${controlX1} ${startY}, ${controlX2} ${endY}, ${endX} ${endY}`);
+    }, [selectedRegionId, hoveredItemId, regions, items, imageDimensions]);
 
     return (
         <div className="flex flex-col lg:flex-row gap-6">
@@ -465,7 +475,7 @@ const ItemPreviewEditor: React.FC<ItemPreviewEditorProps> = ({
                                             </linearGradient>
                                         </defs>
                                         <path
-                                            d={getConnectionPath()}
+                                            d={connectionPath}
                                             stroke="url(#lineGradient)"
                                             strokeWidth="3"
                                             fill="none"

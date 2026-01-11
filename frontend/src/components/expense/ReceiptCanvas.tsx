@@ -56,41 +56,48 @@ const ReceiptCanvas: React.FC<ReceiptCanvasProps> = ({
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // Load and draw image
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+    const drawResizeHandles = useCallback((ctx: CanvasRenderingContext2D, box: BoundingBox) => {
+        const handleSize = isMobile ? MOBILE_HANDLE_SIZE : DESKTOP_HANDLE_SIZE;
+        const handles = [
+            { x: box.x, y: box.y }, // nw
+            { x: box.x + box.width / 2, y: box.y }, // n
+            { x: box.x + box.width, y: box.y }, // ne
+            { x: box.x + box.width, y: box.y + box.height / 2 }, // e
+            { x: box.x + box.width, y: box.y + box.height }, // se
+            { x: box.x + box.width / 2, y: box.y + box.height }, // s
+            { x: box.x, y: box.y + box.height }, // sw
+            { x: box.x, y: box.y + box.height / 2 }, // w
+        ];
 
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        handles.forEach(handle => {
+            if (isMobile) {
+                // Draw circular handles for mobile with better visibility
+                ctx.beginPath();
+                ctx.arc(handle.x, handle.y, handleSize / 2, 0, 2 * Math.PI);
+                ctx.fillStyle = 'white';
+                ctx.fill();
+                ctx.strokeStyle = '#0d9488';
+                ctx.lineWidth = 3;
+                ctx.stroke();
 
-        // Load image
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = imageUrl;
+                // Inner dot
+                ctx.beginPath();
+                ctx.arc(handle.x, handle.y, handleSize / 4, 0, 2 * Math.PI);
+                ctx.fillStyle = '#0d9488';
+                ctx.fill();
+            } else {
+                ctx.fillStyle = '#0d9488';
+                ctx.fillRect(
+                    handle.x - handleSize / 2,
+                    handle.y - handleSize / 2,
+                    handleSize,
+                    handleSize
+                );
+            }
+        });
+    }, [isMobile]);
 
-        img.onload = () => {
-            imageRef.current = img;
-            drawCanvas(ctx);
-        };
-
-        img.onerror = () => {
-            console.error('Failed to load receipt image');
-        };
-    }, [imageUrl]);
-
-    // Redraw when boxes, selection, hover state, or mobile state changes
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        drawCanvas(ctx);
-    }, [boxes, selectedBoxId, hoveredBoxId, isMobile]);
-
-    const drawCanvas = (ctx: CanvasRenderingContext2D) => {
+    const drawCanvas = useCallback((ctx: CanvasRenderingContext2D) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -142,50 +149,43 @@ const ReceiptCanvas: React.FC<ReceiptCanvasProps> = ({
                 drawResizeHandles(ctx, box);
             }
         });
-    };
+    }, [boxes, selectedBoxId, hoveredBoxId, isMobile, drawResizeHandles]);
 
-    const drawResizeHandles = (ctx: CanvasRenderingContext2D, box: BoundingBox) => {
-        const handleSize = isMobile ? MOBILE_HANDLE_SIZE : DESKTOP_HANDLE_SIZE;
-        const handles = [
-            { x: box.x, y: box.y }, // nw
-            { x: box.x + box.width / 2, y: box.y }, // n
-            { x: box.x + box.width, y: box.y }, // ne
-            { x: box.x + box.width, y: box.y + box.height / 2 }, // e
-            { x: box.x + box.width, y: box.y + box.height }, // se
-            { x: box.x + box.width / 2, y: box.y + box.height }, // s
-            { x: box.x, y: box.y + box.height }, // sw
-            { x: box.x, y: box.y + box.height / 2 }, // w
-        ];
+    // Load and draw image
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
 
-        handles.forEach(handle => {
-            if (isMobile) {
-                // Draw circular handles for mobile with better visibility
-                ctx.beginPath();
-                ctx.arc(handle.x, handle.y, handleSize / 2, 0, 2 * Math.PI);
-                ctx.fillStyle = 'white';
-                ctx.fill();
-                ctx.strokeStyle = '#0d9488';
-                ctx.lineWidth = 3;
-                ctx.stroke();
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
 
-                // Inner dot
-                ctx.beginPath();
-                ctx.arc(handle.x, handle.y, handleSize / 4, 0, 2 * Math.PI);
-                ctx.fillStyle = '#0d9488';
-                ctx.fill();
-            } else {
-                ctx.fillStyle = '#0d9488';
-                ctx.fillRect(
-                    handle.x - handleSize / 2,
-                    handle.y - handleSize / 2,
-                    handleSize,
-                    handleSize
-                );
-            }
-        });
-    };
+        // Load image
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = imageUrl;
 
-    const getBoxAtPoint = (x: number, y: number): BoundingBox | null => {
+        img.onload = () => {
+            imageRef.current = img;
+            drawCanvas(ctx);
+        };
+
+        img.onerror = () => {
+            console.error('Failed to load receipt image');
+        };
+    }, [imageUrl, drawCanvas]);
+
+    // Redraw when boxes, selection, hover state, or mobile state changes
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        drawCanvas(ctx);
+    }, [drawCanvas]);
+
+    const getBoxAtPoint = useCallback((x: number, y: number): BoundingBox | null => {
         // Check boxes in reverse order (top to bottom in stack)
         for (let i = boxes.length - 1; i >= 0; i--) {
             const box = boxes[i];
@@ -199,9 +199,9 @@ const ReceiptCanvas: React.FC<ReceiptCanvasProps> = ({
             }
         }
         return null;
-    };
+    }, [boxes]);
 
-    const getResizeHandle = (x: number, y: number, box: BoundingBox): string | null => {
+    const getResizeHandle = useCallback((x: number, y: number, box: BoundingBox): string | null => {
         const handleSize = isMobile ? MOBILE_HANDLE_SIZE : DESKTOP_HANDLE_SIZE;
         const tolerance = handleSize / 2;
 
@@ -224,7 +224,7 @@ const ReceiptCanvas: React.FC<ReceiptCanvasProps> = ({
         }
 
         return null;
-    };
+    }, [isMobile]);
 
     const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
         const canvas = canvasRef.current;
