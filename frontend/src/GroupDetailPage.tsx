@@ -714,6 +714,7 @@ const GroupDetailPage: React.FC = () => {
                                 <button
                                     onClick={() => navigate('/')}
                                     className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
+                                    aria-label="Back to Dashboard"
                                 >
                                     &larr;
                                 </button>
@@ -913,7 +914,7 @@ const GroupDetailPage: React.FC = () => {
                                                 onClick={() => setIsSimplifyDebtsModalOpen(true)}
                                                 className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 font-medium"
                                             >
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                 </svg>
                                                 <span>Simplify Debts</span>
