@@ -314,9 +314,47 @@ def get_balances(
     # Group balances (for group expenses): (group_id, currency) -> amount
     group_balances = {}
 
+    # Optimization: Batch fetch all splits for paid_expenses
+    paid_expense_ids = [e.id for e in paid_expenses]
+    splits_for_paid_expenses = []
+    if paid_expense_ids:
+        splits_for_paid_expenses = db.query(models.ExpenseSplit).filter(
+            models.ExpenseSplit.expense_id.in_(paid_expense_ids)
+        ).all()
+
+    splits_by_expense = {}
+    guest_ids = set()
+
+    for split in splits_for_paid_expenses:
+        if split.expense_id not in splits_by_expense:
+            splits_by_expense[split.expense_id] = []
+        splits_by_expense[split.expense_id].append(split)
+
+        if split.is_guest:
+            guest_ids.add(split.user_id)
+
+    # Optimization: Batch fetch expenses for my_splits
+    my_split_expense_ids = [s.expense_id for s in my_splits]
+    expenses_for_my_splits = {}
+    if my_split_expense_ids:
+        expenses_list = db.query(models.Expense).filter(
+            models.Expense.id.in_(my_split_expense_ids)
+        ).all()
+        expenses_for_my_splits = {e.id: e for e in expenses_list}
+
+        for e in expenses_list:
+            if e.payer_is_guest:
+                guest_ids.add(e.payer_id)
+
+    # Optimization: Batch fetch guests
+    guests_map = {}
+    if guest_ids:
+        guests = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids)).all()
+        guests_map = {g.id: g for g in guests}
+
     # Analyze expenses I paid
     for expense in paid_expenses:
-        splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+        splits = splits_by_expense.get(expense.id, [])
         for split in splits:
             if split.user_id == current_user.id and not split.is_guest:
                 continue  # I don't owe myself
@@ -327,7 +365,7 @@ def get_balances(
                 group_balances[key] = group_balances.get(key, 0) + split.amount_owed
             else:
                 if split.is_guest:
-                    guest = db.query(models.GuestMember).filter(models.GuestMember.id == split.user_id).first()
+                    guest = guests_map.get(split.user_id)
                     if guest:
                         key = (guest.group_id, expense.currency)
                         group_balances[key] = group_balances.get(key, 0) + split.amount_owed
@@ -337,7 +375,7 @@ def get_balances(
 
     # Analyze expenses I owe (someone else paid)
     for split in my_splits:
-        expense = db.query(models.Expense).filter(models.Expense.id == split.expense_id).first()
+        expense = expenses_for_my_splits.get(split.expense_id)
         if not expense:
             continue
             
@@ -350,7 +388,7 @@ def get_balances(
             group_balances[key] = group_balances.get(key, 0) - split.amount_owed
         else:
             if expense.payer_is_guest:
-                guest = db.query(models.GuestMember).filter(models.GuestMember.id == expense.payer_id).first()
+                guest = guests_map.get(expense.payer_id)
                 if guest:
                     key = (guest.group_id, expense.currency)
                     group_balances[key] = group_balances.get(key, 0) - split.amount_owed
@@ -360,10 +398,24 @@ def get_balances(
 
     result = {"balances": []}
 
+    # Optimization: Batch fetch users for balances
+    user_ids = {uid for uid, _ in user_balances.keys()}
+    users_map = {}
+    if user_ids:
+        users = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+        users_map = {u.id: u for u in users}
+
+    # Optimization: Batch fetch groups for balances
+    group_ids = {gid for gid, _ in group_balances.keys()}
+    groups_map = {}
+    if group_ids:
+        groups = db.query(models.Group).filter(models.Group.id.in_(group_ids)).all()
+        groups_map = {g.id: g for g in groups}
+
     # Add individual user balances (1-to-1 IOUs only)
     for (uid, currency), amount in user_balances.items():
         if amount != 0:
-            user = db.query(models.User).filter(models.User.id == uid).first()
+            user = users_map.get(uid)
             full_name = user.full_name if user else f"User {uid}"
             result["balances"].append(schemas.Balance(
                 user_id=uid, 
@@ -376,7 +428,7 @@ def get_balances(
     # Add consolidated group balances
     for (group_id, currency), amount in group_balances.items():
         if amount != 0:
-            group = db.query(models.Group).filter(models.Group.id == group_id).first()
+            group = groups_map.get(group_id)
             group_name = group.name if group else f"Group {group_id}"
             result["balances"].append(schemas.Balance(
                 user_id=0,
