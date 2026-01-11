@@ -432,7 +432,7 @@ async def send_friend_request_email(
     Returns:
         bool: True if email sent successfully
     """
-    friend_requests_link = f"{FRONTEND_URL}/friends"
+    friend_requests_link = f"{FRONTEND_URL}/account"
 
     subject = f"{from_name} sent you a friend request on Splitwiser"
 
