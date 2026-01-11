@@ -14,6 +14,7 @@ Options:
 """
 
 import sqlite3
+import os
 import sys
 import argparse
 from pathlib import Path
@@ -270,8 +271,8 @@ Examples:
 
     parser.add_argument(
         "--db-path",
-        default="db.sqlite3",
-        help="Path to SQLite database file (default: db.sqlite3)"
+        default=os.environ.get("DATABASE_PATH", "db.sqlite3"),
+        help="Path to SQLite database file (default: $DATABASE_PATH or db.sqlite3)"
     )
 
     args = parser.parse_args()

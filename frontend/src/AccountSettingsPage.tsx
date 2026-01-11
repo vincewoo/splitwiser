@@ -13,6 +13,18 @@ interface UserProfile {
   last_login_at: string | null;
 }
 
+interface FriendRequest {
+  id: number;
+  from_user_id: number;
+  from_user_name: string;
+  from_user_email: string;
+  to_user_id: number;
+  to_user_name: string;
+  to_user_email: string;
+  status: string;
+  created_at: string;
+}
+
 const AccountSettingsPage = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -34,11 +46,85 @@ const AccountSettingsPage = () => {
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [isPasswordLoading, setIsPasswordLoading] = useState(false);
 
+  // Friend requests state
+  const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([]);
+  const [outgoingRequests, setOutgoingRequests] = useState<FriendRequest[]>([]);
+  const [isRequestsLoading, setIsRequestsLoading] = useState(true);
+  const [requestError, setRequestError] = useState('');
+  const [requestSuccess, setRequestSuccess] = useState('');
+
   usePageTitle('Account Settings');
 
   useEffect(() => {
     loadProfile();
+    loadFriendRequests();
   }, []);
+
+  const loadFriendRequests = async () => {
+    try {
+      const [incoming, outgoing] = await Promise.all([
+        api.friends.getIncomingRequests(),
+        api.friends.getOutgoingRequests()
+      ]);
+      setIncomingRequests(incoming);
+      setOutgoingRequests(outgoing);
+    } catch (error) {
+      console.error('Failed to load friend requests:', error);
+    } finally {
+      setIsRequestsLoading(false);
+    }
+  };
+
+  const handleAcceptRequest = async (requestId: number) => {
+    setRequestError('');
+    setRequestSuccess('');
+    try {
+      const response = await api.friends.acceptRequest(requestId);
+      if (response.ok) {
+        setRequestSuccess('Friend request accepted!');
+        loadFriendRequests();
+      } else {
+        const error = await response.json();
+        setRequestError(error.detail || 'Failed to accept request');
+      }
+    } catch (error) {
+      setRequestError('Failed to accept request');
+    }
+  };
+
+  const handleRejectRequest = async (requestId: number) => {
+    setRequestError('');
+    setRequestSuccess('');
+    try {
+      const response = await api.friends.rejectRequest(requestId);
+      if (response.ok) {
+        setRequestSuccess('Friend request rejected');
+        loadFriendRequests();
+      } else {
+        const error = await response.json();
+        setRequestError(error.detail || 'Failed to reject request');
+      }
+    } catch (error) {
+      setRequestError('Failed to reject request');
+    }
+  };
+
+  const handleCancelRequest = async (requestId: number) => {
+    setRequestError('');
+    setRequestSuccess('');
+    try {
+      const response = await api.friends.cancelRequest(requestId);
+      if (response.ok) {
+        setRequestSuccess('Friend request cancelled');
+        loadFriendRequests();
+      } else {
+        const error = await response.json();
+        setRequestError(error.detail || 'Failed to cancel request');
+      }
+    } catch (error) {
+      setRequestError('Failed to cancel request');
+    }
+  };
 
   const loadProfile = async () => {
     try {
@@ -217,6 +303,96 @@ const AccountSettingsPage = () => {
                 {isProfileLoading ? 'Saving...' : 'Save Changes'}
               </button>
             </form>
+          </div>
+
+          {/* Friend Requests Section */}
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Friend Requests</h2>
+
+            {requestSuccess && (
+              <div className="mb-4 p-4 rounded-md bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800">
+                <p className="text-sm text-green-800 dark:text-green-200">{requestSuccess}</p>
+              </div>
+            )}
+
+            {requestError && (
+              <div className="mb-4 p-4 rounded-md bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800">
+                <p className="text-sm text-red-800 dark:text-red-200">{requestError}</p>
+              </div>
+            )}
+
+            {isRequestsLoading ? (
+              <div className="flex justify-center py-4">
+                <svg className="animate-spin h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Incoming Requests */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase mb-3">
+                    Incoming Requests ({incomingRequests.length})
+                  </h3>
+                  {incomingRequests.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No pending friend requests</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {incomingRequests.map(req => (
+                        <li key={req.id} className="flex items-center justify-between py-3 px-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                          <div>
+                            <p className="font-medium text-gray-900 dark:text-gray-100">{req.from_user_name}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{req.from_user_email}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleAcceptRequest(req.id)}
+                              className="px-3 py-1.5 text-sm font-medium text-white bg-teal-500 hover:bg-teal-600 rounded-md transition-colors"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              onClick={() => handleRejectRequest(req.id)}
+                              className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-md transition-colors"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Outgoing Requests */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase mb-3">
+                    Sent Requests ({outgoingRequests.length})
+                  </h3>
+                  {outgoingRequests.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No pending sent requests</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {outgoingRequests.map(req => (
+                        <li key={req.id} className="flex items-center justify-between py-3 px-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                          <div>
+                            <p className="font-medium text-gray-900 dark:text-gray-100">{req.to_user_name}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{req.to_user_email}</p>
+                          </div>
+                          <button
+                            onClick={() => handleCancelRequest(req.id)}
+                            className="px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-md transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Change Password Section */}

@@ -14,6 +14,7 @@ import ManageGuestModal from './ManageGuestModal';
 import ManageMemberModal from './ManageMemberModal';
 import SimplifyDebtsModal from './SimplifyDebtsModal';
 import AlertDialog from './components/AlertDialog';
+import SendFriendRequestModal from './SendFriendRequestModal';
 
 interface GroupMember {
     id: number;
@@ -130,6 +131,10 @@ const GroupDetailPage: React.FC = () => {
     const [isBalancesExpanded, setIsBalancesExpanded] = useState(true);
     const [isExpensesExpanded, setIsExpensesExpanded] = useState(!!shareLinkId);
     const [showOnlyMyExpenses, setShowOnlyMyExpenses] = useState(false);
+
+    // Friend request modal state
+    const [isFriendRequestModalOpen, setIsFriendRequestModalOpen] = useState(false);
+    const [friendRequestTarget, setFriendRequestTarget] = useState<{ userId: number; userName: string } | null>(null);
 
     // Set dynamic page title with group name
     usePageTitle(group?.name || 'Loading...');
@@ -515,6 +520,50 @@ const GroupDetailPage: React.FC = () => {
         }
         const member = group?.members.find(m => m.user_id === payerId);
         return member?.full_name || 'Unknown';
+    };
+
+    const handleMemberNameClick = async (memberId: number, memberName: string) => {
+        // Don't do anything if clicking on yourself
+        if (memberId === user?.id) return;
+        // Don't do anything in public view
+        if (isPublicView) return;
+
+        try {
+            const status = await api.friends.getStatus(memberId);
+
+            if (status.status === 'friends') {
+                // Navigate to friend detail page
+                navigate(`/friends/${memberId}`);
+            } else if (status.status === 'pending_outgoing') {
+                // Already sent a request
+                setAlertDialog({
+                    isOpen: true,
+                    title: 'Request Pending',
+                    message: `You already have a pending friend request to ${memberName}.`,
+                    type: 'alert'
+                });
+            } else if (status.status === 'pending_incoming') {
+                // They sent you a request
+                setAlertDialog({
+                    isOpen: true,
+                    title: 'Request Pending',
+                    message: `${memberName} has sent you a friend request! Check your Account Settings to accept it.`,
+                    type: 'alert'
+                });
+            } else {
+                // Not friends - show modal to send request
+                setFriendRequestTarget({ userId: memberId, userName: memberName });
+                setIsFriendRequestModalOpen(true);
+            }
+        } catch (error) {
+            console.error('Error checking friendship status:', error);
+            setAlertDialog({
+                isOpen: true,
+                title: 'Error',
+                message: 'Unable to check friendship status. Please try again.',
+                type: 'error'
+            });
+        }
     };
 
     const renderBalances = () => {
@@ -909,7 +958,16 @@ const GroupDetailPage: React.FC = () => {
                                             <li key={member.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-700 rounded">
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-gray-900 dark:text-gray-100">{member.full_name}</span>
+                                                        <button
+                                                            onClick={() => handleMemberNameClick(member.user_id, member.full_name)}
+                                                            disabled={member.user_id === user?.id || isPublicView}
+                                                            className={`font-medium text-gray-900 dark:text-gray-100 ${member.user_id !== user?.id && !isPublicView
+                                                                ? 'hover:text-teal-600 dark:hover:text-teal-400 hover:underline cursor-pointer'
+                                                                : 'cursor-default'
+                                                                }`}
+                                                        >
+                                                            {member.full_name}
+                                                        </button>
                                                         {member.user_id === group.created_by_id && (
                                                             <span className="px-2 py-0.5 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs rounded">
                                                                 owner
@@ -1149,6 +1207,22 @@ const GroupDetailPage: React.FC = () => {
                         // Refresh balances and expenses after payment is created
                         fetchGroupData();
                     }}
+                />
+            )}
+
+            {/* Send Friend Request Modal */}
+            {friendRequestTarget && (
+                <SendFriendRequestModal
+                    isOpen={isFriendRequestModalOpen}
+                    onClose={() => {
+                        setIsFriendRequestModalOpen(false);
+                        setFriendRequestTarget(null);
+                    }}
+                    onRequestSent={() => {
+                        setFriendRequestTarget(null);
+                    }}
+                    userId={friendRequestTarget.userId}
+                    userName={friendRequestTarget.userName}
                 />
             )}
         </div>

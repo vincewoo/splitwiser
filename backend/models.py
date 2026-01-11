@@ -131,3 +131,12 @@ class EmailVerificationToken(Base):
     expires_at = Column(DateTime, nullable=False, index=True)
     used = Column(Boolean, default=False, nullable=False)
 
+
+class FriendRequest(Base):
+    __tablename__ = "friend_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    from_user_id = Column(Integer, nullable=False, index=True)
+    to_user_id = Column(Integer, nullable=False, index=True)
+    status = Column(String, default="pending")  # pending, accepted, rejected
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

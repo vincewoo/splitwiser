@@ -38,12 +38,319 @@ def verify_friendship(db: Session, current_user_id: int, friend_id: int) -> mode
     return friend
 
 
+# Helper to send friend request email notification
+def send_friend_request_email(to_email: str, to_name: str, from_name: str):
+    """Send email notification for friend request. Placeholder for now."""
+    # TODO: Implement actual email sending via utils/email.py
+    print(f"[EMAIL] Friend request notification: {from_name} -> {to_email} ({to_name})")
+
+
+@router.post("/request", response_model=schemas.FriendRequestResponse)
+def send_friend_request(
+    request: schemas.FriendRequestCreate,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Send a friend request to another user by their ID."""
+    if request.user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot send friend request to yourself")
+    
+    # Check target user exists
+    target_user = db.query(models.User).filter(models.User.id == request.user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if already friends
+    existing_friendship = db.query(models.Friendship).filter(
+        or_(
+            and_(models.Friendship.user_id1 == current_user.id, models.Friendship.user_id2 == request.user_id),
+            and_(models.Friendship.user_id1 == request.user_id, models.Friendship.user_id2 == current_user.id)
+        )
+    ).first()
+    if existing_friendship:
+        raise HTTPException(status_code=400, detail="Already friends with this user")
+    
+    # Check if there's already a pending request (in either direction)
+    existing_request = db.query(models.FriendRequest).filter(
+        models.FriendRequest.status == "pending",
+        or_(
+            and_(models.FriendRequest.from_user_id == current_user.id, models.FriendRequest.to_user_id == request.user_id),
+            and_(models.FriendRequest.from_user_id == request.user_id, models.FriendRequest.to_user_id == current_user.id)
+        )
+    ).first()
+    if existing_request:
+        raise HTTPException(status_code=400, detail="Friend request already pending")
+    
+    # Create new request
+    new_request = models.FriendRequest(
+        from_user_id=current_user.id,
+        to_user_id=request.user_id,
+        status="pending"
+    )
+    db.add(new_request)
+    db.commit()
+    db.refresh(new_request)
+    
+    # Send email notification
+    send_friend_request_email(
+        target_user.email,
+        target_user.full_name or target_user.email,
+        current_user.full_name or current_user.email
+    )
+    
+    return schemas.FriendRequestResponse(
+        id=new_request.id,
+        from_user_id=current_user.id,
+        from_user_name=current_user.full_name or current_user.email,
+        from_user_email=current_user.email,
+        to_user_id=target_user.id,
+        to_user_name=target_user.full_name or target_user.email,
+        to_user_email=target_user.email,
+        status=new_request.status,
+        created_at=new_request.created_at.isoformat()
+    )
+
+
+@router.get("/requests/incoming", response_model=list[schemas.FriendRequestResponse])
+def get_incoming_requests(
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Get all pending incoming friend requests."""
+    requests = db.query(models.FriendRequest).filter(
+        models.FriendRequest.to_user_id == current_user.id,
+        models.FriendRequest.status == "pending"
+    ).order_by(models.FriendRequest.created_at.desc()).all()
+    
+    if not requests:
+        return []
+    
+    # Batch fetch sender users
+    user_ids = [r.from_user_id for r in requests]
+    users = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+    users_map = {u.id: u for u in users}
+    
+    result = []
+    for req in requests:
+        from_user = users_map.get(req.from_user_id)
+        result.append(schemas.FriendRequestResponse(
+            id=req.id,
+            from_user_id=req.from_user_id,
+            from_user_name=from_user.full_name or from_user.email if from_user else "Unknown",
+            from_user_email=from_user.email if from_user else "",
+            to_user_id=current_user.id,
+            to_user_name=current_user.full_name or current_user.email,
+            to_user_email=current_user.email,
+            status=req.status,
+            created_at=req.created_at.isoformat()
+        ))
+    return result
+
+
+@router.get("/requests/outgoing", response_model=list[schemas.FriendRequestResponse])
+def get_outgoing_requests(
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Get all pending outgoing friend requests."""
+    requests = db.query(models.FriendRequest).filter(
+        models.FriendRequest.from_user_id == current_user.id,
+        models.FriendRequest.status == "pending"
+    ).order_by(models.FriendRequest.created_at.desc()).all()
+    
+    if not requests:
+        return []
+    
+    # Batch fetch target users
+    user_ids = [r.to_user_id for r in requests]
+    users = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+    users_map = {u.id: u for u in users}
+    
+    result = []
+    for req in requests:
+        to_user = users_map.get(req.to_user_id)
+        result.append(schemas.FriendRequestResponse(
+            id=req.id,
+            from_user_id=current_user.id,
+            from_user_name=current_user.full_name or current_user.email,
+            from_user_email=current_user.email,
+            to_user_id=req.to_user_id,
+            to_user_name=to_user.full_name or to_user.email if to_user else "Unknown",
+            to_user_email=to_user.email if to_user else "",
+            status=req.status,
+            created_at=req.created_at.isoformat()
+        ))
+    return result
+
+
+@router.get("/requests/count", response_model=schemas.PendingRequestCount)
+def get_pending_request_count(
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Get count of pending incoming friend requests (for badge)."""
+    count = db.query(models.FriendRequest).filter(
+        models.FriendRequest.to_user_id == current_user.id,
+        models.FriendRequest.status == "pending"
+    ).count()
+    return schemas.PendingRequestCount(count=count)
+
+
+@router.post("/requests/{request_id}/accept", response_model=schemas.Friend)
+def accept_friend_request(
+    request_id: int,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Accept a pending friend request."""
+    friend_request = db.query(models.FriendRequest).filter(
+        models.FriendRequest.id == request_id,
+        models.FriendRequest.to_user_id == current_user.id,
+        models.FriendRequest.status == "pending"
+    ).first()
+    
+    if not friend_request:
+        raise HTTPException(status_code=404, detail="Friend request not found")
+    
+    # Create friendship
+    new_friendship = models.Friendship(
+        user_id1=friend_request.from_user_id,
+        user_id2=current_user.id
+    )
+    db.add(new_friendship)
+    
+    # Update request status
+    friend_request.status = "accepted"
+    db.commit()
+    
+    # Return the new friend
+    friend = db.query(models.User).filter(models.User.id == friend_request.from_user_id).first()
+    return friend
+
+
+@router.post("/requests/{request_id}/reject")
+def reject_friend_request(
+    request_id: int,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Reject a pending friend request."""
+    friend_request = db.query(models.FriendRequest).filter(
+        models.FriendRequest.id == request_id,
+        models.FriendRequest.to_user_id == current_user.id,
+        models.FriendRequest.status == "pending"
+    ).first()
+    
+    if not friend_request:
+        raise HTTPException(status_code=404, detail="Friend request not found")
+    
+    friend_request.status = "rejected"
+    db.commit()
+    
+    return {"message": "Friend request rejected"}
+
+
+@router.delete("/requests/{request_id}")
+def cancel_friend_request(
+    request_id: int,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Cancel an outgoing friend request."""
+    friend_request = db.query(models.FriendRequest).filter(
+        models.FriendRequest.id == request_id,
+        models.FriendRequest.from_user_id == current_user.id,
+        models.FriendRequest.status == "pending"
+    ).first()
+    
+    if not friend_request:
+        raise HTTPException(status_code=404, detail="Friend request not found")
+    
+    db.delete(friend_request)
+    db.commit()
+    
+    return {"message": "Friend request cancelled"}
+
+
+@router.get("/status/{user_id}", response_model=schemas.FriendshipStatus)
+def get_friendship_status(
+    user_id: int,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Check relationship status with another user."""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot check status with yourself")
+    
+    # Get user info
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if friends
+    friendship = db.query(models.Friendship).filter(
+        or_(
+            and_(models.Friendship.user_id1 == current_user.id, models.Friendship.user_id2 == user_id),
+            and_(models.Friendship.user_id1 == user_id, models.Friendship.user_id2 == current_user.id)
+        )
+    ).first()
+    
+    if friendship:
+        return schemas.FriendshipStatus(
+            user_id=user_id,
+            full_name=user.full_name or user.email,
+            email=user.email,
+            status="friends"
+        )
+    
+    # Check for pending request from current user
+    outgoing = db.query(models.FriendRequest).filter(
+        models.FriendRequest.from_user_id == current_user.id,
+        models.FriendRequest.to_user_id == user_id,
+        models.FriendRequest.status == "pending"
+    ).first()
+    
+    if outgoing:
+        return schemas.FriendshipStatus(
+            user_id=user_id,
+            full_name=user.full_name or user.email,
+            email=user.email,
+            status="pending_outgoing",
+            request_id=outgoing.id
+        )
+    
+    # Check for pending request to current user
+    incoming = db.query(models.FriendRequest).filter(
+        models.FriendRequest.from_user_id == user_id,
+        models.FriendRequest.to_user_id == current_user.id,
+        models.FriendRequest.status == "pending"
+    ).first()
+    
+    if incoming:
+        return schemas.FriendshipStatus(
+            user_id=user_id,
+            full_name=user.full_name or user.email,
+            email=user.email,
+            status="pending_incoming",
+            request_id=incoming.id
+        )
+    
+    # No relationship
+    return schemas.FriendshipStatus(
+        user_id=user_id,
+        full_name=user.full_name or user.email,
+        email=user.email,
+        status="none"
+    )
+
+
 @router.post("", response_model=schemas.Friend)
 def add_friend(
-    friend_request: schemas.FriendRequest, 
+    friend_request: schemas.FriendAddRequest, 
     current_user: Annotated[models.User, Depends(get_current_user)], 
     db: Session = Depends(get_db)
 ):
+    """Add friend by email (legacy - creates direct friendship)."""
     friend_user = get_user_by_email(db, friend_request.email)
     if not friend_user:
         raise HTTPException(status_code=404, detail="User not found")

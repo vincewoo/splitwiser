@@ -154,6 +154,60 @@ export const friendsApi = {
         });
         return response;
     },
+
+    // Friend Request Methods
+    sendRequest: async (userId: number) => {
+        const response = await apiFetch('/friends/request', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: userId }),
+        });
+        return response;
+    },
+
+    getIncomingRequests: async () => {
+        const response = await apiFetch('/friends/requests/incoming');
+        if (!response.ok) throw new Error('Failed to fetch incoming requests');
+        return response.json();
+    },
+
+    getOutgoingRequests: async () => {
+        const response = await apiFetch('/friends/requests/outgoing');
+        if (!response.ok) throw new Error('Failed to fetch outgoing requests');
+        return response.json();
+    },
+
+    getPendingCount: async () => {
+        const response = await apiFetch('/friends/requests/count');
+        if (!response.ok) throw new Error('Failed to fetch pending count');
+        return response.json();
+    },
+
+    acceptRequest: async (requestId: number) => {
+        const response = await apiFetch(`/friends/requests/${requestId}/accept`, {
+            method: 'POST',
+        });
+        return response;
+    },
+
+    rejectRequest: async (requestId: number) => {
+        const response = await apiFetch(`/friends/requests/${requestId}/reject`, {
+            method: 'POST',
+        });
+        return response;
+    },
+
+    cancelRequest: async (requestId: number) => {
+        const response = await apiFetch(`/friends/requests/${requestId}`, {
+            method: 'DELETE',
+        });
+        return response;
+    },
+
+    getStatus: async (userId: number) => {
+        const response = await apiFetch(`/friends/status/${userId}`);
+        if (!response.ok) throw new Error('Failed to fetch friendship status');
+        return response.json();
+    },
 };
 
 // ============================================================================
@@ -425,7 +479,11 @@ export const profileApi = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to change password');
+            // Handle FastAPI validation error array
+            const errorMessage = Array.isArray(error.detail)
+                ? error.detail.map((e: any) => e.msg).join(', ')
+                : (error.detail || 'Failed to change password');
+            throw new Error(errorMessage);
         }
         return response.json();
     },

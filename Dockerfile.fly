@@ -55,4 +55,7 @@ RUN mkdir -p /data
 EXPOSE 8080
 
 # Start supervisor which manages nginx and uvicorn
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# Start supervisor which manages nginx and uvicorn
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+CMD ["/app/start.sh"]

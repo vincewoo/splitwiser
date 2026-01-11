@@ -149,8 +149,46 @@ class Group(GroupBase):
     class Config:
         from_attributes = True
 
-class FriendRequest(BaseModel):
+class FriendAddRequest(BaseModel):
+    """Request to add friend by email (legacy)."""
     email: EmailStr
+
+
+# Friend Request Schemas (for request/approval workflow)
+class FriendRequestCreate(BaseModel):
+    """Request to send a friend request by user ID."""
+    user_id: int
+
+
+class FriendRequestResponse(BaseModel):
+    """Friend request with user info."""
+    id: int
+    from_user_id: int
+    from_user_name: str
+    from_user_email: str
+    to_user_id: int
+    to_user_name: str
+    to_user_email: str
+    status: str  # pending, accepted, rejected
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class FriendshipStatus(BaseModel):
+    """Status of relationship between current user and another user."""
+    user_id: int
+    full_name: str
+    email: str
+    status: str  # "friends", "pending_incoming", "pending_outgoing", "none"
+    request_id: Optional[int] = None  # If pending, the request ID
+
+
+class PendingRequestCount(BaseModel):
+    """Count of pending incoming friend requests."""
+    count: int
+
 
 class Friend(BaseModel):
     id: int
@@ -257,7 +295,7 @@ from datetime import datetime
 
 class PasswordChangeRequest(BaseModel):
     """Request to change password (requires current password)"""
-    current_password: str = Field(..., min_length=8, max_length=128)
+    current_password: str = Field(..., max_length=128)
     new_password: str = Field(..., min_length=8, max_length=128)
 
 
