@@ -1134,6 +1134,7 @@ const GroupDetailPage: React.FC = () => {
                 currentUserId={user?.id || 0}
                 shareLinkId={isPublicView ? shareLinkId : undefined}
                 readOnly={isPublicView}
+                groupDefaultCurrency={group.default_currency}
             />
 
             <AddMemberModal

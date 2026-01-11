@@ -285,6 +285,7 @@ def get_expense(
         splits=splits_with_names,
         split_type=split_type,
         items=items_data,
+        exchange_rate=expense.exchange_rate,
         icon=expense.icon,
         receipt_image_path=expense.receipt_image_path,
         notes=expense.notes
@@ -597,6 +598,7 @@ def get_group_expenses(
             "split_type": expense.split_type,
             "splits": splits_with_names,
             "items": [],
+            "exchange_rate": expense.exchange_rate,
             "icon": expense.icon,
             "notes": expense.notes
         }

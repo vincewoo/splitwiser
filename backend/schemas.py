@@ -85,6 +85,7 @@ class Expense(BaseModel):
     payer_is_guest: bool = False
     group_id: Optional[int]
     created_by_id: Optional[int] = None
+    exchange_rate: Optional[str] = None
     icon: Optional[str] = None
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = None

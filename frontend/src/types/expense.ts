@@ -59,6 +59,7 @@ export interface ExpenseWithSplits {
     icon?: string | null;
     receipt_image_path?: string | null;
     notes?: string | null;
+    exchange_rate?: string | null;
 }
 
 export type SplitType = 'EQUAL' | 'EXACT' | 'PERCENT' | 'SHARES' | 'ITEMIZED';
