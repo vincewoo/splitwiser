@@ -125,6 +125,7 @@ async def send_password_reset_email(
             .header {{ background-color: #4F46E5; color: white; padding: 20px; text-align: center; }}
             .content {{ padding: 20px; background-color: #f9f9f9; }}
             .button {{ display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
+            .link-text {{ word-break: break-all; color: #1E40AF; background-color: #EFF6FF; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 14px; }}
             .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; }}
         </style>
     </head>
@@ -141,7 +142,7 @@ async def send_password_reset_email(
                     <a href="{reset_link}" class="button">Reset Password</a>
                 </p>
                 <p>Or copy and paste this link into your browser:</p>
-                <p style="word-break: break-all; color: #4F46E5;">{reset_link}</p>
+                <p class="link-text">{reset_link}</p>
                 <p><strong>This link will expire in 1 hour.</strong></p>
                 <p>If you didn't request a password reset, you can safely ignore this email. Your password will not be changed.</p>
             </div>
@@ -204,6 +205,7 @@ async def send_email_verification_email(
             .header {{ background-color: #4F46E5; color: white; padding: 20px; text-align: center; }}
             .content {{ padding: 20px; background-color: #f9f9f9; }}
             .button {{ display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
+            .link-text {{ word-break: break-all; color: #1E40AF; background-color: #EFF6FF; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 14px; }}
             .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; }}
         </style>
     </head>
@@ -220,7 +222,7 @@ async def send_email_verification_email(
                     <a href="{verification_link}" class="button">Verify Email</a>
                 </p>
                 <p>Or copy and paste this link into your browser:</p>
-                <p style="word-break: break-all; color: #4F46E5;">{verification_link}</p>
+                <p class="link-text">{verification_link}</p>
                 <p><strong>This link will expire in 24 hours.</strong></p>
                 <p>If you didn't request this email change, please contact support immediately.</p>
             </div>
@@ -447,6 +449,7 @@ async def send_friend_request_email(
             .content {{ padding: 20px; background-color: #f9f9f9; }}
             .button {{ display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
             .info {{ background-color: #EFF6FF; border-left: 4px solid #4F46E5; padding: 10px; margin: 20px 0; }}
+            .link-text {{ word-break: break-all; color: #1E40AF; background-color: #EFF6FF; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 14px; }}
             .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; }}
         </style>
     </head>
@@ -466,7 +469,7 @@ async def send_friend_request_email(
                     <a href="{friend_requests_link}" class="button">View Friend Request</a>
                 </p>
                 <p>Or copy and paste this link into your browser:</p>
-                <p style="word-break: break-all; color: #4F46E5;">{friend_requests_link}</p>
+                <p class="link-text">{friend_requests_link}</p>
             </div>
             <div class="footer">
                 <p>This is an automated message from Splitwiser. Please do not reply to this email.</p>
