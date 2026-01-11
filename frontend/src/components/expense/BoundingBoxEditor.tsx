@@ -33,6 +33,10 @@ interface TouchState {
     touches: { id: number; x: number; y: number }[];
     startTime: number;
     startScale?: number;
+    // New fields for correct pinch-to-zoom
+    startScreenDistance?: number;
+    startScreenCenter?: { x: number; y: number };
+    startPanOffset?: { x: number; y: number };
 }
 
 interface PanState {
@@ -213,8 +217,8 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
         ctx.restore();
     }, [regions, selectedIndex, imageLoaded, panState, isMobile, isLongPressing]);
 
-    // Get canvas coordinates from event (accounting for CSS scaling, pan and zoom)
-    const getCanvasCoordinates = useCallback((clientX: number, clientY: number) => {
+    // Get raw canvas coordinates (accounting for CSS scaling but NOT pan/zoom)
+    const getRawCanvasCoordinates = useCallback((clientX: number, clientY: number) => {
         if (!canvasRef.current) return { x: 0, y: 0 };
         const canvas = canvasRef.current;
         const rect = canvas.getBoundingClientRect();
@@ -223,16 +227,22 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
 
-        // Get position relative to canvas element
-        const rawX = (clientX - rect.left) * scaleX;
-        const rawY = (clientY - rect.top) * scaleY;
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY
+        };
+    }, []);
+
+    // Get canvas coordinates from event (accounting for CSS scaling, pan and zoom)
+    const getCanvasCoordinates = useCallback((clientX: number, clientY: number) => {
+        const raw = getRawCanvasCoordinates(clientX, clientY);
 
         // Reverse the pan and zoom transformations
         return {
-            x: (rawX - panState.offsetX) / panState.scale,
-            y: (rawY - panState.offsetY) / panState.scale
+            x: (raw.x - panState.offsetX) / panState.scale,
+            y: (raw.y - panState.offsetY) / panState.scale
         };
-    }, [panState]);
+    }, [panState, getRawCanvasCoordinates]);
 
     // Check if point is in resize handle
     const getResizeHandle = useCallback((x: number, y: number, box: BoundingBox): DragMode => {
@@ -539,6 +549,14 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
             }
 
             // Otherwise, pan/zoom the image
+            const rawTouch1 = getRawCanvasCoordinates(e.touches[0].clientX, e.touches[0].clientY);
+            const rawTouch2 = getRawCanvasCoordinates(e.touches[1].clientX, e.touches[1].clientY);
+            const startScreenDistance = getTouchDistance(rawTouch1, rawTouch2);
+            const startScreenCenter = {
+                x: (rawTouch1.x + rawTouch2.x) / 2,
+                y: (rawTouch1.y + rawTouch2.y) / 2
+            };
+
             setTouchState({
                 type: 'pan',
                 boxIndex: null,
@@ -546,10 +564,13 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
                 startBox: null,
                 touches,
                 startTime: Date.now(),
-                startScale: panState.scale
+                startScale: panState.scale,
+                startScreenDistance,
+                startScreenCenter,
+                startPanOffset: { x: panState.offsetX, y: panState.offsetY }
             });
         }
-    }, [getCanvasCoordinates, findBoxAtPoint, getResizeHandle, regions, selectedIndex, getTouchDistance, clearLongPress, panState.scale]);
+    }, [getCanvasCoordinates, findBoxAtPoint, getResizeHandle, regions, selectedIndex, getTouchDistance, clearLongPress, panState.scale, panState.offsetX, panState.offsetY, getRawCanvasCoordinates]);
 
     const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
         e.preventDefault();
@@ -659,39 +680,44 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
             setRegions(newRegions);
             onChange(newRegions);
         } else if (touchState.type === 'pan' && e.touches.length === 2) {
-            // Two-finger pan and zoom
-            const touch1 = touches[0];
-            const touch2 = touches[1];
+            // Two-finger pan and zoom with zoom centering
+            if (touchState.startScreenDistance && touchState.startScreenCenter && touchState.startPanOffset && touchState.startScale) {
+                const rawTouch1 = getRawCanvasCoordinates(e.touches[0].clientX, e.touches[0].clientY);
+                const rawTouch2 = getRawCanvasCoordinates(e.touches[1].clientX, e.touches[1].clientY);
 
-            // Calculate zoom scale from pinch distance change
-            const currentDistance = getTouchDistance(touch1, touch2);
-            const zoomScale = currentDistance / touchState.startDistance;
-            const newScale = Math.max(0.5, Math.min(3, (touchState.startScale || 1) * zoomScale));
+                const currentScreenDistance = getTouchDistance(rawTouch1, rawTouch2);
+                const currentScreenCenter = {
+                    x: (rawTouch1.x + rawTouch2.x) / 2,
+                    y: (rawTouch1.y + rawTouch2.y) / 2
+                };
 
-            // Calculate pan offset
-            const currentCenterX = (touch1.x + touch2.x) / 2;
-            const currentCenterY = (touch1.y + touch2.y) / 2;
+                // Calculate new scale
+                const zoomScale = currentScreenDistance / touchState.startScreenDistance;
+                const newScale = Math.max(0.5, Math.min(3, touchState.startScale * zoomScale));
 
-            const startCenterX = (touchState.touches[0].x + touchState.touches[1].x) / 2;
-            const startCenterY = (touchState.touches[0].y + touchState.touches[1].y) / 2;
+                // Calculate new pan offset to keep the zoom centered around the pinch point
+                // Formula: newOffset = currentCenter - (pointInImage * newScale)
+                // pointInImage = (startCenter - startOffset) / startScale
+                const pointInImageX = (touchState.startScreenCenter.x - touchState.startPanOffset.x) / touchState.startScale;
+                const pointInImageY = (touchState.startScreenCenter.y - touchState.startPanOffset.y) / touchState.startScale;
 
-            const dx = (currentCenterX - startCenterX) * panState.scale;
-            const dy = (currentCenterY - startCenterY) * panState.scale;
+                const newOffsetX = currentScreenCenter.x - (pointInImageX * newScale);
+                const newOffsetY = currentScreenCenter.y - (pointInImageY * newScale);
 
-            setPanState(prev => ({
-                ...prev,
-                offsetX: prev.offsetX + dx,
-                offsetY: prev.offsetY + dy,
-                scale: newScale
-            }));
+                setPanState({
+                    offsetX: newOffsetX,
+                    offsetY: newOffsetY,
+                    scale: newScale
+                });
 
-            // Update touch state
-            setTouchState(prev => ({
-                ...prev,
-                touches
-            }));
+                // Update touch state touches (keep mostly for consistency, though we use raw coords here)
+                setTouchState(prev => ({
+                    ...prev,
+                    touches
+                }));
+            }
         }
-    }, [touchState, dragState, regions, getCanvasCoordinates, getTouchDistance, imageDimensions, onChange, panState, clearLongPress]);
+    }, [touchState, dragState, regions, getCanvasCoordinates, getTouchDistance, imageDimensions, onChange, panState, clearLongPress, getRawCanvasCoordinates]);
 
     const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
         e.preventDefault();
