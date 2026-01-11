@@ -281,33 +281,86 @@ async def detect_regions(
                     normalized_height = y_max - y_min
 
                 # Smart filtering to identify item lines
-                # Look for patterns that indicate this is an item line
-                has_price = '$' in line_text or re.search(r'\b\d+\.\d{2}\b', line_text) or re.search(r'\$\d+', line_text)
+                # STRICTER FILTERING: Only include lines that very likely contain menu items
 
-                # Check if line contains typical item patterns
-                # Like: "Item Name    1    $XX    $XX    TX"
-                looks_like_item = (
-                    has_price or
-                    re.search(r'\b(TX|tx|Tax)\b', line_text) or  # Tax indicator
-                    re.search(r'\b\d+\s+\$', line_text) or  # Quantity followed by price
-                    (len(line_text) > 10 and any(c.isalpha() for c in line_text[:20]))  # Starts with text
-                )
-
-                # Skip obvious headers/footers
+                # First, skip obvious non-item patterns
                 skip_patterns = [
-                    r'^W\d+-\d+',  # Order/receipt numbers like "W2-042"
-                    r'Billing\s+Info',  # Headers
-                    r'^Item\s+Qty\s+Price',  # Column headers
-                    r'^\d{3}[-.\s]?\d{3}[-.\s]?\d{4}$',  # Phone numbers
-                    r'^Total|^Subtotal|^Grand\s+Total',  # Totals (at start of line)
-                    r'Thank\s+You|Visit|Welcome',  # Footer text
+                    # Receipt metadata
+                    r'^\d+\s+\w+\s+\w+.*\bDrive\b',  # Address lines like "204 West Las Tunas Drive"
+                    r'\b(Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Boulevard|Blvd)\b',  # Address indicators
+                    r'\b[A-Z]{2}\s+\d{5}',  # US ZIP codes (any state)
+                    r'^Server:?\s*',  # Server name
+                    r'^Check\s*#',  # Check number
+                    r'^Table\s*[#T:\s]',  # Table number (catches "Table: Table 13" and "Table T6")
+                    r'Tbl\s+\d+',  # Table in format "Tbl 6/1"
+                    r'Chk\s+\d+',  # Check in format "Chk 1750"
+                    r'Gst\s+\d+',  # Guest count in format "Gst 4"
+                    r'Guest\s+Count',  # Guest count
+                    r'Ordered:?\s*\d',  # Order date/time
+                    r'\d{1,2}/\d{1,2}/\d{2,4}',  # Dates
+                    r'\d{1,2}:\d{2}\s*(AM|PM|am|pm)?',  # Times
+                    r'^\d{3}[-.\s]?\d{3}[-.\s]?\d{4}$',  # Phone numbers only
+                    r'Item\s+Count',  # Item count line
+                    r'Balance\s+due',  # Balance due
+                    r'Suggested\s+(Gratuity|Tip)',  # Tip suggestions
+                    r'%\s+of\s+sale',  # Percentage calculations
+
+                    # Column headers
+                    r'^Item\s+Qty\s+Price',
+                    r'^Description\s+Amount',
+
+                    # Footer text
+                    r'Thank\s+You|Visit\s+Again|Welcome|See\s+You',
+                    r'Powered\s+by',
+                    r'www\.|\.com',
+                    r'Instagram|Facebook|Twitter',  # Social media
+
+                    # Very short lines (likely noise or single numbers)
+                    r'^\d{1,2}$',  # Just a number
                 ]
 
                 should_skip = any(re.search(pattern, line_text, re.I) for pattern in skip_patterns)
-
-                # Keep the line if it looks like an item and isn't in skip patterns
-                if not looks_like_item or should_skip:
+                if should_skip:
                     continue
+
+                # Now check if this looks like an actual item line
+                # REQUIRE at least one of these strong signals:
+                has_price_with_dollar = bool(re.search(r'\$\s*\d+\.?\d*', line_text))
+                has_decimal_price = bool(re.search(r'\b\d+\.\d{2}\b', line_text))
+
+                # For lines with prices, verify they have a description part
+                if has_price_with_dollar or has_decimal_price:
+                    # Extract the part before the price
+                    price_match = re.search(r'(.*?)(\$\s*\d+\.?\d*|\b\d+\.\d{2}\b)', line_text)
+                    if price_match:
+                        desc_part = price_match.group(1).strip()
+                        # Must have at least 2 characters and at least one letter
+                        has_description = len(desc_part) >= 2 and any(c.isalpha() for c in desc_part)
+
+                        # If the "description" looks like metadata, skip it
+                        metadata_in_desc = bool(re.search(r'^(Subtotal|Total|Tax|Tip|Gratuity|Service|Discount|Admin|Fee|Order|Food)', desc_part, re.I))
+
+                        if has_description and not metadata_in_desc:
+                            # This looks like a real item line
+                            pass
+                        else:
+                            # Has price but no valid description - likely total/tax line
+                            continue
+                    else:
+                        # Couldn't parse - skip
+                        continue
+                else:
+                    # No price found - not an item line
+                    continue
+
+                # Additional quality check: line should have reasonable length
+                if len(line_text) < 5:  # Too short
+                    continue
+                if len(line_text) > 100:  # Too long (likely multiple items concatenated)
+                    continue
+
+                # If we got here, this line passed all filters
+                # It has a price, a description, and doesn't match skip patterns
 
                 regions.append({
                     "id": str(region_id),
