@@ -10,7 +10,7 @@ import schemas
 from database import get_db
 from dependencies import get_current_user
 from utils.validation import get_group_or_404, verify_group_membership, verify_group_ownership
-from utils.display import get_guest_display_name
+from utils.display import get_guest_display_name, get_public_user_display_name
 
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -251,7 +251,7 @@ def unshare_group(
     return group
 
 
-@router.get("/public/{share_link_id}", response_model=schemas.GroupWithMembers)
+@router.get("/public/{share_link_id}", response_model=schemas.PublicGroupWithMembers)
 def get_public_group(
     share_link_id: str,
     db: Session = Depends(get_db)
@@ -277,17 +277,16 @@ def get_public_group(
             if gm.managed_by_type == 'user':
                 manager = db.query(models.User).filter(models.User.id == gm.managed_by_id).first()
                 if manager:
-                    managed_by_name = manager.full_name or manager.email
+                    managed_by_name = get_public_user_display_name(manager)
             elif gm.managed_by_type == 'guest':
                 manager_guest = db.query(models.GuestMember).filter(models.GuestMember.id == gm.managed_by_id).first()
                 if manager_guest:
                     managed_by_name = get_guest_display_name(manager_guest, db)
 
-        members.append(schemas.GroupMember(
+        members.append(schemas.PublicGroupMember(
             id=gm.id,
             user_id=user.id,
-            full_name=user.full_name or user.email, # Maybe partially redact email for public view?
-            email=user.email, # Keeping it for now as per plan
+            full_name=get_public_user_display_name(user),
             managed_by_id=gm.managed_by_id,
             managed_by_type=gm.managed_by_type,
             managed_by_name=managed_by_name
@@ -324,7 +323,7 @@ def get_public_group(
     manager_users = {}
     if manager_user_ids:
         users = db.query(models.User).filter(models.User.id.in_(manager_user_ids)).all()
-        manager_users = {u.id: (u.full_name or u.email) for u in users}
+        manager_users = {u.id: get_public_user_display_name(u) for u in users}
 
     # Batch fetch manager guests
     manager_guests = {}
@@ -345,7 +344,7 @@ def get_public_group(
             for g_id, g in manager_guests.items():
                 if g.claimed_by_id and g.claimed_by_id in claimed_user_map:
                     u = claimed_user_map[g.claimed_by_id]
-                    final_manager_guest_names[g_id] = u.full_name or u.email
+                    final_manager_guest_names[g_id] = get_public_user_display_name(u)
                 else:
                     final_manager_guest_names[g_id] = g.name
             manager_guests = final_manager_guest_names # Now maps ID -> Name string
@@ -363,11 +362,10 @@ def get_public_group(
             elif gm.managed_by_type == 'guest':
                 managed_by_name = manager_guests.get(gm.managed_by_id)
 
-        members.append(schemas.GroupMember(
+        members.append(schemas.PublicGroupMember(
             id=gm.id,
             user_id=user.id,
-            full_name=user.full_name or user.email, # Maybe partially redact email for public view?
-            email=user.email, # Keeping it for now as per plan
+            full_name=get_public_user_display_name(user),
             managed_by_id=gm.managed_by_id,
             managed_by_type=gm.managed_by_type,
             managed_by_name=managed_by_name
@@ -394,7 +392,7 @@ def get_public_group(
             managed_by_name=managed_by_name
         ))
 
-    return schemas.GroupWithMembers(
+    return schemas.PublicGroupWithMembers(
         id=group.id,
         name=group.name,
         created_by_id=group.created_by_id,
@@ -510,7 +508,7 @@ def get_public_group_expenses(
                 user_name = get_guest_display_name(guest, db) if guest else "Unknown Guest"
             else:
                 user = users.get(split.user_id)
-                user_name = (user.full_name or user.email) if user else "Unknown User"
+                user_name = get_public_user_display_name(user) if user else "Unknown User"
 
             splits_with_names.append(schemas.ExpenseSplitDetail(
                 id=split.id,
@@ -539,7 +537,7 @@ def get_public_group_expenses(
                         name = get_guest_display_name(guest, db) if guest else "Unknown Guest"
                     else:
                         user = users.get(a.user_id)
-                        name = (user.full_name or user.email) if user else "Unknown"
+                        name = get_public_user_display_name(user) if user else "Unknown"
 
                     assignment_details.append(schemas.ExpenseItemAssignmentDetail(
                         user_id=a.user_id,
@@ -702,7 +700,7 @@ def get_public_group_balances(
 
                 # Get member name for breakdown
                 member_user = managed_users_map.get(managed_member.user_id)
-                member_name = (member_user.full_name or member_user.email) if member_user else "Unknown Member"
+                member_name = get_public_user_display_name(member_user) if member_user else "Unknown Member"
 
                 breakdown_key = (managed_member.managed_by_id, manager_is_guest, currency)
                 if breakdown_key not in manager_guest_breakdown:
@@ -750,14 +748,14 @@ def get_public_group_balances(
             if guest:
                 if guest.claimed_by_id and guest.claimed_by_id in users_map:
                     u = users_map[guest.claimed_by_id]
-                    name = u.full_name or u.email
+                    name = get_public_user_display_name(u)
                 else:
                     name = guest.name
             else:
                 name = "Unknown Guest"
         else:
             user = users_map.get(participant_id)
-            name = (user.full_name or user.email) if user else "Unknown User"
+            name = get_public_user_display_name(user) if user else "Unknown User"
 
         for currency, amount in currencies.items():
             if amount != 0:
@@ -902,14 +900,14 @@ def get_public_expense_detail(
             if guest:
                 if guest.claimed_by_id and guest.claimed_by_id in users:
                     u = users[guest.claimed_by_id]
-                    user_name = u.full_name or u.email
+                    user_name = get_public_user_display_name(u)
                 else:
                     user_name = guest.name
             else:
                 user_name = "Unknown Guest"
         else:
             user = users.get(split.user_id)
-            user_name = (user.full_name or user.email) if user else "Unknown User"
+            user_name = get_public_user_display_name(user) if user else "Unknown User"
 
         splits_with_names.append(schemas.ExpenseSplitDetail(
             id=split.id,
@@ -935,14 +933,14 @@ def get_public_expense_detail(
                     if guest:
                         if guest.claimed_by_id and guest.claimed_by_id in users:
                             u = users[guest.claimed_by_id]
-                            name = u.full_name or u.email
+                            name = get_public_user_display_name(u)
                         else:
                             name = guest.name
                     else:
                         name = "Unknown Guest"
                 else:
                     user = users.get(a.user_id)
-                    name = (user.full_name or user.email) if user else "Unknown"
+                    name = get_public_user_display_name(user) if user else "Unknown"
 
                 assignment_details.append(schemas.ExpenseItemAssignmentDetail(
                     user_id=a.user_id,
