@@ -5,6 +5,40 @@ from sqlalchemy.orm import Session
 import models
 
 
+def mask_email(email: str) -> str:
+    """
+    Mask an email address for public display.
+    Example: jules@example.com -> j***s@example.com
+    """
+    if not email or "@" not in email:
+        return "User"
+
+    try:
+        user_part, domain_part = email.split("@", 1)
+        if len(user_part) > 3:
+            return f"{user_part[:2]}***{user_part[-1]}@{domain_part}"
+        elif len(user_part) > 1:
+            return f"{user_part[0]}***@{domain_part}"
+        else:
+            return f"***@{domain_part}"
+    except Exception:
+        return "User"
+
+
+def get_public_user_display_name(user: models.User) -> str:
+    """
+    Get a safe display name for a user in a public context.
+    Uses full_name if available, otherwise masks the email.
+    """
+    if not user:
+        return "Unknown User"
+
+    if user.full_name:
+        return user.full_name
+
+    return mask_email(user.email)
+
+
 def get_guest_display_name(guest: models.GuestMember, db: Session) -> str:
     """
     Get the display name for a guest.

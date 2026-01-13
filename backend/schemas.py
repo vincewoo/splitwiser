@@ -223,6 +223,18 @@ class GroupMember(BaseModel):
     class Config:
         from_attributes = True
 
+class PublicGroupMember(BaseModel):
+    id: int
+    user_id: int
+    full_name: str
+    # email: str  <-- Removed for privacy
+    managed_by_id: Optional[int] = None
+    managed_by_type: Optional[str] = None
+    managed_by_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 class GuestMemberCreate(BaseModel):
     name: str = Field(..., max_length=100)
 
@@ -254,6 +266,13 @@ class GroupUpdate(BaseModel):
 
 class GroupWithMembers(Group):
     members: list[GroupMember]
+    guests: list[GuestMember] = []
+
+    class Config:
+        from_attributes = True
+
+class PublicGroupWithMembers(Group):
+    members: list[PublicGroupMember]
     guests: list[GuestMember] = []
 
     class Config:
