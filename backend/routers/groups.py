@@ -495,6 +495,14 @@ def get_public_group_expenses(
         guest_records = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids)).all()
         guests = {g.id: g for g in guest_records}
 
+        # Batch fetch claimed users for guests to avoid N+1 queries in get_guest_display_name
+        claimed_ids = {g.claimed_by_id for g in guest_records if g.claimed_by_id}
+        missing_claimed_ids = claimed_ids - set(users.keys())
+        if missing_claimed_ids:
+            claimed_users = db.query(models.User).filter(models.User.id.in_(missing_claimed_ids)).all()
+            for u in claimed_users:
+                users[u.id] = u
+
     # Construct result
     result = []
     for expense in expenses:
@@ -505,7 +513,14 @@ def get_public_group_expenses(
         for split in expense_splits:
             if split.is_guest:
                 guest = guests.get(split.user_id)
-                user_name = get_guest_display_name(guest, db) if guest else "Unknown Guest"
+                if guest:
+                    if guest.claimed_by_id and guest.claimed_by_id in users:
+                        u = users[guest.claimed_by_id]
+                        user_name = get_public_user_display_name(u)
+                    else:
+                        user_name = guest.name
+                else:
+                    user_name = "Unknown Guest"
             else:
                 user = users.get(split.user_id)
                 user_name = get_public_user_display_name(user) if user else "Unknown User"
@@ -534,7 +549,14 @@ def get_public_group_expenses(
                 for a in assignments:
                     if a.is_guest:
                         guest = guests.get(a.user_id)
-                        name = get_guest_display_name(guest, db) if guest else "Unknown Guest"
+                        if guest:
+                            if guest.claimed_by_id and guest.claimed_by_id in users:
+                                u = users[guest.claimed_by_id]
+                                name = get_public_user_display_name(u)
+                            else:
+                                name = guest.name
+                        else:
+                            name = "Unknown Guest"
                     else:
                         user = users.get(a.user_id)
                         name = get_public_user_display_name(user) if user else "Unknown"
