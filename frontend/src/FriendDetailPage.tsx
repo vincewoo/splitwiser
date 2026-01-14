@@ -311,9 +311,11 @@ const FriendDetailPage: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-100 flex-shrink-0">
-                                        {formatMoney(expense.amount, expense.currency)}
-                                    </div>
+                                    {expense.balance_impact != null && expense.balance_impact !== 0 && (
+                                        <div className={`text-xs lg:text-sm font-medium flex-shrink-0 ${expense.balance_impact >= 0 ? 'text-teal-500' : 'text-red-500'}`}>
+                                            {expense.balance_impact >= 0 ? '+' : ''}{formatMoney(expense.balance_impact, expense.currency)}
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                             {filteredExpenses.length > 10 && (

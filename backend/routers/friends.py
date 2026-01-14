@@ -674,6 +674,29 @@ def get_friend_expenses(
                     assignments=assignment_details
                 ))
 
+        # Calculate balance impact for this expense
+        # Sum what friend side owes
+        friend_side_owed = sum(
+            s.amount_owed for s in splits 
+            if (s.user_id, s.is_guest) in friend_ids_set
+        )
+        # Sum what current user side owes
+        current_side_owed = sum(
+            s.amount_owed for s in splits 
+            if (s.user_id, s.is_guest) in current_user_ids
+        )
+        
+        # Determine balance impact based on who paid
+        payer_key = (expense.payer_id, expense.payer_is_guest)
+        if payer_key in current_user_ids:
+            # Current user side paid - friend side owes their split
+            balance_impact = friend_side_owed
+        elif payer_key in friend_ids_set:
+            # Friend side paid - current user side owes (negative)
+            balance_impact = -current_side_owed
+        else:
+            balance_impact = 0
+
         result.append(schemas.FriendExpenseWithSplits(
             id=expense.id,
             description=expense.description,
@@ -690,7 +713,8 @@ def get_friend_expenses(
             icon=expense.icon,
             receipt_image_path=expense.receipt_image_path,
             notes=expense.notes,
-            group_name=group_name
+            group_name=group_name,
+            balance_impact=balance_impact
         ))
 
     return result

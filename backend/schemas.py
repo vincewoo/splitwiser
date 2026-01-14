@@ -315,8 +315,9 @@ class FriendBalance(BaseModel):
 
 
 class FriendExpenseWithSplits(ExpenseWithSplits):
-    """Expense with group name for friend detail page."""
+    """Expense with group name and balance impact for friend detail page."""
     group_name: Optional[str] = None
+    balance_impact: Optional[int] = None  # Balance impact in cents: positive = friend owes you, negative = you owe friend
 
 
 # Profile Management and Password Recovery Schemas
