@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { usePageTitle } from './hooks/usePageTitle';
@@ -15,6 +15,8 @@ import ManageMemberModal from './ManageMemberModal';
 import SimplifyDebtsModal from './SimplifyDebtsModal';
 import AlertDialog from './components/AlertDialog';
 import SendFriendRequestModal from './SendFriendRequestModal';
+import ExpenseListItem from './components/ExpenseListItem';
+import { formatMoney } from './utils/formatters';
 
 interface GroupMember {
     id: number;
@@ -447,10 +449,10 @@ const GroupDetailPage: React.FC = () => {
         }
     };
 
-    const handleExpenseClick = (expenseId: number) => {
+    const handleExpenseClick = useCallback((expenseId: number) => {
         setSelectedExpenseId(expenseId);
         setIsExpenseDetailOpen(true);
-    };
+    }, []);
 
     const handleExpenseUpdated = () => {
         fetchGroupData();
@@ -490,26 +492,6 @@ const GroupDetailPage: React.FC = () => {
                 type: 'error'
             });
         }
-    };
-
-    const formatMoney = (amount: number, currency: string) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount / 100);
-    };
-
-    const formatDate = (dateStr: string) => {
-        // Parse date string to avoid timezone issues
-        // If it's a plain YYYY-MM-DD, parse as local date not UTC
-        let date: Date;
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-            const [year, month, day] = dateStr.split('-').map(Number);
-            date = new Date(year, month - 1, day);
-        } else {
-            date = new Date(dateStr);
-        }
-        return date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric'
-        });
     };
 
     const getPayerName = (payerId: number, isGuest: boolean = false) => {
@@ -801,33 +783,12 @@ const GroupDetailPage: React.FC = () => {
                     ) : (
                         <div className="divide-y">
                             {(isExpensesExpanded ? filteredExpenses : filteredExpenses.slice(0, 5)).map(expense => (
-                                <button
+                                <ExpenseListItem
                                     key={expense.id}
-                                    className="w-full text-left py-3 flex items-start lg:items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 -mx-2 px-2 rounded gap-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                                    onClick={() => handleExpenseClick(expense.id)}
-                                >
-                                    <div className="flex items-start lg:items-center gap-2 lg:gap-4 min-w-0 flex-1">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 w-10 lg:w-12 flex-shrink-0">
-                                            {formatDate(expense.date)}
-                                        </div>
-                                        {expense.icon && (
-                                            <div className="text-xl flex-shrink-0">
-                                                {expense.icon}
-                                            </div>
-                                        )}
-                                        <div className="min-w-0">
-                                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                                {expense.description}
-                                            </div>
-                                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                                                {getPayerName(expense.payer_id, expense.payer_is_guest)} paid
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-100 flex-shrink-0">
-                                        {formatMoney(expense.amount, expense.currency)}
-                                    </div>
-                                </button>
+                                    expense={expense}
+                                    payerName={getPayerName(expense.payer_id, expense.payer_is_guest)}
+                                    onClick={handleExpenseClick}
+                                />
                             ))}
                             {filteredExpenses.length > 5 && (
                                 <div className="pt-3 text-center">
