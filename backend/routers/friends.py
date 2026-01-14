@@ -410,41 +410,116 @@ def get_friend_expenses(
 ):
     """Get all expenses shared between current user and a friend.
     Includes both group expenses and direct (non-group) expenses.
+    Also includes expenses where managed members/guests are involved.
     """
     friend = verify_friendship(db, current_user.id, friend_id)
 
-    # Find expenses where BOTH users are participants (via splits or as payer)
-    # Subquery for expenses where current user is in splits
-    current_user_split_expenses = db.query(models.ExpenseSplit.expense_id).filter(
-        models.ExpenseSplit.user_id == current_user.id,
-        models.ExpenseSplit.is_guest == False
+    # Find groups where both users are members
+    current_user_groups = db.query(models.GroupMember.group_id).filter(
+        models.GroupMember.user_id == current_user.id
+    ).subquery()
+    
+    friend_groups = db.query(models.GroupMember.group_id).filter(
+        models.GroupMember.user_id == friend_id
+    ).subquery()
+    
+    shared_group_ids = db.query(models.GroupMember.group_id).filter(
+        models.GroupMember.group_id.in_(current_user_groups),
+        models.GroupMember.group_id.in_(friend_groups)
+    ).distinct().all()
+    shared_group_ids = [g[0] for g in shared_group_ids]
+
+    # Build the set of IDs that represent "current user's side"
+    current_user_ids = {(current_user.id, False)}  # (id, is_guest)
+    
+    # Build the set of IDs that represent "friend's side"
+    friend_ids_set = {(friend_id, False)}  # (id, is_guest)
+
+    if shared_group_ids:
+        # Get guests managed by current user in shared groups
+        current_user_managed_guests = db.query(models.GuestMember).filter(
+            models.GuestMember.group_id.in_(shared_group_ids),
+            models.GuestMember.managed_by_id == current_user.id,
+            models.GuestMember.managed_by_type == 'user',
+            models.GuestMember.claimed_by_id == None
+        ).all()
+        for guest in current_user_managed_guests:
+            current_user_ids.add((guest.id, True))
+        
+        # Get members managed by current user in shared groups
+        current_user_managed_members = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id.in_(shared_group_ids),
+            models.GroupMember.managed_by_id == current_user.id,
+            models.GroupMember.managed_by_type == 'user'
+        ).all()
+        for member in current_user_managed_members:
+            current_user_ids.add((member.user_id, False))
+        
+        # Get guests managed by friend in shared groups
+        friend_managed_guests = db.query(models.GuestMember).filter(
+            models.GuestMember.group_id.in_(shared_group_ids),
+            models.GuestMember.managed_by_id == friend_id,
+            models.GuestMember.managed_by_type == 'user',
+            models.GuestMember.claimed_by_id == None
+        ).all()
+        for guest in friend_managed_guests:
+            friend_ids_set.add((guest.id, True))
+        
+        # Get members managed by friend in shared groups
+        friend_managed_members = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id.in_(shared_group_ids),
+            models.GroupMember.managed_by_id == friend_id,
+            models.GroupMember.managed_by_type == 'user'
+        ).all()
+        for member in friend_managed_members:
+            friend_ids_set.add((member.user_id, False))
+
+    # Build subqueries for expenses involving each side
+    current_side_conditions = []
+    for uid, is_guest in current_user_ids:
+        current_side_conditions.append(
+            and_(models.ExpenseSplit.user_id == uid, models.ExpenseSplit.is_guest == is_guest)
+        )
+    
+    current_side_split_expenses = db.query(models.ExpenseSplit.expense_id).filter(
+        or_(*current_side_conditions)
     ).subquery()
 
-    # Subquery for expenses where friend is in splits
-    friend_split_expenses = db.query(models.ExpenseSplit.expense_id).filter(
-        models.ExpenseSplit.user_id == friend_id,
-        models.ExpenseSplit.is_guest == False
+    friend_side_conditions = []
+    for uid, is_guest in friend_ids_set:
+        friend_side_conditions.append(
+            and_(models.ExpenseSplit.user_id == uid, models.ExpenseSplit.is_guest == is_guest)
+        )
+    
+    friend_side_split_expenses = db.query(models.ExpenseSplit.expense_id).filter(
+        or_(*friend_side_conditions)
     ).subquery()
 
-    # Find expenses where both are involved (either as payer or in splits)
+    # Build payer conditions for each side
+    current_side_payer_conditions = []
+    for uid, is_guest in current_user_ids:
+        current_side_payer_conditions.append(
+            and_(models.Expense.payer_id == uid, models.Expense.payer_is_guest == is_guest)
+        )
+    
+    friend_side_payer_conditions = []
+    for uid, is_guest in friend_ids_set:
+        friend_side_payer_conditions.append(
+            and_(models.Expense.payer_id == uid, models.Expense.payer_is_guest == is_guest)
+        )
+
+    # Find expenses where one side paid AND the other side is in splits
     expenses = db.query(models.Expense).filter(
         or_(
-            # Current user is payer AND friend is in splits
+            # Current side paid AND friend side is in splits
             and_(
-                models.Expense.payer_id == current_user.id,
-                models.Expense.payer_is_guest == False,
-                models.Expense.id.in_(friend_split_expenses)
+                or_(*current_side_payer_conditions),
+                models.Expense.id.in_(friend_side_split_expenses)
             ),
-            # Friend is payer AND current user is in splits
+            # Friend side paid AND current side is in splits
             and_(
-                models.Expense.payer_id == friend_id,
-                models.Expense.payer_is_guest == False,
-                models.Expense.id.in_(current_user_split_expenses)
-            ),
-            # Both are in splits of the same expense
-            and_(
-                models.Expense.id.in_(current_user_split_expenses),
-                models.Expense.id.in_(friend_split_expenses)
+                or_(*friend_side_payer_conditions),
+                models.Expense.id.in_(current_side_split_expenses)
             )
         )
     ).order_by(models.Expense.date.desc(), models.Expense.id.desc()).all()
@@ -630,36 +705,120 @@ def get_friend_balance(
     """Calculate the net balance between current user and a friend.
     Positive amount = friend owes you, Negative = you owe friend.
     Returns a list of balances grouped by currency.
+    
+    Includes balances from managed members/guests in shared groups.
     """
     friend = verify_friendship(db, current_user.id, friend_id)
 
-    # Get all expenses shared between the two users
-    # Reuse the same query logic from get_friend_expenses
-    current_user_split_expenses = db.query(models.ExpenseSplit.expense_id).filter(
-        models.ExpenseSplit.user_id == current_user.id,
-        models.ExpenseSplit.is_guest == False
+    # Find groups where both users are members
+    current_user_groups = db.query(models.GroupMember.group_id).filter(
+        models.GroupMember.user_id == current_user.id
+    ).subquery()
+    
+    friend_groups = db.query(models.GroupMember.group_id).filter(
+        models.GroupMember.user_id == friend_id
+    ).subquery()
+    
+    shared_group_ids = db.query(models.GroupMember.group_id).filter(
+        models.GroupMember.group_id.in_(current_user_groups),
+        models.GroupMember.group_id.in_(friend_groups)
+    ).distinct().all()
+    shared_group_ids = [g[0] for g in shared_group_ids]
+
+    # Build the set of IDs that represent "current user's side"
+    # (current user + guests/members they manage in shared groups)
+    current_user_ids = {(current_user.id, False)}  # (id, is_guest)
+    
+    # Build the set of IDs that represent "friend's side"
+    friend_ids = {(friend_id, False)}  # (id, is_guest)
+
+    if shared_group_ids:
+        # Get guests managed by current user in shared groups
+        current_user_managed_guests = db.query(models.GuestMember).filter(
+            models.GuestMember.group_id.in_(shared_group_ids),
+            models.GuestMember.managed_by_id == current_user.id,
+            models.GuestMember.managed_by_type == 'user',
+            models.GuestMember.claimed_by_id == None  # Only unclaimed guests
+        ).all()
+        for guest in current_user_managed_guests:
+            current_user_ids.add((guest.id, True))
+        
+        # Get members managed by current user in shared groups
+        current_user_managed_members = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id.in_(shared_group_ids),
+            models.GroupMember.managed_by_id == current_user.id,
+            models.GroupMember.managed_by_type == 'user'
+        ).all()
+        for member in current_user_managed_members:
+            current_user_ids.add((member.user_id, False))
+        
+        # Get guests managed by friend in shared groups
+        friend_managed_guests = db.query(models.GuestMember).filter(
+            models.GuestMember.group_id.in_(shared_group_ids),
+            models.GuestMember.managed_by_id == friend_id,
+            models.GuestMember.managed_by_type == 'user',
+            models.GuestMember.claimed_by_id == None
+        ).all()
+        for guest in friend_managed_guests:
+            friend_ids.add((guest.id, True))
+        
+        # Get members managed by friend in shared groups
+        friend_managed_members = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id.in_(shared_group_ids),
+            models.GroupMember.managed_by_id == friend_id,
+            models.GroupMember.managed_by_type == 'user'
+        ).all()
+        for member in friend_managed_members:
+            friend_ids.add((member.user_id, False))
+
+    # Build subqueries for expenses involving each side
+    # Current user side: expenses where any of current_user_ids is in splits
+    current_side_conditions = []
+    for uid, is_guest in current_user_ids:
+        current_side_conditions.append(
+            and_(models.ExpenseSplit.user_id == uid, models.ExpenseSplit.is_guest == is_guest)
+        )
+    
+    current_side_split_expenses = db.query(models.ExpenseSplit.expense_id).filter(
+        or_(*current_side_conditions)
     ).subquery()
 
-    friend_split_expenses = db.query(models.ExpenseSplit.expense_id).filter(
-        models.ExpenseSplit.user_id == friend_id,
-        models.ExpenseSplit.is_guest == False
+    # Friend side: expenses where any of friend_ids is in splits
+    friend_side_conditions = []
+    for uid, is_guest in friend_ids:
+        friend_side_conditions.append(
+            and_(models.ExpenseSplit.user_id == uid, models.ExpenseSplit.is_guest == is_guest)
+        )
+    
+    friend_side_split_expenses = db.query(models.ExpenseSplit.expense_id).filter(
+        or_(*friend_side_conditions)
     ).subquery()
 
+    # Build payer conditions for each side
+    current_side_payer_conditions = []
+    for uid, is_guest in current_user_ids:
+        current_side_payer_conditions.append(
+            and_(models.Expense.payer_id == uid, models.Expense.payer_is_guest == is_guest)
+        )
+    
+    friend_side_payer_conditions = []
+    for uid, is_guest in friend_ids:
+        friend_side_payer_conditions.append(
+            and_(models.Expense.payer_id == uid, models.Expense.payer_is_guest == is_guest)
+        )
+
+    # Find expenses where one side paid AND the other side is in splits
     expenses = db.query(models.Expense).filter(
         or_(
+            # Current side paid AND friend side is in splits
             and_(
-                models.Expense.payer_id == current_user.id,
-                models.Expense.payer_is_guest == False,
-                models.Expense.id.in_(friend_split_expenses)
+                or_(*current_side_payer_conditions),
+                models.Expense.id.in_(friend_side_split_expenses)
             ),
+            # Friend side paid AND current side is in splits
             and_(
-                models.Expense.payer_id == friend_id,
-                models.Expense.payer_is_guest == False,
-                models.Expense.id.in_(current_user_split_expenses)
-            ),
-            and_(
-                models.Expense.id.in_(current_user_split_expenses),
-                models.Expense.id.in_(friend_split_expenses)
+                or_(*friend_side_payer_conditions),
+                models.Expense.id.in_(current_side_split_expenses)
             )
         )
     ).all()
@@ -678,35 +837,33 @@ def get_friend_balance(
             splits_by_expense[s.expense_id].append(s)
 
     # Calculate balance per currency
-    # Positive = friend owes current user, Negative = current user owes friend
+    # Positive = friend side owes current user side, Negative = current user side owes friend side
     balances: dict[str, float] = defaultdict(float)
 
     for expense in expenses:
         currency = expense.currency
-
-        # Get splits for this expense
         splits = splits_by_expense[expense.id]
 
-        # Find what the friend owes in this expense
-        friend_split = next(
-            (s for s in splits if s.user_id == friend_id and not s.is_guest),
-            None
+        # Sum what friend side owes in this expense
+        friend_side_owed = sum(
+            s.amount_owed for s in splits 
+            if (s.user_id, s.is_guest) in friend_ids
         )
-        # Find what current user owes in this expense
-        current_user_split = next(
-            (s for s in splits if s.user_id == current_user.id and not s.is_guest),
-            None
+        
+        # Sum what current user side owes in this expense
+        current_side_owed = sum(
+            s.amount_owed for s in splits 
+            if (s.user_id, s.is_guest) in current_user_ids
         )
 
-        if expense.payer_id == current_user.id and not expense.payer_is_guest:
-            # Current user paid - friend owes their split amount
-            if friend_split:
-                balances[currency] += friend_split.amount_owed / 100.0
-
-        elif expense.payer_id == friend_id and not expense.payer_is_guest:
-            # Friend paid - current user owes their split amount
-            if current_user_split:
-                balances[currency] -= current_user_split.amount_owed / 100.0
+        payer_key = (expense.payer_id, expense.payer_is_guest)
+        
+        if payer_key in current_user_ids:
+            # Current user side paid - friend side owes their split amount
+            balances[currency] += friend_side_owed / 100.0
+        elif payer_key in friend_ids:
+            # Friend side paid - current user side owes their split amount
+            balances[currency] -= current_side_owed / 100.0
 
     # Convert to list of FriendBalance objects, excluding zero balances
     result = [
