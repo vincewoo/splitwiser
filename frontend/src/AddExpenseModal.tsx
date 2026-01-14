@@ -157,6 +157,12 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setDescription("Receipt Scan");
     };
 
+    const handleBackdropClick = (e: React.MouseEvent) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
     if (!isOpen) return null;
 
     const getAllParticipants = (): Participant[] => {
@@ -561,7 +567,10 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-gray-600 dark:bg-gray-900/75 bg-opacity-50 z-40 flex items-end md:items-center justify-center">
+        <div
+            className="fixed inset-0 bg-gray-600 dark:bg-gray-900/75 bg-opacity-50 z-40 flex items-end md:items-center justify-center"
+            onClick={handleBackdropClick}
+        >
             {showScanner && (
                 <ReceiptScanner
                     onItemsDetected={handleScannedItems}

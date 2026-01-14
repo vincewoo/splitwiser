@@ -540,13 +540,22 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         onClose();
     };
 
+    const handleBackdropClick = (e: React.MouseEvent) => {
+        if (e.target === e.currentTarget) {
+            handleClose();
+        }
+    };
+
     if (!isOpen) return null;
 
     // All group members can edit/delete expenses (not just the creator)
     const canEdit = !readOnly;
 
     return (
-        <div className="fixed inset-0 bg-gray-600 dark:bg-gray-900/75 bg-opacity-50 z-40 flex items-end md:items-center justify-center">
+        <div
+            className="fixed inset-0 bg-gray-600 dark:bg-gray-900/75 bg-opacity-50 z-40 flex items-end md:items-center justify-center"
+            onClick={handleBackdropClick}
+        >
             {showParticipantSelector && (
                 <ParticipantSelector
                     isOpen={true}
