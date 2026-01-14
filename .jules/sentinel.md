@@ -34,17 +34,14 @@
 **Prevention:** Apply consistent rate limiting to all authentication-related endpoints, not just the primary login route.
 
 ## 2024-05-23 - PII Leak in Public Endpoints
-**Vulnerability:** User email addresses were exposed in public group endpoints (). The  schema included , and the display logic fell back to  if  was missing.
-**Learning:** Defaulting to email as a display name is dangerous for public-facing views. Even if the schema excludes it, logic might inadvertently expose it.
-**Prevention:**
-1. Use separate schemas for public vs. private data (e.g., ).
-2. Create dedicated display helpers (e.g., ) that enforce masking logic centrally.
-3. Verify public endpoints with tests that explicitly check for sensitive field presence.
-
-## 2024-05-23 - PII Leak in Public Endpoints
 **Vulnerability:** User email addresses were exposed in public group endpoints (`/groups/public/*`). The `GroupMember` schema included `email`, and the display logic fell back to `user.email` if `full_name` was missing.
 **Learning:** Defaulting to email as a display name is dangerous for public-facing views. Even if the schema excludes it, logic might inadvertently expose it.
 **Prevention:**
 1. Use separate schemas for public vs. private data (e.g., `PublicGroupMember`).
 2. Create dedicated display helpers (e.g., `get_public_user_display_name`) that enforce masking logic centrally.
 3. Verify public endpoints with tests that explicitly check for sensitive field presence.
+
+## 2025-02-18 - Stored XSS / File Upload Bypass
+**Vulnerability:** The receipt upload endpoint trusted the user-provided `Content-Type` header and file extension, allowing attackers to upload malicious files (e.g., HTML/JS) disguised as images, which could lead to Stored XSS when served back to users.
+**Learning:** `Content-Type` headers and filenames are user-controlled input and should never be trusted for security decisions. Validating them is insufficient.
+**Prevention:** Use a library like `PIL` (Python Imaging Library) to inspect the actual file content (magic numbers) to verify it is a valid image. Derive the file extension from the detected format, not the uploaded filename.

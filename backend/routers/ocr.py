@@ -5,6 +5,8 @@ import os
 import re
 import shutil
 import uuid
+import io
+from PIL import Image
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Body
 from sqlalchemy.orm import Session
@@ -81,31 +83,58 @@ async def scan_receipt(
     Returns:
         JSON with items, total, raw OCR text, and receipt_image_path
     """
-    # Validate file type
-    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid file type. Only JPEG, PNG, and WebP images are supported."
-        )
-
     try:
+        # Read image file for OCR and validation
+        image_content = await file.read()
+
+        # Validate file size (10MB max)
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        if len(image_content) > MAX_FILE_SIZE:
+             raise HTTPException(
+                status_code=413,
+                detail=f"File size exceeds maximum allowed size of 10MB. Uploaded file size: {len(image_content) / (1024 * 1024):.2f}MB"
+            )
+
+        # Validate image content using PIL
+        try:
+            image = Image.open(io.BytesIO(image_content))
+            img_format = image.format
+            image.verify()  # Check for corruption/invalid format
+
+            # Determine extension from detected format
+            format_to_ext = {
+                "JPEG": "jpg",
+                "PNG": "png",
+                "WEBP": "webp"
+            }
+
+            if img_format not in format_to_ext:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported image format: {img_format}. Only JPEG, PNG, and WebP are supported."
+                )
+
+            file_ext = format_to_ext[img_format]
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Image validation failed: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid image file."
+            )
+
         # Ensure receipts directory exists
         os.makedirs(RECEIPT_DIR, exist_ok=True)
 
-        # Generate unique filename
-        file_ext = file.filename.split('.')[-1] if '.' in file.filename else "jpg"
+        # Generate unique filename with SAFE extension
         filename = f"{uuid.uuid4()}.{file_ext}"
         file_path = os.path.join(RECEIPT_DIR, filename)
 
         # Save file locally
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        # Reset file cursor for reading
-        file.file.seek(0)
-
-        # Read image file for OCR
-        image_content = await file.read()
+            buffer.write(image_content)
         print(f"Starting receipt scan... Image size: {len(image_content)} bytes")
 
         # OCR processing

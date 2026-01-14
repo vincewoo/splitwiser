@@ -16,7 +16,7 @@ client = TestClient(app)
 # Mock OCR service to avoid calling Google Cloud
 @pytest.fixture
 def mock_ocr():
-    with patch("routers.receipts.ocr_service") as mock:
+    with patch("routers.ocr.ocr_service") as mock:
         mock_response = MagicMock()
         mock_response.text_annotations = []
         mock.extract_text.return_value = mock_response
