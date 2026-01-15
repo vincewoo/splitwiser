@@ -10,6 +10,7 @@ from PIL import Image
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Body
 from sqlalchemy.orm import Session
+from google.api_core import exceptions as google_exceptions
 
 import models
 import schemas
@@ -173,6 +174,16 @@ async def scan_receipt(
 
     except HTTPException:
         raise
+    except google_exceptions.ServiceUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail="OCR service is temporarily unavailable, please try again later."
+        )
+    except google_exceptions.RetryError:
+        raise HTTPException(
+            status_code=503,
+            detail="OCR service request timed out, please try again later."
+        )
     except Exception as e:
         print(f"OCR processing error: {e}")
         import traceback
@@ -432,6 +443,16 @@ async def detect_regions(
 
     except HTTPException:
         raise
+    except google_exceptions.ServiceUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail="OCR service is temporarily unavailable, please try again later."
+        )
+    except google_exceptions.RetryError:
+        raise HTTPException(
+            status_code=503,
+            detail="OCR service request timed out, please try again later."
+        )
     except Exception as e:
         print(f"OCR region detection error: {e}")
         import traceback

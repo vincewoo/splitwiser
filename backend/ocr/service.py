@@ -1,5 +1,6 @@
 from google.cloud import vision
 from google.api_core import exceptions as google_exceptions
+from google.api_core import retry
 import google.auth.exceptions
 import logging
 import os
@@ -26,6 +27,21 @@ def _setup_google_credentials():
             logger.warning(f"Failed to decode GOOGLE_CREDENTIALS_BASE64: {e}")
 
 _setup_google_credentials()
+
+# Configure retry for Vision API calls
+# Retry on ServiceUnavailable (503) and DeadlineExceeded (504)
+# Start with 0.5s delay, double it each time, up to 10s delay.
+# Total deadline is 30s.
+ocr_retry = retry.Retry(
+    predicate=retry.if_exception_type(
+        google_exceptions.ServiceUnavailable,
+        google_exceptions.DeadlineExceeded,
+    ),
+    initial=0.5,
+    maximum=10.0,
+    multiplier=2.0,
+    deadline=30.0,
+)
 
 class OCRService:
     """
@@ -62,7 +78,7 @@ class OCRService:
             raise Exception("OCR service is not available (missing credentials)")
 
         image = vision.Image(content=image_bytes)
-        response = self.client.text_detection(image=image)
+        response = self.client.text_detection(image=image, retry=ocr_retry)
 
         if response.error.message:
             raise Exception(f"Vision API error: {response.error.message}")
@@ -84,7 +100,7 @@ class OCRService:
             Exception: If Vision API returns an error
         """
         image = vision.Image(content=image_bytes)
-        response = self.client.document_text_detection(image=image)
+        response = self.client.document_text_detection(image=image, retry=ocr_retry)
 
         if response.error.message:
             raise Exception(f"Vision API error: {response.error.message}")
