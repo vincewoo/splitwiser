@@ -1,3 +1,3 @@
-## 2026-01-09 - Accessibility in Complex Collapsible Headers
-**Learning:** Collapsible headers that contain other interactive elements (like a currency toggle inside a header row) present a semantic challenge. Nesting buttons is invalid HTML.
-**Action:** The solution is to split the visual row into a main `<button>` for the toggle action (occupying the majority of the space) and a separate container for the other interactive elements. Use `pointer-events-none` on the secondary container to prevent it from blocking the main button's click area, while re-enabling `pointer-events-auto` on the specific interactive children.
+## 2026-01-15 - Dashboard Empty State Action
+**Learning:** Empty states are prime real estate for guiding user action. Users shouldn't have to hunt for the "Create" button when the list is empty; placing it directly in the empty state reduces friction.
+**Action:** Always include a primary call-to-action button in empty states for main resource lists.
