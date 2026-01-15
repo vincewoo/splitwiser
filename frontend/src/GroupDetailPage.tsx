@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { usePageTitle } from './hooks/usePageTitle';
@@ -142,6 +142,106 @@ const GroupDetailPage: React.FC = () => {
     usePageTitle(group?.name || 'Loading...');
 
     const isPublicView = !!shareLinkId;
+
+    // Filtered expenses memoization - MUST be at top level
+    const filteredExpenses = useMemo(() => {
+        if (!showOnlyMyExpenses || !user) return expenses;
+
+        return expenses.filter(expense => {
+            // Include if user is the payer
+            if (expense.payer_id === user.id && !expense.payer_is_guest) {
+                return true;
+            }
+
+            // Include if user is in the splits
+            return expense.splits?.some(split =>
+                split.user_id === user.id && !split.is_guest
+            );
+        });
+    }, [expenses, showOnlyMyExpenses, user]);
+
+    // Balances content memoization - MUST be at top level
+    const balancesContent = useMemo(() => {
+        // Backend now handles currency conversion, so we just need to render
+        const sortedBalances = [...balances].sort((a, b) => {
+            // If showing by currency, group by currency first
+            if (!showInGroupCurrency && a.currency !== b.currency) {
+                return a.currency.localeCompare(b.currency);
+            }
+            // Then sort: "You" first, then alphabetically
+            if (a.full_name === 'You') return -1;
+            if (b.full_name === 'You') return 1;
+            return a.full_name.localeCompare(b.full_name);
+        });
+
+        if (!showInGroupCurrency) {
+            // Group by currency for display
+            const byCurrency: Record<string, GroupBalance[]> = {};
+            sortedBalances.forEach(balance => {
+                if (!byCurrency[balance.currency]) {
+                    byCurrency[balance.currency] = [];
+                }
+                byCurrency[balance.currency].push(balance);
+            });
+
+            return (
+                <div className="space-y-4">
+                    {Object.entries(byCurrency).map(([currency, balanceList]) => (
+                        <div key={currency}>
+                            <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">
+                                {currency}
+                            </h3>
+                            <ul className="space-y-2">
+                                {balanceList.map((balance, idx) => (
+                                    <li key={`${balance.user_id}_${balance.is_guest}_${idx}`}
+                                        className="flex items-center justify-between py-2">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                {balance.full_name}
+                                            </span>
+                                            {balance.managed_guests && balance.managed_guests.length > 0 && (
+                                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                                    Includes: {balance.managed_guests.join(', ')}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                            {balance.amount >= 0 ? '+' : ''}
+                                            {formatMoney(balance.amount, balance.currency)}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        // Converted view - all in one currency
+        return (
+            <ul className="space-y-2">
+                {sortedBalances.map((balance, index) => (
+                    <li key={index} className="flex items-center justify-between py-2">
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {balance.full_name}
+                            </span>
+                            {balance.managed_guests && balance.managed_guests.length > 0 && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    Includes: {balance.managed_guests.join(', ')}
+                                </span>
+                            )}
+                        </div>
+                        <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {balance.amount >= 0 ? '+' : ''}
+                            {formatMoney(balance.amount, balance.currency)}
+                        </span>
+                    </li>
+                ))}
+            </ul>
+        );
+    }, [balances, showInGroupCurrency]);
 
     const fetchBalances = async (convertTo?: string) => {
         try {
@@ -548,89 +648,6 @@ const GroupDetailPage: React.FC = () => {
         }
     };
 
-    const renderBalances = () => {
-        // Backend now handles currency conversion, so we just need to render
-        const sortedBalances = [...balances].sort((a, b) => {
-            // If showing by currency, group by currency first
-            if (!showInGroupCurrency && a.currency !== b.currency) {
-                return a.currency.localeCompare(b.currency);
-            }
-            // Then sort: "You" first, then alphabetically
-            if (a.full_name === 'You') return -1;
-            if (b.full_name === 'You') return 1;
-            return a.full_name.localeCompare(b.full_name);
-        });
-
-        if (!showInGroupCurrency) {
-            // Group by currency for display
-            const byCurrency: Record<string, GroupBalance[]> = {};
-            sortedBalances.forEach(balance => {
-                if (!byCurrency[balance.currency]) {
-                    byCurrency[balance.currency] = [];
-                }
-                byCurrency[balance.currency].push(balance);
-            });
-
-            return (
-                <div className="space-y-4">
-                    {Object.entries(byCurrency).map(([currency, balanceList]) => (
-                        <div key={currency}>
-                            <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">
-                                {currency}
-                            </h3>
-                            <ul className="space-y-2">
-                                {balanceList.map((balance, idx) => (
-                                    <li key={`${balance.user_id}_${balance.is_guest}_${idx}`}
-                                        className="flex items-center justify-between py-2">
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                                {balance.full_name}
-                                            </span>
-                                            {balance.managed_guests && balance.managed_guests.length > 0 && (
-                                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                                    Includes: {balance.managed_guests.join(', ')}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                            {balance.amount >= 0 ? '+' : ''}
-                                            {formatMoney(balance.amount, balance.currency)}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ))}
-                </div>
-            );
-        }
-
-        // Converted view - all in one currency
-        return (
-            <ul className="space-y-2">
-                {sortedBalances.map((balance, index) => (
-                    <li key={index} className="flex items-center justify-between py-2">
-                        <div className="flex flex-col">
-                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                {balance.full_name}
-                            </span>
-                            {balance.managed_guests && balance.managed_guests.length > 0 && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    Includes: {balance.managed_guests.join(', ')}
-                                </span>
-                            )}
-                        </div>
-                        <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {balance.amount >= 0 ? '+' : ''}
-                            {formatMoney(balance.amount, balance.currency)}
-                        </span>
-                    </li>
-                ))}
-            </ul>
-        );
-    };
-
-
     if (isLoading) {
         return (
             <div className="flex h-screen items-center justify-center bg-gray-100 dark:bg-gray-900">
@@ -656,24 +673,6 @@ const GroupDetailPage: React.FC = () => {
     }
 
     const isOwner = group.created_by_id === user?.id;
-
-    const getFilteredExpenses = () => {
-        if (!showOnlyMyExpenses || !user) return expenses;
-
-        return expenses.filter(expense => {
-            // Include if user is the payer
-            if (expense.payer_id === user.id && !expense.payer_is_guest) {
-                return true;
-            }
-
-            // Include if user is in the splits
-            return expense.splits?.some(split =>
-                split.user_id === user.id && !split.is_guest
-            );
-        });
-    };
-
-    const filteredExpenses = getFilteredExpenses();
 
     return (
         <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
@@ -866,7 +865,7 @@ const GroupDetailPage: React.FC = () => {
                                 <p className="text-gray-500 dark:text-gray-400 italic text-sm mt-4">No balances yet</p>
                             ) : (
                                 <div className="mt-4">
-                                    {renderBalances()}
+                                    {balancesContent}
 
                                     {/* Simplify Debts Button */}
                                     {!isPublicView && balances.some(b => b.amount !== 0) && (
