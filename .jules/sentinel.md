@@ -45,3 +45,8 @@
 **Vulnerability:** The receipt upload endpoint trusted the user-provided `Content-Type` header and file extension, allowing attackers to upload malicious files (e.g., HTML/JS) disguised as images, which could lead to Stored XSS when served back to users.
 **Learning:** `Content-Type` headers and filenames are user-controlled input and should never be trusted for security decisions. Validating them is insufficient.
 **Prevention:** Use a library like `PIL` (Python Imaging Library) to inspect the actual file content (magic numbers) to verify it is a valid image. Derive the file extension from the detected format, not the uploaded filename.
+
+## 2025-02-19 - Missing Rate Limiting Implementation
+**Vulnerability:** Although rate limiting was planned and even documented for OCR endpoints, the actual dependency `Depends(ocr_rate_limiter)` was missing from the router code.
+**Learning:** Documentation and intent do not equal code. Verification must be done on the actual implementation.
+**Prevention:** Ensure that security features are verified by automated tests (like `test_ocr_rate_limit.py`) that specifically check for the presence and function of the control, rather than just functional tests that might mock it out.

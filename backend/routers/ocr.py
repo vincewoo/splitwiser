@@ -17,6 +17,7 @@ from database import get_db
 from dependencies import get_current_user
 from ocr.service import ocr_service
 from ocr.parser import parse_receipt_items
+from utils.rate_limiter import ocr_rate_limiter
 
 
 # Receipt directory path
@@ -67,7 +68,7 @@ ocr_cache = OCRCache()
 router = APIRouter(tags=["ocr"])
 
 
-@router.post("/ocr/scan-receipt")
+@router.post("/ocr/scan-receipt", dependencies=[Depends(ocr_rate_limiter)])
 async def scan_receipt(
     file: UploadFile = File(...),
     current_user: Annotated[models.User, Depends(get_current_user)] = None
@@ -182,7 +183,7 @@ async def scan_receipt(
         )
 
 
-@router.post("/ocr/detect-regions")
+@router.post("/ocr/detect-regions", dependencies=[Depends(ocr_rate_limiter)])
 async def detect_regions(
     file: UploadFile = File(...),
     current_user: Annotated[models.User, Depends(get_current_user)] = None
@@ -499,7 +500,7 @@ def extract_text_from_region(
     return " ".join(extracted_text)
 
 
-@router.post("/ocr/extract-regions")
+@router.post("/ocr/extract-regions", dependencies=[Depends(ocr_rate_limiter)])
 async def extract_regions(
     request: Annotated[schemas.ExtractRegionsRequest, Body()],
     current_user: Annotated[models.User, Depends(get_current_user)] = None

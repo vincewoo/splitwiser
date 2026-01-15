@@ -4,6 +4,8 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from io import BytesIO
 from conftest import client, auth_headers, test_user
+from main import app
+from utils.rate_limiter import ocr_rate_limiter
 
 
 class MockVertex:
@@ -51,6 +53,19 @@ class MockAnnotateImageResponse:
         self.text_annotations = text_annotations or []
         self.error = MockError(message=error_message)
         self.full_text_annotation = full_text_annotation or MockFullTextAnnotation()
+
+
+@pytest.fixture(autouse=True)
+def mock_ocr_rate_limiter():
+    """Disable rate limiting for OCR tests."""
+    async def pass_through():
+        return True
+
+    app.dependency_overrides[ocr_rate_limiter] = pass_through
+    yield
+    # The client fixture clears overrides, but we can be safe
+    if ocr_rate_limiter in app.dependency_overrides:
+        del app.dependency_overrides[ocr_rate_limiter]
 
 
 @pytest.fixture
