@@ -63,10 +63,26 @@ async def add_security_headers(request: Request, call_next):
 
     return response
 
-# CORS middleware - simplified configuration
+# CORS middleware - secure configuration
+# In production, the frontend is served by Nginx on the same domain, so CORS is not strictly required.
+# However, for local development with Vite (port 5173) and FastAPI (port 8000), we need to allow cross-origin requests.
+# We replace the insecure wildcard ["*"] with a specific list of allowed origins.
+
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+# Allow overriding via environment variable (comma-separated list)
+env_origins = os.getenv("BACKEND_CORS_ORIGINS")
+if env_origins:
+    origins.extend([origin.strip() for origin in env_origins.split(",")])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
