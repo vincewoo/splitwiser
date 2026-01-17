@@ -50,3 +50,8 @@
 **Vulnerability:** Although rate limiting was planned and even documented for OCR endpoints, the actual dependency `Depends(ocr_rate_limiter)` was missing from the router code.
 **Learning:** Documentation and intent do not equal code. Verification must be done on the actual implementation.
 **Prevention:** Ensure that security features are verified by automated tests (like `test_ocr_rate_limit.py`) that specifically check for the presence and function of the control, rather than just functional tests that might mock it out.
+
+## 2025-02-19 - Insecure CORS Configuration
+**Vulnerability:** The backend was configured with `allow_origins=["*"]` and `allow_credentials=True`. This configuration allows any website to make authenticated requests to the API, effectively bypassing SOP protections and exposing the application to CSRF-like attacks.
+**Learning:** Developers often use `*` during development to avoid CORS errors and forget to restrict it before production, or mistakenly believe `*` is safe if they don't use cookies (but authenticated requests can still be dangerous).
+**Prevention:** Never use `*` for `allow_origins` in production. Use a strict whitelist of allowed origins controlled by environment variables (e.g., `BACKEND_CORS_ORIGINS`). If needed for development, conditionally add localhost ports.
