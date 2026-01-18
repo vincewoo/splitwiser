@@ -63,10 +63,14 @@ async def add_security_headers(request: Request, call_next):
 
     return response
 
-# CORS middleware - simplified configuration
+# CORS configuration
+# Get allowed origins from env or default to localhost
+backend_cors_origins_str = os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:5173,http://localhost:4173")
+backend_cors_origins = [origin.strip() for origin in backend_cors_origins_str.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=backend_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
