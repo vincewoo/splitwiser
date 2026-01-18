@@ -449,12 +449,14 @@ def read_friends(
         (models.Friendship.user_id1 == current_user.id) | (models.Friendship.user_id2 == current_user.id)
     ).all()
 
-    friends = []
+    friend_ids = []
     for f in friendships:
-        friend_id = f.user_id2 if f.user_id1 == current_user.id else f.user_id1
-        friend = db.query(models.User).filter(models.User.id == friend_id).first()
-        if friend:
-            friends.append(friend)
+        friend_ids.append(f.user_id2 if f.user_id1 == current_user.id else f.user_id1)
+
+    if not friend_ids:
+        return []
+
+    friends = db.query(models.User).filter(models.User.id.in_(friend_ids)).all()
 
     return friends
 
