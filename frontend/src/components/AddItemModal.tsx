@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 interface AddItemModalProps {
     isOpen: boolean;
@@ -11,13 +11,16 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ isOpen, onClose, onAdd }) =
     const [priceStr, setPriceStr] = useState('');
     const [error, setError] = useState('');
 
-    useEffect(() => {
-        if (isOpen) {
-            setDescription('');
-            setPriceStr('');
-            setError('');
-        }
-    }, [isOpen]);
+    const resetForm = () => {
+        setDescription('');
+        setPriceStr('');
+        setError('');
+    };
+
+    const handleClose = () => {
+        resetForm();
+        onClose();
+    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -35,6 +38,7 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ isOpen, onClose, onAdd }) =
         }
 
         onAdd(description.trim(), price);
+        resetForm();
         onClose();
     };
 
@@ -43,7 +47,7 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ isOpen, onClose, onAdd }) =
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
-            <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+            <div className="fixed inset-0 bg-black/50" onClick={handleClose} />
 
             {/* Modal */}
             <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-auto">
@@ -55,12 +59,12 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ isOpen, onClose, onAdd }) =
                         </h2>
                         <button
                             type="button"
-                            onClick={onClose}
+                            onClick={handleClose}
                             aria-label="Close modal"
-                            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 transition-colors"
                         >
                             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
                     </div>
@@ -117,14 +121,14 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ isOpen, onClose, onAdd }) =
                     <div className="flex gap-3 p-6 border-t border-gray-200 dark:border-gray-700">
                         <button
                             type="button"
-                            onClick={onClose}
-                            className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 min-h-[44px]"
+                            onClick={handleClose}
+                            className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 min-h-[44px] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            className="flex-1 px-4 py-3 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg min-h-[44px]"
+                            className="flex-1 px-4 py-3 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg min-h-[44px] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800"
                         >
                             Add Item
                         </button>
