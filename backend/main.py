@@ -63,10 +63,19 @@ async def add_security_headers(request: Request, call_next):
 
     return response
 
-# CORS middleware - simplified configuration
+# CORS configuration
+# Get allowed origins from env or default to localhost
+# In production with the Docker setup, this matters less as Nginx proxies,
+# but it prevents direct access if ports are exposed or in dev modes.
+backend_cors_origins = os.getenv(
+    "BACKEND_CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,http://127.0.0.1:8000"
+)
+origins = [origin.strip() for origin in backend_cors_origins.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
