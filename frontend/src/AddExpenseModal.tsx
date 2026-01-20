@@ -290,6 +290,23 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     const key = a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
                     participantsWithItems.add(key);
                 });
+            });
+
+            // Build items array with tax and tip
+            const allItems = [...itemizedExpense.itemizedItems];
+            const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
+            const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
+
+            // Add Tax as a separate item if present
+            if (tax > 0) {
+                allItems.push({
+                    description: 'Tax',
+                    price: tax,
+                    is_tax_tip: true,
+                    assignments: [],
+                    split_type: 'EQUAL',
+                    split_details: undefined
+                });
             }
 
             // Add Tip as a separate item if present
