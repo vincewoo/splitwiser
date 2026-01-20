@@ -10,7 +10,7 @@ from database import get_db
 from auth import get_password_hash
 
 @pytest.fixture
-def query_counter():
+def query_counter(db_session):
     class QueryCounter:
         def __init__(self):
             self.count = 0
@@ -22,78 +22,81 @@ def query_counter():
     yield counter
     event.remove(Engine, "before_cursor_execute", counter)
 
-def test_auth_group_balances_n_plus_one(client: TestClient, db_session: Session, query_counter):
-    # Create a user and login
+def test_get_balances_optimization(client: TestClient, db_session: Session, query_counter):
+    # Create a user
     password = "password123"
     hashed_password = get_password_hash(password)
-    user = User(email="test_perf@example.com", hashed_password=hashed_password, full_name="Test User")
+    user = User(email="user@example.com", hashed_password=hashed_password, full_name="Main User")
     db_session.add(user)
     db_session.commit()
 
     # Login to get token
-    response = client.post("/token", data={"username": "test_perf@example.com", "password": "password123"})
+    response = client.post("/token", data={"username": "user@example.com", "password": "password123"})
+    assert response.status_code == 200
     token = response.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Create a group
-    group = Group(name="Auth Group", created_by_id=user.id)
-    db_session.add(group)
-    db_session.commit()
-
-    # Add the creator as a member
-    member = GroupMember(group_id=group.id, user_id=user.id)
-    db_session.add(member)
-    db_session.commit()
-
-    # Create N expenses
-    N = 20
+    # Create N groups
+    N = 5
     for i in range(N):
-        expense = Expense(
-            description=f"Expense {i}",
-            amount=100.0,
-            currency="USD",
-            payer_id=user.id,
-            payer_is_guest=False,
-            group_id=group.id,
-            created_by_id=user.id,
-            split_type="EQUAL"
-        )
-        db_session.add(expense)
+        group = Group(name=f"Group {i}", created_by_id=user.id)
+        db_session.add(group)
         db_session.commit()
 
-        # Add split
-        split = ExpenseSplit(
-            expense_id=expense.id,
-            user_id=user.id,
-            is_guest=False,
-            amount_owed=100.0,
-            percentage=100.0,
-            shares=1.0
-        )
-        db_session.add(split)
+        # Add user as member
+        member = GroupMember(group_id=group.id, user_id=user.id)
+        db_session.add(member)
         db_session.commit()
+
+        # Create 2 expenses per group
+        for j in range(2):
+            expense = Expense(
+                description=f"Expense {j} in Group {i}",
+                amount=1000,
+                currency="USD",
+                payer_id=user.id,
+                payer_is_guest=False,
+                group_id=group.id,
+                created_by_id=user.id,
+                split_type="EQUAL"
+            )
+            db_session.add(expense)
+            db_session.commit()
+
+            # Add split
+            split = ExpenseSplit(
+                expense_id=expense.id,
+                user_id=user.id,
+                is_guest=False,
+                amount_owed=1000,
+                percentage=100,
+                shares=1
+            )
+            db_session.add(split)
+            db_session.commit()
 
     # Reset query count
     query_counter.count = 0
 
     # Call the API
-    response = client.get(f"/groups/{group.id}/balances", headers=headers)
+    response = client.get("/balances", headers=headers)
     assert response.status_code == 200
 
-    print(f"Query count for {N} expenses: {query_counter.count}")
+    final_count = query_counter.count
+    print(f"Query count for {N} groups: {final_count}")
 
-    # After optimization, the query count should be significantly lower than N=20.
-    # It was 51 before optimization, now it is 13.
-    # Expected queries:
-    # 1. User/Auth checks
-    # 2. Get Group
-    # 3. Get Members
-    # 4. Get Expenses
-    # 5. Get Splits (Batched!)
-    # 6. Get Managed Guests
-    # 7. Get Managed Members
-    # 8. Batch fetch Users
-    # 9. Batch fetch Guests
-    # ... and maybe a few others for validation etc.
-    # It should definitely be less than 20.
-    assert query_counter.count < 20, f"Expected optimized queries (< 20), but got {query_counter.count}"
+    # Expected queries after optimization:
+    # 1. user_memberships
+    # 2. groups batch
+    # 3. expenses batch
+    # 4. splits batch
+    # 5. managed_guests batch
+    # 6. managed_members batch
+    # 7. paid_expenses (1-to-1)
+    # 8. my_splits (1-to-1)
+    # 9. splits_for_paid_expenses
+    # 10. expenses_for_my_splits
+    # 11. users batch (for names)
+    # Total ~ 11 queries regardless of N
+
+    assert final_count <= 12, f"Expected <= 12 queries, got {final_count}. Optimization might be failing."
