@@ -1,0 +1,109 @@
+# Mise configuration for Splitwiser
+# https://mise.jdx.dev/
+
+[tools]
+python = "3.12"
+node = "22"
+
+[env]
+# Backend virtual environment
+VIRTUAL_ENV = "{{config_root}}/backend/venv"
+PATH = "{{config_root}}/backend/venv/bin:{{env.PATH}}"
+
+[tasks.setup]
+description = "Setup both backend and frontend"
+depends = ["setup:backend", "setup:frontend"]
+
+[tasks."setup:backend"]
+description = "Setup backend virtual environment and install dependencies"
+dir = "backend"
+run = """
+#!/usr/bin/env bash
+set -e
+if [ ! -d "venv" ]; then
+  echo "Creating Python virtual environment..."
+  python -m venv venv
+fi
+echo "Installing backend dependencies..."
+source venv/bin/activate
+pip install -q -r requirements.txt
+echo "Backend setup complete!"
+"""
+
+[tasks."setup:frontend"]
+description = "Install frontend dependencies"
+dir = "frontend"
+run = """
+#!/usr/bin/env bash
+set -e
+echo "Installing frontend dependencies..."
+npm install
+echo "Frontend setup complete!"
+"""
+
+[tasks."dev:backend"]
+description = "Run backend development server"
+dir = "backend"
+run = """
+#!/usr/bin/env bash
+source venv/bin/activate
+uvicorn main:app --reload
+"""
+
+[tasks."dev:frontend"]
+description = "Run frontend development server"
+dir = "frontend"
+run = "npm run dev"
+
+[tasks.dev]
+description = "Run both backend and frontend development servers"
+run = """
+#!/usr/bin/env bash
+set -e
+
+# Start backend in background
+echo "Starting backend server..."
+cd backend
+source venv/bin/activate
+uvicorn main:app --reload &
+BACKEND_PID=$!
+
+# Start frontend in foreground
+echo "Starting frontend server..."
+cd ../frontend
+npm run dev &
+FRONTEND_PID=$!
+
+# Handle cleanup on exit
+cleanup() {
+  echo ""
+  echo "Shutting down servers..."
+  kill $BACKEND_PID 2>/dev/null
+  kill $FRONTEND_PID 2>/dev/null
+  exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+# Wait for both processes
+wait
+"""
+
+[tasks.build]
+description = "Build frontend for production"
+dir = "frontend"
+run = "npm run build"
+
+[tasks.lint]
+description = "Run frontend linting"
+dir = "frontend"
+run = "npm run lint"
+
+[tasks.test]
+description = "Run backend tests"
+dir = "backend"
+run = """
+#!/usr/bin/env bash
+source venv/bin/activate
+pytest tests/test_main.py
+"""

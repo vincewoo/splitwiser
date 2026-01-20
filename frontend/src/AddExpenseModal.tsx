@@ -283,41 +283,12 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         };
 
         if (splitType === 'ITEMIZED') {
-            const itemsWithoutAssignees = itemizedExpense.itemizedItems.filter(
-                item => !item.is_tax_tip && item.assignments.length === 0
-            );
-            if (itemsWithoutAssignees.length > 0) {
-                setAlertDialog({
-                    isOpen: true,
-                    title: 'Items Without Assignees',
-                    message: `Please assign all items to at least one person (or use "Unassigned" for items to be claimed later). Missing: ${itemsWithoutAssignees.map(i => i.description).join(', ')}`,
-                    type: 'error'
-                });
-                return;
-            }
-
-            // Map items to include split_type and properly formatted split_details
-            const allItems = itemizedExpense.itemizedItems.map(item => ({
-                description: item.description,
-                price: item.price,
-                is_tax_tip: item.is_tax_tip,
-                assignments: item.assignments,
-                split_type: item.split_type || 'EQUAL',
-                split_details: item.split_details || undefined
-            }));
-
-            const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
-            const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
-
-            // Add Tax as a separate item if present
-            if (tax > 0) {
-                allItems.push({
-                    description: 'Tax',
-                    price: tax,
-                    is_tax_tip: true,
-                    assignments: [],
-                    split_type: 'EQUAL',
-                    split_details: undefined
+            const allParticipants = getAllParticipants();
+            const participantsWithItems = new Set<string>();
+            itemizedExpense.itemizedItems.forEach(item => {
+                item.assignments.forEach(a => {
+                    const key = a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
+                    participantsWithItems.add(key);
                 });
             }
 
