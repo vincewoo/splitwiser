@@ -1,6 +1,7 @@
 """Balances router: balance calculations and debt simplification."""
 
 from typing import Annotated, Dict, List, Tuple
+from collections import defaultdict
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -10,7 +11,7 @@ from database import get_db
 from dependencies import get_current_user
 from utils.validation import get_group_or_404, verify_group_membership
 from utils.display import get_guest_display_name
-from utils.balances import calculate_net_balances
+from utils.balances import calculate_net_balances, calculate_balances_from_data
 from utils.currency import (
     format_currency,
     convert_to_usd,
@@ -302,8 +303,6 @@ def get_balances(
     
     By default, group balances are consolidated to each group's default currency.
     If convert_to is provided, all group balances are converted to that currency.
-    
-    Uses the same calculate_net_balances logic as the Group page for consistency.
     """
     # Get all groups the user is a member of
     user_memberships = db.query(models.GroupMember).filter(
@@ -332,42 +331,92 @@ def get_balances(
         amount_in_usd = amount / from_rate
         return amount_in_usd * to_rate
     
-    # For each group, calculate user's net balance using the same logic as Group page
-    for group_id in user_group_ids:
-        group = groups_map.get(group_id)
-        if not group:
-            continue
-            
-        group_default_currency = group.default_currency or "USD"
+    # -------------------------------------------------------------------------
+    # Optimized Group Balance Calculation (Batch Fetching)
+    # -------------------------------------------------------------------------
+    if user_group_ids:
+        # 1. Fetch ALL expenses for ALL relevant groups
+        all_expenses = db.query(models.Expense).filter(
+            models.Expense.group_id.in_(user_group_ids)
+        ).all()
         
-        # Use calculate_net_balances - same function as Group page
-        # This handles managed members, historical exchange rates, etc.
-        net_balances = calculate_net_balances(db, group_id, target_currency=group_default_currency)
+        # Group expenses by group_id
+        expenses_by_group = defaultdict(list)
+        expense_ids = []
+        for expense in all_expenses:
+            expenses_by_group[expense.group_id].append(expense)
+            expense_ids.append(expense.id)
+
+        # 2. Fetch ALL splits for these expenses
+        splits_by_expense = defaultdict(list)
+        if expense_ids:
+            all_splits = db.query(models.ExpenseSplit).filter(
+                models.ExpenseSplit.expense_id.in_(expense_ids)
+            ).all()
+            for split in all_splits:
+                splits_by_expense[split.expense_id].append(split)
         
-        # Find current user's balance in this group
-        user_key = (current_user.id, False)  # (user_id, is_guest=False)
-        user_balance = net_balances.get(user_key, 0)
-        
-        if abs(user_balance) > 0.01:  # Skip near-zero balances
-            # Determine display currency
-            display_currency = convert_to if convert_to else group_default_currency
+        # 3. Fetch managed guests for ALL relevant groups
+        managed_guests_by_group = defaultdict(list)
+        all_managed_guests = db.query(models.GuestMember).filter(
+            models.GuestMember.group_id.in_(user_group_ids),
+            models.GuestMember.managed_by_id != None
+        ).all()
+        for guest in all_managed_guests:
+            managed_guests_by_group[guest.group_id].append(guest)
             
-            # Convert if needed
-            if convert_to and convert_to != group_default_currency:
-                user_balance = convert_amount(user_balance, group_default_currency, convert_to)
+        # 4. Fetch managed members for ALL relevant groups
+        managed_members_by_group = defaultdict(list)
+        all_managed_members = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id.in_(user_group_ids),
+            models.GroupMember.managed_by_id != None
+        ).all()
+        for member in all_managed_members:
+            managed_members_by_group[member.group_id].append(member)
+
+        # 5. Process each group using pre-fetched data
+        for group_id in user_group_ids:
+            group = groups_map.get(group_id)
+            if not group:
+                continue
+
+            group_default_currency = group.default_currency or "USD"
+            target_currency = group_default_currency
             
-            result["balances"].append(schemas.Balance(
-                user_id=0,
-                full_name=group.name,
-                amount=user_balance,
-                currency=display_currency,
-                is_guest=True,
-                group_name=group.name,
-                group_id=group_id
-            ))
+            # Use shared calculation logic with injected data
+            net_balances = calculate_balances_from_data(
+                expenses=expenses_by_group[group_id],
+                splits_by_expense=splits_by_expense,
+                managed_guests=managed_guests_by_group[group_id],
+                managed_members=managed_members_by_group[group_id],
+                target_currency=target_currency
+            )
+
+            # Find current user's balance in this group
+            user_key = (current_user.id, False)  # (user_id, is_guest=False)
+            user_balance = net_balances.get(user_key, 0)
+
+            if abs(user_balance) > 0.01:  # Skip near-zero balances
+                # Determine display currency
+                display_currency = convert_to if convert_to else group_default_currency
+
+                # Convert if needed
+                if convert_to and convert_to != group_default_currency:
+                    user_balance = convert_amount(user_balance, group_default_currency, convert_to)
+
+                result["balances"].append(schemas.Balance(
+                    user_id=0,
+                    full_name=group.name,
+                    amount=user_balance,
+                    currency=display_currency,
+                    is_guest=True,
+                    group_name=group.name,
+                    group_id=group_id
+                ))
     
-    # Handle 1-to-1 IOUs (non-group expenses) - these are still calculated separately
-    # For now, keep the existing logic for individual user balances
+    # -------------------------------------------------------------------------
+    # 1-to-1 IOUs (non-group expenses) - Unchanged (already optimized)
+    # -------------------------------------------------------------------------
     paid_expenses = db.query(models.Expense).filter(
         models.Expense.payer_id == current_user.id,
         models.Expense.payer_is_guest == False,

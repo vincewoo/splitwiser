@@ -1,49 +1,32 @@
 """Balance calculation utilities with management relationship aggregation."""
 
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 from sqlalchemy.orm import Session
 
 import models
 from utils.currency import convert_to_usd, convert_currency
 
 
-def calculate_net_balances(
-    db: Session,
-    group_id: int,
+def calculate_balances_from_data(
+    expenses: List[models.Expense],
+    splits_by_expense: Dict[int, List[models.ExpenseSplit]],
+    managed_guests: List[models.GuestMember],
+    managed_members: List[models.GroupMember],
     target_currency: str = None
 ) -> Dict[Tuple[int, bool], float]:
     """
-    Calculate net balances for all participants in a group, aggregating managed relationships.
+    Core logic to calculate net balances from pre-fetched data.
 
     Args:
-        db: Database session
-        group_id: ID of the group
-        target_currency: Optional currency to convert all balances to. If None, returns balances per currency.
+        expenses: List of expenses in the group
+        splits_by_expense: Map of expense_id to list of splits
+        managed_guests: List of guests managed by others in this group
+        managed_members: List of members managed by others in this group
+        target_currency: Optional currency to convert to
 
     Returns:
         Dictionary mapping (user_id, is_guest) tuples to net balance amounts.
-        If target_currency is specified, all balances are converted to that currency.
-        If target_currency is None, returns dict mapping to dict of {currency: amount}.
     """
-    # Get all expenses in group
-    expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
-
-    if not expenses:
-        return {}
-
-    # Optimization: Batch fetch all splits for these expenses to avoid N+1 queries
-    expense_ids = [e.id for e in expenses]
-    all_splits = db.query(models.ExpenseSplit).filter(
-        models.ExpenseSplit.expense_id.in_(expense_ids)
-    ).all()
-
-    # Group splits by expense_id
-    splits_by_expense = {}
-    for split in all_splits:
-        if split.expense_id not in splits_by_expense:
-            splits_by_expense[split.expense_id] = []
-        splits_by_expense[split.expense_id].append(split)
-
     # Calculate raw net balances per participant
     if target_currency:
         # Single currency mode - convert everything to target currency
@@ -57,9 +40,6 @@ def calculate_net_balances(
                 if expense.exchange_rate:
                     try:
                         rate = float(expense.exchange_rate)
-                        # exchange_rate represents: how many USD you get for 1 unit of expense currency
-                        # (e.g., 1 EUR = 1.0945 USD, so rate = 1.0945)
-                        # So to convert from expense currency to USD: multiply by rate
                         amount_usd = split.amount_owed * rate
                     except ValueError:
                         amount_usd = convert_to_usd(split.amount_owed, expense.currency)
@@ -102,14 +82,8 @@ def calculate_net_balances(
                 net_balances[payer_key][expense.currency] += split.amount_owed
 
     # Aggregate managed guests with their managers
-    managed_guests = db.query(models.GuestMember).filter(
-        models.GuestMember.group_id == group_id,
-        models.GuestMember.managed_by_id != None
-    ).all()
-
     for guest in managed_guests:
         # Defensive check: claimed guests should not have managed_by set
-        # This would cause double-counting since the user inherits the management relationship
         if guest.claimed_by_id and guest.managed_by_id:
             import logging
             logging.warning(
@@ -145,11 +119,6 @@ def calculate_net_balances(
             del net_balances[guest_key]
 
     # Aggregate managed members with their managers
-    managed_members = db.query(models.GroupMember).filter(
-        models.GroupMember.group_id == group_id,
-        models.GroupMember.managed_by_id != None
-    ).all()
-
     for managed_member in managed_members:
         member_key = (managed_member.user_id, False)
         manager_is_guest = (managed_member.managed_by_type == 'guest')
@@ -171,3 +140,61 @@ def calculate_net_balances(
             del net_balances[member_key]
 
     return net_balances
+
+
+def calculate_net_balances(
+    db: Session,
+    group_id: int,
+    target_currency: str = None
+) -> Dict[Tuple[int, bool], float]:
+    """
+    Calculate net balances for all participants in a group, aggregating managed relationships.
+
+    Args:
+        db: Database session
+        group_id: ID of the group
+        target_currency: Optional currency to convert all balances to. If None, returns balances per currency.
+
+    Returns:
+        Dictionary mapping (user_id, is_guest) tuples to net balance amounts.
+        If target_currency is specified, all balances are converted to that currency.
+        If target_currency is None, returns dict mapping to dict of {currency: amount}.
+    """
+    # Get all expenses in group
+    expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
+
+    if not expenses:
+        return {}
+
+    # Optimization: Batch fetch all splits for these expenses to avoid N+1 queries
+    expense_ids = [e.id for e in expenses]
+    all_splits = db.query(models.ExpenseSplit).filter(
+        models.ExpenseSplit.expense_id.in_(expense_ids)
+    ).all()
+
+    # Group splits by expense_id
+    splits_by_expense = {}
+    for split in all_splits:
+        if split.expense_id not in splits_by_expense:
+            splits_by_expense[split.expense_id] = []
+        splits_by_expense[split.expense_id].append(split)
+
+    # Get managed guests
+    managed_guests = db.query(models.GuestMember).filter(
+        models.GuestMember.group_id == group_id,
+        models.GuestMember.managed_by_id != None
+    ).all()
+
+    # Get managed members
+    managed_members = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.managed_by_id != None
+    ).all()
+
+    return calculate_balances_from_data(
+        expenses,
+        splits_by_expense,
+        managed_guests,
+        managed_members,
+        target_currency
+    )
