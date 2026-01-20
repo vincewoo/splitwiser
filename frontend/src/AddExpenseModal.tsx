@@ -283,15 +283,6 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         };
 
         if (splitType === 'ITEMIZED') {
-            const allParticipants = getAllParticipants();
-            const participantsWithItems = new Set<string>();
-            itemizedExpense.itemizedItems.forEach(item => {
-                item.assignments.forEach(a => {
-                    const key = a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
-                    participantsWithItems.add(key);
-                });
-            });
-
             // Build items array with tax and tip
             const allItems = [...itemizedExpense.itemizedItems];
             const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
