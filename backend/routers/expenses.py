@@ -48,12 +48,7 @@ def create_expense(
         if not expense.items:
             raise HTTPException(status_code=400, detail="Items required for ITEMIZED split type")
 
-        # Validate all non-tax items have at least one assignment
-        for item in expense.items:
-            if not item.is_tax_tip and not item.assignments:
-                raise HTTPException(status_code=400, detail=f"Item '{item.description}' must have at least one assignee")
-
-        # Calculate splits from items
+        # Calculate splits from items (unassigned items will not be included in splits)
         expense.splits = calculate_itemized_splits(expense.items)
 
         # Recalculate total from items
@@ -61,10 +56,17 @@ def create_expense(
 
     # Validate total amount vs splits
     total_split = sum(split.amount_owed for split in expense.splits)
-    if total_split != expense.amount:
+    # For itemized expenses, allow splits to be less than total (unassigned items absorbed by payer)
+    if expense.split_type == "ITEMIZED":
+        if total_split > expense.amount:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Split amounts exceed total expense amount. Total: {expense.amount}, Sum: {total_split}"
+            )
+    else:
         if abs(total_split - expense.amount) > 1:  # Allow 1 cent diff
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Split amounts do not sum to total expense amount. Total: {expense.amount}, Sum: {total_split}"
             )
 
@@ -316,12 +318,7 @@ def update_expense(
         if not expense_update.items:
             raise HTTPException(status_code=400, detail="Items required for ITEMIZED split type")
 
-        # Validate all non-tax items have at least one assignment
-        for item in expense_update.items:
-            if not item.is_tax_tip and not item.assignments:
-                raise HTTPException(status_code=400, detail=f"Item '{item.description}' must have at least one assignee")
-
-        # Calculate splits from items
+        # Calculate splits from items (unassigned items will not be included in splits)
         expense_update.splits = calculate_itemized_splits(expense_update.items)
 
         # Recalculate total from items
@@ -329,11 +326,19 @@ def update_expense(
 
     # Validate total amount vs splits
     total_split = sum(split.amount_owed for split in expense_update.splits)
-    if abs(total_split - expense_update.amount) > 1:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Split amounts do not sum to total expense amount. Total: {expense_update.amount}, Sum: {total_split}"
-        )
+    # For itemized expenses, allow splits to be less than total (unassigned items absorbed by payer)
+    if expense_update.split_type == "ITEMIZED":
+        if total_split > expense_update.amount:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Split amounts exceed total expense amount. Total: {expense_update.amount}, Sum: {total_split}"
+            )
+    else:
+        if abs(total_split - expense_update.amount) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Split amounts do not sum to total expense amount. Total: {expense_update.amount}, Sum: {total_split}"
+            )
 
     # Validate all participants exist
     validate_expense_participants(

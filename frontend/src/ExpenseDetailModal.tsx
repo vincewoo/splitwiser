@@ -380,19 +380,6 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         };
 
         if (splitType === 'ITEMIZED') {
-            const unassigned = itemizedExpense.itemizedItems.filter(
-                item => !item.is_tax_tip && item.assignments.length === 0
-            );
-            if (unassigned.length > 0) {
-                setAlertDialog({
-                    isOpen: true,
-                    title: 'Unassigned Items',
-                    message: `Please assign all items. Unassigned: ${unassigned.map(i => i.description).join(', ')}`,
-                    type: 'error'
-                });
-                return;
-            }
-
             const allParticipants = getAllParticipants();
             const participantsWithItems = new Set<string>();
             itemizedExpense.itemizedItems.forEach(item => {
