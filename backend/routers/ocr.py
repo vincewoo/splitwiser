@@ -19,6 +19,7 @@ from dependencies import get_current_user
 from ocr.service import ocr_service
 from ocr.parser import parse_receipt_items
 from utils.rate_limiter import ocr_rate_limiter
+from utils.files import read_upload_file_securely
 
 
 # Receipt directory path
@@ -87,15 +88,9 @@ async def scan_receipt(
     """
     try:
         # Read image file for OCR and validation
-        image_content = await file.read()
-
-        # Validate file size (10MB max)
+        # Securely read file ensuring we don't load > 10MB into memory
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-        if len(image_content) > MAX_FILE_SIZE:
-             raise HTTPException(
-                status_code=413,
-                detail=f"File size exceeds maximum allowed size of 10MB. Uploaded file size: {len(image_content) / (1024 * 1024):.2f}MB"
-            )
+        image_content = await read_upload_file_securely(file, MAX_FILE_SIZE)
 
         # Validate image content using PIL
         try:
@@ -219,16 +214,11 @@ async def detect_regions(
 
     try:
         # Read image file for OCR
-        image_content = await file.read()
-        print(f"Starting region detection... Image size: {len(image_content)} bytes")
-
-        # Validate file size (10MB max)
+        # Securely read file ensuring we don't load > 10MB into memory
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
-        if len(image_content) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File size exceeds maximum allowed size of 10MB. Uploaded file size: {len(image_content) / (1024 * 1024):.2f}MB"
-            )
+        image_content = await read_upload_file_securely(file, MAX_FILE_SIZE)
+
+        print(f"Starting region detection... Image size: {len(image_content)} bytes")
 
         # OCR processing with DOCUMENT_TEXT_DETECTION
         print("Calling Vision API for document text detection...")
