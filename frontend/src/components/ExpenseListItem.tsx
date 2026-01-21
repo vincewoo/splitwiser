@@ -41,7 +41,7 @@ const ExpenseListItem: React.FC<ExpenseListItemProps> = memo(({ expense, payerNa
                         </span>
                         {expense.has_unknown_assignments && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-200 dark:bg-yellow-700 text-yellow-800 dark:text-yellow-100 flex-shrink-0">
-                                Unclaimed
+                                Incomplete
                             </span>
                         )}
                     </div>

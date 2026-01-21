@@ -110,7 +110,7 @@ class ExpenseWithSplits(Expense):
     splits: list[ExpenseSplitDetail]
     split_type: Optional[str] = None
     items: list[ExpenseItemDetail] = []  # Only populated for ITEMIZED type
-    has_unknown_assignments: bool = False  # True if expense has items assigned to Unknown guest
+    has_unknown_assignments: bool = False  # True if expense has items with no assignments (incomplete)
 
 class ExpenseUpdate(BaseModel):
     description: str = Field(..., max_length=200)

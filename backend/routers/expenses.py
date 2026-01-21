@@ -515,38 +515,36 @@ def get_group_expenses(
 
     expense_ids = [e.id for e in expenses]
 
-    # Check for Unknown guest in this group (for detecting incomplete expenses)
-    unknown_guest = db.query(models.GuestMember).filter(
-        models.GuestMember.group_id == group_id,
-        models.GuestMember.is_unknown_placeholder == True
-    ).first()
-    unknown_guest_id = unknown_guest.id if unknown_guest else None
-
-    # For ITEMIZED expenses, check which ones have Unknown assignments
+    # For ITEMIZED expenses, check which ones have items with no assignments (incomplete)
     itemized_expense_ids = [e.id for e in expenses if e.split_type == "ITEMIZED"]
-    expenses_with_unknown = set()
+    expenses_with_unassigned = set()
 
-    if itemized_expense_ids and unknown_guest_id:
-        # Get all items for itemized expenses
+    if itemized_expense_ids:
+        # Get all non-tax/tip items for itemized expenses
         items = db.query(models.ExpenseItem).filter(
-            models.ExpenseItem.expense_id.in_(itemized_expense_ids)
+            models.ExpenseItem.expense_id.in_(itemized_expense_ids),
+            models.ExpenseItem.is_tax_tip == False
         ).all()
-        item_ids = [i.id for i in items]
 
-        if item_ids:
-            # Check for assignments to Unknown guest
-            unknown_assignments = db.query(models.ExpenseItemAssignment).filter(
-                models.ExpenseItemAssignment.expense_item_id.in_(item_ids),
-                models.ExpenseItemAssignment.user_id == unknown_guest_id,
-                models.ExpenseItemAssignment.is_guest == True
+        if items:
+            item_ids = [i.id for i in items]
+
+            # Get all assignments for these items
+            all_assignments = db.query(models.ExpenseItemAssignment).filter(
+                models.ExpenseItemAssignment.expense_item_id.in_(item_ids)
             ).all()
 
-            # Map item_id to expense_id
-            item_to_expense = {i.id: i.expense_id for i in items}
-            for assignment in unknown_assignments:
-                expense_id = item_to_expense.get(assignment.expense_item_id)
-                if expense_id:
-                    expenses_with_unknown.add(expense_id)
+            # Group assignments by item_id
+            assignments_by_item = {}
+            for assignment in all_assignments:
+                if assignment.expense_item_id not in assignments_by_item:
+                    assignments_by_item[assignment.expense_item_id] = []
+                assignments_by_item[assignment.expense_item_id].append(assignment)
+
+            # Check which items have no assignments
+            for item in items:
+                if item.id not in assignments_by_item or len(assignments_by_item[item.id]) == 0:
+                    expenses_with_unassigned.add(item.expense_id)
 
     # 2. Fetch all splits for these expenses
     all_splits = db.query(models.ExpenseSplit).filter(
@@ -639,7 +637,7 @@ def get_group_expenses(
             "exchange_rate": expense.exchange_rate,
             "icon": expense.icon,
             "notes": expense.notes,
-            "has_unknown_assignments": expense.id in expenses_with_unknown
+            "has_unknown_assignments": expense.id in expenses_with_unassigned
         }
         result.append(expense_dict)
 
