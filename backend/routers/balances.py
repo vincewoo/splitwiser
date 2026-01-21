@@ -10,7 +10,7 @@ from database import get_db
 from dependencies import get_current_user
 from utils.validation import get_group_or_404, verify_group_membership
 from utils.display import get_guest_display_name
-from utils.balances import calculate_net_balances
+from utils.balances import calculate_net_balances, calculate_net_balances_batch
 from utils.currency import (
     format_currency,
     convert_to_usd,
@@ -332,17 +332,27 @@ def get_balances(
         amount_in_usd = amount / from_rate
         return amount_in_usd * to_rate
     
-    # For each group, calculate user's net balance using the same logic as Group page
+    # Prepare batch request for all groups
+    group_target_currencies = {}
     for group_id in user_group_ids:
         group = groups_map.get(group_id)
+        if group:
+            group_default_currency = group.default_currency or "USD"
+            group_target_currencies[group_id] = group_default_currency
+
+    # Batch calculate net balances to avoid N+1 queries
+    # This fetches all expenses, splits, and members for all groups in parallel (few queries)
+    # instead of doing it per group (N * queries)
+    batch_results = calculate_net_balances_batch(db, group_target_currencies)
+
+    # Process results for each group
+    for group_id, net_balances in batch_results.items():
+        group = groups_map.get(group_id)
+        # Should exist since we built group_target_currencies from it, but safety check
         if not group:
             continue
             
-        group_default_currency = group.default_currency or "USD"
-        
-        # Use calculate_net_balances - same function as Group page
-        # This handles managed members, historical exchange rates, etc.
-        net_balances = calculate_net_balances(db, group_id, target_currency=group_default_currency)
+        group_default_currency = group_target_currencies.get(group_id, "USD")
         
         # Find current user's balance in this group
         user_key = (current_user.id, False)  # (user_id, is_guest=False)

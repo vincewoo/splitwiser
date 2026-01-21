@@ -11,3 +11,7 @@
 ## 2024-05-24 - Public Balances N+1 Optimization
 **Learning:** Public endpoints that access shared resources (like group expenses) are just as susceptible to N+1 issues as authenticated ones, especially when traversing "virtual" relationships like expenses -> splits.
 **Action:** Always batch fetch `ExpenseSplit`s when retrieving multiple expenses, using `expense_id.in_(...)` and grouping in a dictionary.
+
+## 2025-05-27 - Batching Group Balances
+**Learning:** When calculating balances for a user across ALL their groups, iterating over groups and calculating balances individually triggers N+1 queries (Expenses, Splits, Guests, Members) for EACH group.
+**Action:** Implement "Batch Calculators" that take a list of IDs (e.g., `calculate_net_balances_batch(group_ids)`) to fetch all related data in constant O(1) queries (using `in_` clauses) before processing in memory.
