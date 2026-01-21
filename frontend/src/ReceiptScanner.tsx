@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getApiUrl } from './api';
 import AlertDialog from './components/AlertDialog';
 import { useSync } from './contexts/SyncContext';
@@ -6,7 +6,18 @@ import BoundingBoxEditor from './components/expense/BoundingBoxEditor';
 import type { BoundingBox as BoundingBoxEditorType } from './components/expense/BoundingBoxEditor';
 import ItemPreviewEditor from './components/expense/ItemPreviewEditor';
 import type { ItemWithRegion } from './components/expense/ItemPreviewEditor';
+import ImageEditToolbar from './components/expense/ImageEditToolbar';
+import ImageQualityIndicator from './components/expense/ImageQualityIndicator';
+import PerspectiveCorrectionModal from './components/expense/PerspectiveCorrectionModal';
 import { compressImage } from './utils/imageCompression';
+import {
+  rotateImage,
+  adjustBrightnessContrast,
+  sharpenImage,
+  convertToGrayscale,
+  autoEnhance,
+  analyzeImageQuality
+} from './utils/imagePreprocessing';
 
 interface ReceiptScannerProps {
     onItemsDetected: (items: { description: string, price: number }[], receiptPath?: string, validationWarning?: string | null) => void;
@@ -53,16 +64,191 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
     // Phase 2: Item extraction
     const [items, setItems] = useState<ItemWithRegion[]>([]);
 
+    // Image editing state
+    const [originalImage, setOriginalImage] = useState<File | null>(null);
+    const [originalImageUrl, setOriginalImageUrl] = useState<string>('');
+    const [isProcessingImage, setIsProcessingImage] = useState(false);
+    const [imageEdited, setImageEdited] = useState(false);
+
+    // Image quality analysis
+    const [qualityAnalysis, setQualityAnalysis] = useState<{
+        score: number;
+        issues: string[];
+        recommendations: string[];
+    } | null>(null);
+    const [isAnalyzingQuality, setIsAnalyzingQuality] = useState(false);
+
+    // Perspective correction modal
+    const [showPerspectiveModal, setShowPerspectiveModal] = useState(false);
+
+    // Analyze image quality when image changes
+    const runQualityAnalysis = useCallback(async (file: File) => {
+        setIsAnalyzingQuality(true);
+        try {
+            const analysis = await analyzeImageQuality(file);
+            setQualityAnalysis(analysis);
+        } catch (err) {
+            console.error('Quality analysis failed:', err);
+            setQualityAnalysis(null);
+        } finally {
+            setIsAnalyzingQuality(false);
+        }
+    }, []);
+
+    // Run quality analysis when image changes
+    useEffect(() => {
+        if (image && phase === 'upload') {
+            runQualityAnalysis(image);
+        }
+    }, [image, phase, runQualityAnalysis]);
+
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             setImage(file);
+            setOriginalImage(file);
             setError('');
+            setImageEdited(false);
+            setQualityAnalysis(null);
 
             // Create object URL for preview
             const url = URL.createObjectURL(file);
             setImageUrl(url);
+            setOriginalImageUrl(url);
         }
+    };
+
+    // Image editing handlers
+    const handleRotate = async (degrees: 90 | 180 | 270) => {
+        if (!image) return;
+        setIsProcessingImage(true);
+        try {
+            const result = await rotateImage(imageUrl, degrees);
+            setImage(result.file);
+            if (imageUrl && imageUrl !== originalImageUrl) {
+                URL.revokeObjectURL(imageUrl);
+            }
+            setImageUrl(result.dataUrl);
+            setImageEdited(true);
+            runQualityAnalysis(result.file);
+        } catch (err) {
+            console.error('Rotation failed:', err);
+            setError('Failed to rotate image');
+        } finally {
+            setIsProcessingImage(false);
+        }
+    };
+
+    const handleAutoEnhance = async () => {
+        if (!image) return;
+        setIsProcessingImage(true);
+        try {
+            const result = await autoEnhance(imageUrl, { aggressiveContrast: true });
+            setImage(result.file);
+            if (imageUrl && imageUrl !== originalImageUrl) {
+                URL.revokeObjectURL(imageUrl);
+            }
+            setImageUrl(result.dataUrl);
+            setImageEdited(true);
+            runQualityAnalysis(result.file);
+        } catch (err) {
+            console.error('Auto-enhance failed:', err);
+            setError('Failed to enhance image');
+        } finally {
+            setIsProcessingImage(false);
+        }
+    };
+
+    const handleAdjust = async (brightness: number, contrast: number) => {
+        if (!image) return;
+        setIsProcessingImage(true);
+        try {
+            const result = await adjustBrightnessContrast(imageUrl, brightness, contrast);
+            setImage(result.file);
+            if (imageUrl && imageUrl !== originalImageUrl) {
+                URL.revokeObjectURL(imageUrl);
+            }
+            setImageUrl(result.dataUrl);
+            setImageEdited(true);
+            runQualityAnalysis(result.file);
+        } catch (err) {
+            console.error('Adjustment failed:', err);
+            setError('Failed to adjust image');
+        } finally {
+            setIsProcessingImage(false);
+        }
+    };
+
+    const handleSharpen = async () => {
+        if (!image) return;
+        setIsProcessingImage(true);
+        try {
+            const result = await sharpenImage(imageUrl, 70);
+            setImage(result.file);
+            if (imageUrl && imageUrl !== originalImageUrl) {
+                URL.revokeObjectURL(imageUrl);
+            }
+            setImageUrl(result.dataUrl);
+            setImageEdited(true);
+            runQualityAnalysis(result.file);
+        } catch (err) {
+            console.error('Sharpen failed:', err);
+            setError('Failed to sharpen image');
+        } finally {
+            setIsProcessingImage(false);
+        }
+    };
+
+    const handleGrayscale = async () => {
+        if (!image) return;
+        setIsProcessingImage(true);
+        try {
+            const result = await convertToGrayscale(imageUrl);
+            setImage(result.file);
+            if (imageUrl && imageUrl !== originalImageUrl) {
+                URL.revokeObjectURL(imageUrl);
+            }
+            setImageUrl(result.dataUrl);
+            setImageEdited(true);
+            runQualityAnalysis(result.file);
+        } catch (err) {
+            console.error('Grayscale conversion failed:', err);
+            setError('Failed to convert to grayscale');
+        } finally {
+            setIsProcessingImage(false);
+        }
+    };
+
+    const handleResetImage = () => {
+        if (originalImage && originalImageUrl) {
+            // Revoke current URL if different from original
+            if (imageUrl && imageUrl !== originalImageUrl) {
+                URL.revokeObjectURL(imageUrl);
+            }
+            setImage(originalImage);
+            setImageUrl(originalImageUrl);
+            setImageEdited(false);
+            runQualityAnalysis(originalImage);
+        }
+    };
+
+    const handleOpenPerspective = () => {
+        setShowPerspectiveModal(true);
+    };
+
+    const handlePerspectiveApply = (correctedDataUrl: string, correctedFile: File) => {
+        if (imageUrl && imageUrl !== originalImageUrl) {
+            URL.revokeObjectURL(imageUrl);
+        }
+        setImage(correctedFile);
+        setImageUrl(correctedDataUrl);
+        setImageEdited(true);
+        setShowPerspectiveModal(false);
+        runQualityAnalysis(correctedFile);
+    };
+
+    const handlePerspectiveCancel = () => {
+        setShowPerspectiveModal(false);
     };
 
     const startRegionDetection = async () => {
@@ -349,9 +535,12 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
     };
 
     const handleCancel = () => {
-        // Clean up object URL
+        // Clean up object URLs
         if (imageUrl) {
             URL.revokeObjectURL(imageUrl);
+        }
+        if (originalImageUrl && originalImageUrl !== imageUrl) {
+            URL.revokeObjectURL(originalImageUrl);
         }
         onClose();
     };
@@ -406,6 +595,39 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
                 {/* Phase 1: Upload */}
                 {phase === 'upload' && (
                     <div>
+                        {/* Tips for better photos */}
+                        {!image && (
+                            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                                <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">Tips for best results:</h3>
+                                <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
+                                    <li className="flex items-start gap-2">
+                                        <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        <span>Lay receipt flat on a dark, contrasting surface</span>
+                                    </li>
+                                    <li className="flex items-start gap-2">
+                                        <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        <span>Ensure good, even lighting (avoid shadows and glare)</span>
+                                    </li>
+                                    <li className="flex items-start gap-2">
+                                        <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        <span>Hold camera directly above (not at an angle)</span>
+                                    </li>
+                                    <li className="flex items-start gap-2">
+                                        <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        <span>Make sure all text is readable and in focus</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        )}
+
                         <div className="mb-4">
                             <label className="block w-full">
                                 <span className="sr-only">Choose receipt</span>
@@ -424,15 +646,58 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
                                 />
                             </label>
                             {image && (
-                                <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                                    Selected: {image.name}
+                                <div className="mt-2 flex items-center justify-between">
+                                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                                        Selected: {image.name}
+                                    </span>
+                                    {imageEdited && (
+                                        <span className="text-xs text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/30 px-2 py-0.5 rounded">
+                                            Edited
+                                        </span>
+                                    )}
                                 </div>
                             )}
                         </div>
 
+                        {/* Image quality indicator */}
+                        {image && (qualityAnalysis || isAnalyzingQuality) && (
+                            <ImageQualityIndicator
+                                score={qualityAnalysis?.score || 0}
+                                issues={qualityAnalysis?.issues || []}
+                                recommendations={qualityAnalysis?.recommendations || []}
+                                isAnalyzing={isAnalyzingQuality}
+                            />
+                        )}
+
+                        {/* Image editing toolbar */}
+                        {image && (
+                            <ImageEditToolbar
+                                onRotate={handleRotate}
+                                onAutoEnhance={handleAutoEnhance}
+                                onAdjust={handleAdjust}
+                                onSharpen={handleSharpen}
+                                onGrayscale={handleGrayscale}
+                                onPerspective={handleOpenPerspective}
+                                onReset={handleResetImage}
+                                disabled={loading}
+                                isProcessing={isProcessingImage}
+                            />
+                        )}
+
                         {/* Image preview */}
                         {imageUrl && (
-                            <div className="mb-4">
+                            <div className="mb-4 relative">
+                                {isProcessingImage && (
+                                    <div className="absolute inset-0 bg-white/50 dark:bg-gray-900/50 flex items-center justify-center rounded z-10">
+                                        <div className="flex items-center gap-2 bg-white dark:bg-gray-800 px-4 py-2 rounded-lg shadow">
+                                            <svg className="animate-spin h-5 w-5 text-teal-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                            </svg>
+                                            <span className="text-sm text-gray-600 dark:text-gray-300">Processing...</span>
+                                        </div>
+                                    </div>
+                                )}
                                 <img
                                     src={imageUrl}
                                     alt="Receipt preview"
@@ -460,9 +725,9 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
                             </button>
                             <button
                                 onClick={startRegionDetection}
-                                disabled={!image || loading || !isOnline}
+                                disabled={!image || loading || !isOnline || isProcessingImage}
                                 aria-busy={loading}
-                                className={`px-4 py-2 text-white rounded flex items-center justify-center ${!image || loading || !isOnline ? 'bg-gray-300 dark:bg-gray-600 cursor-not-allowed' : 'bg-teal-500 hover:bg-teal-600'}`}
+                                className={`px-4 py-2 text-white rounded flex items-center justify-center ${!image || loading || !isOnline || isProcessingImage ? 'bg-gray-300 dark:bg-gray-600 cursor-not-allowed' : 'bg-teal-500 hover:bg-teal-600'}`}
                             >
                                 {loading ? (
                                     <>
@@ -571,6 +836,15 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
                 type={alertDialog.type}
                 onClose={() => setAlertDialog({ isOpen: false, title: '', message: '', type: 'alert' })}
             />
+
+            {/* Perspective Correction Modal */}
+            {showPerspectiveModal && imageUrl && (
+                <PerspectiveCorrectionModal
+                    imageUrl={imageUrl}
+                    onApply={handlePerspectiveApply}
+                    onCancel={handlePerspectiveCancel}
+                />
+            )}
         </div>
     );
 };

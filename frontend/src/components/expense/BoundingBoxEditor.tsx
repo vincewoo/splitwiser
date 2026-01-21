@@ -14,7 +14,9 @@ interface BoundingBoxEditorProps {
     onChange: (regions: BoundingBox[]) => void;
 }
 
-type DragMode = 'move' | 'resize-tl' | 'resize-tr' | 'resize-bl' | 'resize-br' | 'create' | 'none';
+type DragMode = 'move' | 'resize-tl' | 'resize-tr' | 'resize-bl' | 'resize-br' | 'create' | 'highlight' | 'none';
+
+type DrawingMode = 'box' | 'highlight';
 
 interface DragState {
     mode: DragMode;
@@ -86,6 +88,10 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
     const [showInstructions, setShowInstructions] = useState(true);
     const [longPressTimer, setLongPressTimer] = useState<number | null>(null);
     const [isLongPressing, setIsLongPressing] = useState(false);
+
+    // Highlighter mode state
+    const [drawingMode, setDrawingMode] = useState<DrawingMode>('box');
+    const [highlightPoints, setHighlightPoints] = useState<{ x: number; y: number }[]>([]);
 
     // Detect mobile device
     useEffect(() => {
@@ -214,8 +220,30 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
             }
         });
 
+        // Draw highlighter stroke if in highlighter mode and drawing
+        if (highlightPoints.length > 1) {
+            ctx.save();
+            ctx.translate(panState.offsetX, panState.offsetY);
+            ctx.scale(panState.scale, panState.scale);
+
+            ctx.strokeStyle = '#f59e0b'; // Amber/yellow highlighter color
+            ctx.lineWidth = 30; // Thick highlighter stroke
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.globalAlpha = 0.5;
+
+            ctx.beginPath();
+            ctx.moveTo(highlightPoints[0].x, highlightPoints[0].y);
+            for (let i = 1; i < highlightPoints.length; i++) {
+                ctx.lineTo(highlightPoints[i].x, highlightPoints[i].y);
+            }
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
         ctx.restore();
-    }, [regions, selectedIndex, imageLoaded, panState, isMobile, isLongPressing]);
+    }, [regions, selectedIndex, imageLoaded, panState, isMobile, isLongPressing, highlightPoints]);
 
     // Get raw canvas coordinates (accounting for CSS scaling but NOT pan/zoom)
     const getRawCanvasCoordinates = useCallback((clientX: number, clientY: number) => {
@@ -281,6 +309,36 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
         setIsLongPressing(false);
     }, [longPressTimer]);
 
+    // Convert highlighter points to a bounding box
+    const convertHighlightToBox = useCallback((points: { x: number; y: number }[]): BoundingBox | null => {
+        if (points.length < 2) return null;
+
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+
+        // Add vertical padding (15 pixels on each side for better capture)
+        const verticalPadding = 15;
+        const horizontalPadding = 5;
+
+        const box: BoundingBox = {
+            x: Math.max(0, minX - horizontalPadding),
+            y: Math.max(0, minY - verticalPadding),
+            width: (maxX - minX) + (horizontalPadding * 2),
+            height: (maxY - minY) + (verticalPadding * 2),
+            label: String(regions.length + 1)
+        };
+
+        // Only create box if it has reasonable dimensions
+        if (box.width < 20 || box.height < 10) return null;
+
+        return box;
+    }, [regions.length]);
+
     // Check if point is in box
     const findBoxAtPoint = useCallback((x: number, y: number): number => {
         // Check in reverse order so top boxes are selected first
@@ -298,7 +356,7 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
     const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
         const { x, y } = getCanvasCoordinates(e.clientX, e.clientY);
 
-        // Check if clicking on a box
+        // Check if clicking on a box (always allow deletion regardless of mode)
         const boxIndex = findBoxAtPoint(x, y);
 
         if (boxIndex !== -1) {
@@ -316,8 +374,18 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
             setRegions(newRegions);
             setSelectedIndex(null);
             onChange(newRegions);
+        } else if (drawingMode === 'highlight') {
+            // Start highlighter drawing
+            setHighlightPoints([{ x, y }]);
+            setDragState({
+                mode: 'highlight',
+                boxIndex: -1,
+                startX: x,
+                startY: y,
+                originalBox: { x: 0, y: 0, width: 0, height: 0 }
+            });
         } else {
-            // Clicking on empty space - start creating a new box
+            // Box mode - start creating a new box
             const newBox: BoundingBox = {
                 x: x,
                 y: y,
@@ -335,13 +403,19 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
                 isCreating: true
             });
         }
-    }, [regions, getCanvasCoordinates, findBoxAtPoint, onChange]);
+    }, [regions, getCanvasCoordinates, findBoxAtPoint, onChange, drawingMode]);
 
     // Handle mouse move
     const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
         if (!dragState) return;
 
         const { x, y } = getCanvasCoordinates(e.clientX, e.clientY);
+
+        if (dragState.mode === 'highlight') {
+            // Add point to highlighter stroke
+            setHighlightPoints(prev => [...prev, { x, y }]);
+            return;
+        }
 
         if (dragState.mode === 'create') {
             // Creating a new box
@@ -412,8 +486,18 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
 
     // Handle mouse up
     const handleMouseUp = useCallback(() => {
+        // If we were highlighting, convert to bounding box
+        if (dragState && dragState.mode === 'highlight' && highlightPoints.length > 1) {
+            const newBox = convertHighlightToBox(highlightPoints);
+            if (newBox) {
+                const newRegions = [...regions, newBox];
+                setRegions(newRegions);
+                onChange(newRegions);
+            }
+            setHighlightPoints([]);
+        }
         // If we were creating a box, remove it if it's too small
-        if (dragState && dragState.mode === 'create') {
+        else if (dragState && dragState.mode === 'create') {
             const lastBox = regions[regions.length - 1];
             if (lastBox && (lastBox.width < 10 || lastBox.height < 10)) {
                 // Remove the too-small box
@@ -423,7 +507,7 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
             }
         }
         setDragState(null);
-    }, [dragState, regions, onChange]);
+    }, [dragState, regions, onChange, highlightPoints, convertHighlightToBox]);
 
     // Disabled double-click since we now use drag to create
 
@@ -492,6 +576,25 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
                         startTime: Date.now()
                     });
                 }
+            } else if (drawingMode === 'highlight') {
+                // Touching on empty space in highlighter mode - start drawing
+                setSelectedIndex(null);
+                setHighlightPoints([{ x: touch.x, y: touch.y }]);
+                setDragState({
+                    mode: 'highlight',
+                    boxIndex: -1,
+                    startX: touch.x,
+                    startY: touch.y,
+                    originalBox: { x: 0, y: 0, width: 0, height: 0 }
+                });
+                setTouchState({
+                    type: 'single',
+                    boxIndex: null,
+                    startDistance: 0,
+                    startBox: null,
+                    touches,
+                    startTime: Date.now()
+                });
             } else {
                 // Touching on empty space - start creating a new box (same as mouse behavior)
                 setSelectedIndex(null);
@@ -570,7 +673,7 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
                 startPanOffset: { x: panState.offsetX, y: panState.offsetY }
             });
         }
-    }, [getCanvasCoordinates, findBoxAtPoint, getResizeHandle, regions, selectedIndex, getTouchDistance, clearLongPress, panState.scale, panState.offsetX, panState.offsetY, getRawCanvasCoordinates]);
+    }, [getCanvasCoordinates, findBoxAtPoint, getResizeHandle, regions, selectedIndex, getTouchDistance, clearLongPress, panState.scale, panState.offsetX, panState.offsetY, getRawCanvasCoordinates, drawingMode]);
 
     const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
         e.preventDefault();
@@ -591,7 +694,10 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
         }
 
         if (touchState.type === 'single' && dragState) {
-            if (dragState.mode === 'create') {
+            if (dragState.mode === 'highlight') {
+                // Add point to highlighter stroke
+                setHighlightPoints(prev => [...prev, { x: touches[0].x, y: touches[0].y }]);
+            } else if (dragState.mode === 'create') {
                 // Creating a new box via touch
                 const newBox: BoundingBox = {
                     x: Math.min(dragState.startX, touches[0].x),
@@ -722,8 +828,18 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
     const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
         e.preventDefault();
 
+        // If we were highlighting, convert to bounding box
+        if (dragState && dragState.mode === 'highlight' && highlightPoints.length > 1) {
+            const newBox = convertHighlightToBox(highlightPoints);
+            if (newBox) {
+                const newRegions = [...regions, newBox];
+                setRegions(newRegions);
+                onChange(newRegions);
+            }
+            setHighlightPoints([]);
+        }
         // If we were creating a box, remove it if it's too small
-        if (dragState && dragState.mode === 'create') {
+        else if (dragState && dragState.mode === 'create') {
             const lastBox = regions[regions.length - 1];
             if (lastBox && (lastBox.width < 10 || lastBox.height < 10)) {
                 const newRegions = regions.slice(0, -1);
@@ -763,10 +879,50 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
                 startTime: 0
             });
         }
-    }, [isLongPressing, selectedIndex, regions, onChange, clearLongPress]);
+    }, [isLongPressing, selectedIndex, regions, onChange, clearLongPress, dragState, highlightPoints, convertHighlightToBox]);
 
     return (
         <div ref={containerRef} className="relative w-full">
+            {/* Drawing mode toggle */}
+            <div className="mb-3 flex items-center gap-2">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Draw mode:</span>
+                <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+                    <button
+                        onClick={() => setDrawingMode('box')}
+                        className={`px-3 py-1.5 text-sm flex items-center gap-1.5 transition-colors ${
+                            drawingMode === 'box'
+                                ? 'bg-teal-500 text-white'
+                                : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                        }`}
+                        title="Draw rectangular boxes"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="2" />
+                        </svg>
+                        <span>Box</span>
+                    </button>
+                    <button
+                        onClick={() => setDrawingMode('highlight')}
+                        className={`px-3 py-1.5 text-sm flex items-center gap-1.5 transition-colors ${
+                            drawingMode === 'highlight'
+                                ? 'bg-amber-500 text-white'
+                                : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                        }`}
+                        title="Quick highlight - swipe across items to create boxes"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                        <span>Highlighter</span>
+                    </button>
+                </div>
+                {drawingMode === 'highlight' && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400 ml-2">
+                        Swipe across items to quickly add regions
+                    </span>
+                )}
+            </div>
+
             {!imageLoaded && (
                 <div className="flex items-center justify-center h-64 bg-gray-100 dark:bg-gray-700">
                     <p className="text-gray-500 dark:text-gray-400">Loading image...</p>

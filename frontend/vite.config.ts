@@ -3,7 +3,12 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(() => ({
+  server: {
+    // Allow all hosts in dev mode for network access (e.g., testing from other devices)
+    // This only affects the dev server, not production builds
+    allowedHosts: process.env.SPLITWISER_DEV === 'true' ? true as const : undefined,
+  },
   plugins: [
     react(),
     VitePWA({
@@ -91,4 +96,4 @@ export default defineConfig({
       }
     })
   ],
-})
+}))

@@ -63,17 +63,15 @@ async def add_security_headers(request: Request, call_next):
 
     return response
 
-# CORS middleware - restricted configuration
-# Get allowed origins from env or default to local development ports
+# CORS middleware configuration
+# In production: set BACKEND_CORS_ORIGINS to restrict allowed origins
+# In development (SPLITWISER_DEV=true): allows all origins for easier testing
 if os.getenv("BACKEND_CORS_ORIGINS"):
+    # Production: use explicit origins from environment
     origins = [origin.strip() for origin in os.getenv("BACKEND_CORS_ORIGINS").split(",")]
 else:
-    origins = [
-        "http://localhost:3000",  # React default
-        "http://localhost:5173",  # Vite default
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ]
+    # Development: allow all origins for network access testing
+    origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,

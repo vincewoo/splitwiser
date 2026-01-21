@@ -28,7 +28,7 @@ RECEIPT_DIR = os.path.join(DATA_DIR, "receipts")
 
 # In-memory cache for OCR responses with TTL
 class OCRCache:
-    def __init__(self, ttl_seconds: int = 300):  # 5 minutes default TTL
+    def __init__(self, ttl_seconds: int = 1800):  # 30 minutes default TTL (increased for complex receipts)
         self.cache = {}
         self.ttl_seconds = ttl_seconds
 
@@ -365,21 +365,27 @@ async def detect_regions(
                     continue
 
                 # Now check if this looks like an actual item line
-                # REQUIRE at least one of these strong signals:
+                # MORE PERMISSIVE: Accept lines with various price formats
                 has_price_with_dollar = bool(re.search(r'\$\s*\d+\.?\d*', line_text))
                 has_decimal_price = bool(re.search(r'\b\d+\.\d{2}\b', line_text))
+                # Also accept prices without decimal (e.g., "33.00" written as "33 00" or just numbers at end)
+                has_space_separated_price = bool(re.search(r'\b\d{1,3}\s+\d{2}\s*$', line_text))
+                # Accept any number at the end that could be a price (2+ digits)
+                has_trailing_number = bool(re.search(r'\b\d{2,}\s*$', line_text))
+
+                has_any_price = has_price_with_dollar or has_decimal_price or has_space_separated_price or has_trailing_number
 
                 # For lines with prices, verify they have a description part
-                if has_price_with_dollar or has_decimal_price:
-                    # Extract the part before the price
-                    price_match = re.search(r'(.*?)(\$\s*\d+\.?\d*|\b\d+\.\d{2}\b)', line_text)
+                if has_any_price:
+                    # Extract the part before the price (more permissive pattern)
+                    price_match = re.search(r'(.*?)(\$\s*\d+\.?\d*|\b\d+\.\d{2}|\b\d{1,3}\s+\d{2}\s*$|\b\d{2,}\s*$)', line_text)
                     if price_match:
                         desc_part = price_match.group(1).strip()
-                        # Must have at least 2 characters and at least one letter
-                        has_description = len(desc_part) >= 2 and any(c.isalpha() for c in desc_part)
+                        # Must have at least 1 character and at least one letter
+                        has_description = len(desc_part) >= 1 and any(c.isalpha() for c in desc_part)
 
                         # If the "description" looks like metadata, skip it
-                        metadata_in_desc = bool(re.search(r'^(Subtotal|Total|Tax|Tip|Gratuity|Service|Discount|Admin|Fee|Order|Food)', desc_part, re.I))
+                        metadata_in_desc = bool(re.search(r'^(Subtotal|Total|Tax|Tip|Gratuity|Service|Discount|Admin|Fee|Order\s+Total|Food\s+Total|Grand\s+Total|Amount\s+Due|Balance)', desc_part, re.I))
 
                         if has_description and not metadata_in_desc:
                             # This looks like a real item line

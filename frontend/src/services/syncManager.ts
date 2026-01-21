@@ -1,6 +1,5 @@
 import { db, type PendingOperation } from '../db';
-
-const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000';
+import { API_BASE_URL } from '../config';
 
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'conflict';
 
