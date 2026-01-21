@@ -49,7 +49,8 @@ interface PanState {
 
 // Increased handle size for mobile (44x44px minimum touch target)
 const HANDLE_SIZE = 20;
-const MOBILE_HANDLE_SIZE = 44;
+const MOBILE_HANDLE_SIZE = 32; // Visual size
+const MOBILE_HANDLE_HIT_SIZE = 80; // Touch target size (larger for easier grabbing)
 const BOX_COLOR = 'rgba(59, 130, 246, 0.3)'; // Blue with transparency
 const BOX_BORDER_COLOR = 'rgba(59, 130, 246, 0.8)';
 const SELECTED_BOX_COLOR = 'rgba(16, 185, 129, 0.3)'; // Teal with transparency
@@ -274,7 +275,8 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
 
     // Check if point is in resize handle
     const getResizeHandle = useCallback((x: number, y: number, box: BoundingBox): DragMode => {
-        const handleSize = isMobile ? MOBILE_HANDLE_SIZE : HANDLE_SIZE;
+        // Use larger hit size for mobile to make handles easier to grab
+        const hitSize = isMobile ? MOBILE_HANDLE_HIT_SIZE : HANDLE_SIZE;
         const handles = [
             { x: box.x, y: box.y, mode: 'resize-tl' as DragMode },
             { x: box.x + box.width, y: box.y, mode: 'resize-tr' as DragMode },
@@ -286,7 +288,7 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
             const distance = Math.sqrt(
                 Math.pow(x - handle.x, 2) + Math.pow(y - handle.y, 2)
             );
-            if (distance <= handleSize) {
+            if (distance <= hitSize) {
                 return handle.mode;
             }
         }
