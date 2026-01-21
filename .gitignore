@@ -19,3 +19,4 @@ secrets/
 .pytest_cache/
 .claude/
 data/
+credentials.json
