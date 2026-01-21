@@ -71,6 +71,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('USD');
     const [notes, setNotes] = useState('');
+    const [isSettlement, setIsSettlement] = useState(false);
     const [expenseDate, setExpenseDate] = useState('');
     const [payerId, setPayerId] = useState<number>(0);
     const [payerIsGuest, setPayerIsGuest] = useState(false);
@@ -140,6 +141,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         setSplitType(exp.split_type as SplitType || 'EQUAL');
         setSelectedIcon(exp.icon || null);
         setNotes(exp.notes || '');
+        setIsSettlement(exp.is_settlement || false);
 
         // Set selected participants from splits
         const keys = exp.splits.map(s => s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`);
@@ -376,7 +378,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             splits,
             split_type: splitType,
             icon: selectedIcon,
-            notes
+            notes,
+            is_settlement: isSettlement
         };
 
         if (splitType === 'ITEMIZED') {
@@ -435,7 +438,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                         items: allItems,
                         splits: [],
                         icon: selectedIcon,
-                        notes
+                        notes,
+                        is_settlement: isSettlement
                     };
 
                     const result = await offlineExpensesApi.update(expenseId!, itemizedPayload);
@@ -683,6 +687,18 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             value={notes}
                                             onChange={(e) => setNotes(e.target.value)}
                                         />
+                                    </div>
+
+                                    <div className="mb-4">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={isSettlement}
+                                                onChange={(e) => setIsSettlement(e.target.checked)}
+                                                className="w-4 h-4 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500 dark:bg-gray-700 dark:border-gray-600"
+                                            />
+                                            <span className="text-sm text-gray-700 dark:text-gray-300">This is a settlement (payment)</span>
+                                        </label>
                                     </div>
 
                                     <div className="mb-4">

@@ -9,6 +9,7 @@ interface ExpenseSummary {
     amount: number;
     currency: string;
     has_unknown_assignments?: boolean;
+    is_settlement?: boolean;
 }
 
 interface ExpenseListItemProps {

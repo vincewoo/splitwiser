@@ -72,6 +72,7 @@ class Expense(Base):
     receipt_image_path = Column(String, nullable=True) # Path to stored receipt image
     icon = Column(String, nullable=True) # Optional emoji icon for categorization
     notes = Column(String, nullable=True) # Freeform text notes
+    is_settlement = Column(Boolean, default=False) # True if this is a payment/settlement
 
 class ExpenseSplit(Base):
     __tablename__ = "expense_splits"

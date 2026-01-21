@@ -73,6 +73,7 @@ interface Expense {
     group_id: number | null;
     splits: ExpenseSplit[];
     icon?: string | null;
+    is_settlement?: boolean;
 }
 
 interface GroupBalance {
@@ -132,7 +133,7 @@ const GroupDetailPage: React.FC = () => {
     const [isSimplifyDebtsModalOpen, setIsSimplifyDebtsModalOpen] = useState(false);
     const [isBalancesExpanded, setIsBalancesExpanded] = useState(true);
     const [isExpensesExpanded, setIsExpensesExpanded] = useState(!!shareLinkId);
-    const [showOnlyMyExpenses, setShowOnlyMyExpenses] = useState(false);
+    const [expenseFilter, setExpenseFilter] = useState<'expenses' | 'settlements' | 'mine'>('expenses');
 
     // Friend request modal state
     const [isFriendRequestModalOpen, setIsFriendRequestModalOpen] = useState(false);
@@ -145,20 +146,29 @@ const GroupDetailPage: React.FC = () => {
 
     // Filtered expenses memoization - MUST be at top level
     const filteredExpenses = useMemo(() => {
-        if (!showOnlyMyExpenses || !user) return expenses;
+        let filtered = expenses;
 
-        return expenses.filter(expense => {
-            // Include if user is the payer
-            if (expense.payer_id === user.id && !expense.payer_is_guest) {
-                return true;
-            }
+        // First filter by type (expenses vs settlements)
+        if (expenseFilter === 'expenses') {
+            filtered = filtered.filter(expense => !expense.is_settlement);
+        } else if (expenseFilter === 'settlements') {
+            filtered = filtered.filter(expense => expense.is_settlement);
+        } else if (expenseFilter === 'mine' && user) {
+            // "Only Mine" filter - show all types but only user's expenses
+            filtered = filtered.filter(expense => {
+                // Include if user is the payer
+                if (expense.payer_id === user.id && !expense.payer_is_guest) {
+                    return true;
+                }
+                // Include if user is in the splits
+                return expense.splits?.some(split =>
+                    split.user_id === user.id && !split.is_guest
+                );
+            });
+        }
 
-            // Include if user is in the splits
-            return expense.splits?.some(split =>
-                split.user_id === user.id && !split.is_guest
-            );
-        });
-    }, [expenses, showOnlyMyExpenses, user]);
+        return filtered;
+    }, [expenses, expenseFilter, user]);
 
     // Balances content memoization - MUST be at top level
     const balancesContent = useMemo(() => {
@@ -766,18 +776,46 @@ const GroupDetailPage: React.FC = () => {
                             Recent Expenses
                         </h2>
                         {expenses.length > 0 && !isPublicView && (
-                            <button
-                                onClick={() => setShowOnlyMyExpenses(!showOnlyMyExpenses)}
-                                className="text-xs px-2 lg:px-3 py-1 bg-gray-100 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded border border-gray-300 dark:border-gray-600 whitespace-nowrap"
-                            >
-                                {showOnlyMyExpenses ? 'Show all' : 'Only mine'}
-                            </button>
+                            <div className="flex gap-1">
+                                <button
+                                    onClick={() => setExpenseFilter('expenses')}
+                                    className={`text-xs px-2 lg:px-3 py-1 rounded border whitespace-nowrap ${
+                                        expenseFilter === 'expenses'
+                                            ? 'bg-teal-600 text-white border-teal-600'
+                                            : 'bg-gray-100 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600'
+                                    }`}
+                                >
+                                    Expenses
+                                </button>
+                                <button
+                                    onClick={() => setExpenseFilter('settlements')}
+                                    className={`text-xs px-2 lg:px-3 py-1 rounded border whitespace-nowrap ${
+                                        expenseFilter === 'settlements'
+                                            ? 'bg-teal-600 text-white border-teal-600'
+                                            : 'bg-gray-100 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600'
+                                    }`}
+                                >
+                                    Settlements
+                                </button>
+                                <button
+                                    onClick={() => setExpenseFilter('mine')}
+                                    className={`text-xs px-2 lg:px-3 py-1 rounded border whitespace-nowrap ${
+                                        expenseFilter === 'mine'
+                                            ? 'bg-teal-600 text-white border-teal-600'
+                                            : 'bg-gray-100 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600'
+                                    }`}
+                                >
+                                    Only Mine
+                                </button>
+                            </div>
                         )}
                     </div>
 
                     {filteredExpenses.length === 0 ? (
                         <p className="text-gray-500 dark:text-gray-400 italic text-sm">
-                            {showOnlyMyExpenses ? 'No expenses where you participated' : 'No expenses yet'}
+                            {expenseFilter === 'expenses' ? 'No expenses yet' :
+                             expenseFilter === 'settlements' ? 'No settlements yet' :
+                             'No expenses where you participated'}
                         </p>
                     ) : (
                         <div className="divide-y">

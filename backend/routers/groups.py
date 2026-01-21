@@ -591,7 +591,8 @@ def get_public_group_expenses(
             "items": items_data,
             "icon": expense.icon,
             "receipt_image_path": expense.receipt_image_path,
-            "notes": expense.notes
+            "notes": expense.notes,
+            "is_settlement": expense.is_settlement
         }
         result.append(expense_dict)
 
@@ -1004,5 +1005,6 @@ def get_public_expense_detail(
         items=items_data,
         icon=expense.icon,
         receipt_image_path=expense.receipt_image_path,
-        notes=expense.notes
+        notes=expense.notes,
+        is_settlement=expense.is_settlement
     )

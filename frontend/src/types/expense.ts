@@ -61,6 +61,7 @@ export interface ExpenseWithSplits {
     notes?: string | null;
     exchange_rate?: string | null;
     has_unknown_assignments?: boolean;  // True if expense has items assigned to Unknown
+    is_settlement?: boolean;  // True if this is a payment/settlement
 }
 
 export type SplitType = 'EQUAL' | 'EXACT' | 'PERCENT' | 'SHARES' | 'ITEMIZED';

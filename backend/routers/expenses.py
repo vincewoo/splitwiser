@@ -99,7 +99,8 @@ def create_expense(
         split_type=expense.split_type or "EQUAL",
         icon=expense.icon,
         receipt_image_path=expense.receipt_image_path,
-        notes=expense.notes
+        notes=expense.notes,
+        is_settlement=expense.is_settlement
     )
     db.add(db_expense)
     db.commit()
@@ -290,7 +291,8 @@ def get_expense(
         exchange_rate=expense.exchange_rate,
         icon=expense.icon,
         receipt_image_path=expense.receipt_image_path,
-        notes=expense.notes
+        notes=expense.notes,
+        is_settlement=expense.is_settlement
     )
 
 
@@ -371,6 +373,7 @@ def update_expense(
     expense.split_type = expense_update.split_type or "EQUAL"
     expense.icon = expense_update.icon
     expense.notes = expense_update.notes
+    expense.is_settlement = expense_update.is_settlement
     if expense_update.receipt_image_path is not None:
         expense.receipt_image_path = expense_update.receipt_image_path
 
@@ -637,6 +640,7 @@ def get_group_expenses(
             "exchange_rate": expense.exchange_rate,
             "icon": expense.icon,
             "notes": expense.notes,
+            "is_settlement": expense.is_settlement,
             "has_unknown_assignments": expense.id in expenses_with_unassigned
         }
         result.append(expense_dict)

@@ -72,6 +72,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [payerIsGuest, setPayerIsGuest] = useState<boolean>(false);
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
     const [notes, setNotes] = useState('');
+    const [isSettlement, setIsSettlement] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [alertDialog, setAlertDialog] = useState<{
         isOpen: boolean;
@@ -120,6 +121,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setSelectedIcon(null);
         setReceiptImagePath(null);
         setNotes('');
+        setIsSettlement(false);
         itemizedExpense.setItemizedItems([]);
         itemizedExpense.setTaxAmount('');
         itemizedExpense.setTipAmount('');
@@ -253,7 +255,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             splits: splits,
             icon: selectedIcon,
             receipt_image_path: receiptImagePath,
-            notes: notes
+            notes: notes,
+            is_settlement: isSettlement
         };
 
         if (splitType === 'ITEMIZED') {
@@ -301,7 +304,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 splits: [],
                 icon: selectedIcon,
                 receipt_image_path: receiptImagePath,
-                notes: notes
+                notes: notes,
+                is_settlement: isSettlement
             };
 
             setIsSubmitting(true);
@@ -661,6 +665,18 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                         </div>
 
                         <div className="mb-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={isSettlement}
+                                    onChange={(e) => setIsSettlement(e.target.checked)}
+                                    className="w-4 h-4 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                                <span className="text-sm text-gray-700 dark:text-gray-300">This is a settlement (payment)</span>
+                            </label>
+                        </div>
+
+                        <div className="mb-4">
                             <label className="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">Participants:</label>
                             {getAvailableParticipants().length === 1 ? (
                                 <div className="text-sm text-gray-500 dark:text-gray-400 italic py-2">
@@ -805,6 +821,18 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                 value={notes}
                                 onChange={(e) => setNotes(e.target.value)}
                             />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={isSettlement}
+                                    onChange={(e) => setIsSettlement(e.target.checked)}
+                                    className="w-4 h-4 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                                <span className="text-sm text-gray-700 dark:text-gray-300">This is a settlement (payment)</span>
+                            </label>
                         </div>
 
                         <div className="mb-4">

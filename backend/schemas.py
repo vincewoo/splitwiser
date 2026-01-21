@@ -74,6 +74,7 @@ class ExpenseCreate(BaseModel):
     icon: Optional[str] = Field(None, max_length=10)  # Optional emoji icon
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)
+    is_settlement: bool = False  # True if this is a payment/settlement
 
 class Expense(BaseModel):
     id: int
@@ -89,6 +90,7 @@ class Expense(BaseModel):
     icon: Optional[str] = None
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = None
+    is_settlement: bool = False
 
     class Config:
         from_attributes = True
@@ -125,6 +127,7 @@ class ExpenseUpdate(BaseModel):
     icon: Optional[str] = Field(None, max_length=10)  # Optional emoji icon
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)
+    is_settlement: bool = False
 
 class Token(BaseModel):
     access_token: str
