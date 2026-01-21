@@ -20,9 +20,7 @@ interface ExpenseListItemProps {
 const ExpenseListItem: React.FC<ExpenseListItemProps> = memo(({ expense, payerName, onClick }) => {
     return (
         <button
-            className={`w-full text-left py-3 flex items-start lg:items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 -mx-2 px-2 rounded gap-2 focus:outline-none focus:ring-2 focus:ring-teal-500 ${
-                expense.has_unknown_assignments ? 'bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 dark:border-yellow-500' : ''
-            }`}
+            className="w-full text-left py-3 flex items-start lg:items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 -mx-2 px-2 rounded gap-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
             onClick={() => onClick(expense.id)}
         >
             <div className="flex items-start lg:items-center gap-2 lg:gap-4 min-w-0 flex-1">
