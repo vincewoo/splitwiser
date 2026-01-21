@@ -28,7 +28,7 @@ RECEIPT_DIR = os.path.join(DATA_DIR, "receipts")
 
 # In-memory cache for OCR responses with TTL
 class OCRCache:
-    def __init__(self, ttl_seconds: int = 300):  # 5 minutes default TTL
+    def __init__(self, ttl_seconds: int = 1800):  # 30 minutes default TTL (increased for complex receipts)
         self.cache = {}
         self.ttl_seconds = ttl_seconds
 
