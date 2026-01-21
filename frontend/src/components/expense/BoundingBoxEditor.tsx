@@ -276,7 +276,9 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
     // Check if point is in resize handle
     const getResizeHandle = useCallback((x: number, y: number, box: BoundingBox): DragMode => {
         // Use larger hit size for mobile to make handles easier to grab
-        const hitSize = isMobile ? MOBILE_HANDLE_HIT_SIZE : HANDLE_SIZE;
+        // Divide by scale to maintain consistent screen-space touch target regardless of zoom
+        const baseHitSize = isMobile ? MOBILE_HANDLE_HIT_SIZE : HANDLE_SIZE;
+        const hitSize = baseHitSize / panState.scale;
         const handles = [
             { x: box.x, y: box.y, mode: 'resize-tl' as DragMode },
             { x: box.x + box.width, y: box.y, mode: 'resize-tr' as DragMode },
@@ -293,7 +295,7 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
             }
         }
         return 'none';
-    }, [isMobile]);
+    }, [isMobile, panState.scale]);
 
     // Calculate distance between two touch points
     const getTouchDistance = useCallback((touch1: { x: number; y: number }, touch2: { x: number; y: number }) => {
@@ -982,7 +984,7 @@ const BoundingBoxEditor: React.FC<BoundingBoxEditorProps> = ({
                                 setSelectedIndex(null);
                                 onChange(newRegions);
                             }}
-                            className="absolute bottom-4 right-4 bg-red-500 hover:bg-red-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-2xl font-bold"
+                            className="absolute bottom-4 left-4 bg-red-500 hover:bg-red-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-2xl font-bold"
                         >
                             🗑
                         </button>
