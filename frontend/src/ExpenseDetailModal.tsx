@@ -16,8 +16,7 @@ import type {
     SplitType
 } from './types/expense';
 import {
-    getParticipantName as getParticipantNameUtil,
-    getParticipantKey
+    getParticipantName as getParticipantNameUtil
 } from './utils/participantHelpers';
 import {
     calculateEqualSplit,
@@ -383,101 +382,76 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         };
 
         if (splitType === 'ITEMIZED') {
-            const allParticipants = getAllParticipants();
-            const participantsWithItems = new Set<string>();
-            itemizedExpense.itemizedItems.forEach(item => {
-                item.assignments.forEach(a => {
-                    const key = a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
-                    participantsWithItems.add(key);
-                });
-            });
+            setIsSubmitting(true);
+            try {
+                const allItems = [...itemizedExpense.itemizedItems];
+                const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
+                const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
 
-            const participantsWithoutItems = allParticipants.filter(p => {
-                const key = getParticipantKey(p);
-                return !participantsWithItems.has(key);
-            });
-
-            // Helper function to finalize itemized expense
-            const finalizeItemizedUpdate = async () => {
-                setIsSubmitting(true);
-                try {
-                    const allItems = [...itemizedExpense.itemizedItems];
-                    const tax = Math.round(parseFloat(itemizedExpense.taxAmount || '0') * 100);
-                    const tip = Math.round(parseFloat(itemizedExpense.tipAmount || '0') * 100);
-
-                    // Add Tax as a separate item if present
-                    if (tax > 0) {
-                        allItems.push({
-                            description: 'Tax',
-                            price: tax,
-                            is_tax_tip: true,
-                            assignments: []
-                        });
-                    }
-
-                    // Add Tip as a separate item if present
-                    if (tip > 0) {
-                        allItems.push({
-                            description: 'Tip',
-                            price: tip,
-                            is_tax_tip: true,
-                            assignments: []
-                        });
-                    }
-
-                    const itemsTotal = allItems.reduce((sum, item) => sum + item.price, 0);
-
-                    const itemizedPayload = {
-                        description,
-                        amount: itemsTotal,
-                        currency,
-                        date: expenseDate,
-                        payer_id: payerId,
-                        payer_is_guest: payerIsGuest,
-                        split_type: 'ITEMIZED',
-                        items: allItems,
-                        splits: [],
-                        icon: selectedIcon,
-                        notes,
-                        is_settlement: isSettlement
-                    };
-
-                    const result = await offlineExpensesApi.update(expenseId!, itemizedPayload);
-
-                    if (result.success) {
-                        if (result.offline) {
-                            console.log('Expense updated offline and queued for sync');
-                        }
-                        setIsEditing(false);
-                        onExpenseUpdated();
-                        onClose();
-                    } else {
-                        setAlertDialog({
-                            isOpen: true,
-                            title: 'Error',
-                            message: 'Failed to update expense',
-                            type: 'error'
-                        });
-                    }
-                } finally {
-                    setIsSubmitting(false);
+                // Add Tax as a separate item if present
+                if (tax > 0) {
+                    allItems.push({
+                        description: 'Tax',
+                        price: tax,
+                        is_tax_tip: true,
+                        assignments: []
+                    });
                 }
-            };
 
-            // Check for participants without items
-            if (participantsWithoutItems.length > 0) {
-                const names = participantsWithoutItems.map(p => p.name).join(', ');
-                setAlertDialog({
-                    isOpen: true,
-                    title: 'Warning',
-                    message: `The following participant(s) have no items assigned and will not be included in this expense:\n\n${names}\n\nDo you want to continue?`,
-                    type: 'confirm',
-                    onConfirm: finalizeItemizedUpdate
-                });
-                return;
+                // Add Tip as a separate item if present
+                if (tip > 0) {
+                    allItems.push({
+                        description: 'Tip',
+                        price: tip,
+                        is_tax_tip: true,
+                        assignments: []
+                    });
+                }
+
+                const itemsTotal = allItems.reduce((sum, item) => sum + item.price, 0);
+
+                // Include all selected participants as splits (backend will merge with calculated amounts)
+                const participantSplits = getAllParticipants().map(p => ({
+                    user_id: p.id,
+                    is_guest: p.isGuest,
+                    amount_owed: 0
+                }));
+
+                const itemizedPayload = {
+                    description,
+                    amount: itemsTotal,
+                    currency,
+                    date: expenseDate,
+                    payer_id: payerId,
+                    payer_is_guest: payerIsGuest,
+                    split_type: 'ITEMIZED',
+                    items: allItems,
+                    splits: participantSplits,
+                    icon: selectedIcon,
+                    notes,
+                    is_settlement: isSettlement
+                };
+
+                const result = await offlineExpensesApi.update(expenseId!, itemizedPayload);
+
+                if (result.success) {
+                    if (result.offline) {
+                        console.log('Expense updated offline and queued for sync');
+                    }
+                    setIsEditing(false);
+                    onExpenseUpdated();
+                    onClose();
+                } else {
+                    setAlertDialog({
+                        isOpen: true,
+                        title: 'Error',
+                        message: 'Failed to update expense',
+                        type: 'error'
+                    });
+                }
+            } finally {
+                setIsSubmitting(false);
             }
-
-            await finalizeItemizedUpdate();
             return;
         }
 

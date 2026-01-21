@@ -48,8 +48,29 @@ def create_expense(
         if not expense.items:
             raise HTTPException(status_code=400, detail="Items required for ITEMIZED split type")
 
+        # Save provided participants before calculating (to preserve participants without items)
+        provided_participants = {
+            f"{'guest' if s.is_guest else 'user'}_{s.user_id}": s
+            for s in (expense.splits or [])
+        }
+
         # Calculate splits from items (unassigned items will not be included in splits)
-        expense.splits = calculate_itemized_splits(expense.items)
+        calculated_splits = calculate_itemized_splits(expense.items)
+        calculated_keys = {
+            f"{'guest' if s.is_guest else 'user'}_{s.user_id}"
+            for s in calculated_splits
+        }
+
+        # Merge: calculated splits + provided participants without items (with 0 amount)
+        for key, split in provided_participants.items():
+            if key not in calculated_keys:
+                calculated_splits.append(schemas.ExpenseSplitBase(
+                    user_id=split.user_id,
+                    is_guest=split.is_guest,
+                    amount_owed=0
+                ))
+
+        expense.splits = calculated_splits
 
         # Recalculate total from items
         expense.amount = sum(item.price for item in expense.items)
@@ -320,8 +341,29 @@ def update_expense(
         if not expense_update.items:
             raise HTTPException(status_code=400, detail="Items required for ITEMIZED split type")
 
+        # Save provided participants before calculating (to preserve participants without items)
+        provided_participants = {
+            f"{'guest' if s.is_guest else 'user'}_{s.user_id}": s
+            for s in (expense_update.splits or [])
+        }
+
         # Calculate splits from items (unassigned items will not be included in splits)
-        expense_update.splits = calculate_itemized_splits(expense_update.items)
+        calculated_splits = calculate_itemized_splits(expense_update.items)
+        calculated_keys = {
+            f"{'guest' if s.is_guest else 'user'}_{s.user_id}"
+            for s in calculated_splits
+        }
+
+        # Merge: calculated splits + provided participants without items (with 0 amount)
+        for key, split in provided_participants.items():
+            if key not in calculated_keys:
+                calculated_splits.append(schemas.ExpenseSplitBase(
+                    user_id=split.user_id,
+                    is_guest=split.is_guest,
+                    amount_owed=0
+                ))
+
+        expense_update.splits = calculated_splits
 
         # Recalculate total from items
         expense_update.amount = sum(item.price for item in expense_update.items)

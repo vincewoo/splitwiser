@@ -291,6 +291,13 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
             const itemsTotal = allItems.reduce((sum, item) => sum + item.price, 0);
 
+            // Include all selected participants as splits (backend will merge with calculated amounts)
+            const participantSplits = getAllParticipants().map(p => ({
+                user_id: p.id,
+                is_guest: p.isGuest,
+                amount_owed: 0
+            }));
+
             const itemizedPayload = {
                 description,
                 amount: itemsTotal,
@@ -301,7 +308,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 group_id: selectedGroupId,
                 split_type: 'ITEMIZED',
                 items: allItems,
-                splits: [],
+                splits: participantSplits,
                 icon: selectedIcon,
                 receipt_image_path: receiptImagePath,
                 notes: notes,
