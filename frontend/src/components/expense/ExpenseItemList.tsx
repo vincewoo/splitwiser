@@ -42,7 +42,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                 <div
                     key={idx}
                     className={`bg-white dark:bg-gray-800 p-3 rounded border ${item.assignments.length === 0
-                        ? 'border-red-300 dark:border-red-900'
+                        ? 'border-gray-300 dark:border-gray-500 border-dashed'
                         : 'border-gray-200 dark:border-gray-600'
                         }`}
                 >
@@ -73,7 +73,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                 type="button"
                                 onClick={() => onOpenSelector(idx)}
                                 className={`w-full px-4 py-3 rounded-lg border text-left flex items-center justify-between min-h-[44px] ${item.assignments.length === 0
-                                    ? 'border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+                                    ? 'border-gray-300 dark:border-gray-500 border-dashed bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                                     : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600'
                                     }`}
                             >
@@ -92,7 +92,6 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                 const isAssigned = item.assignments.some(
                                     a => a.user_id === p.id && a.is_guest === p.isGuest
                                 );
-                                const isUnassigned = p.name === 'Unassigned' && p.isGuest;
 
                                 return (
                                     <button
@@ -100,13 +99,11 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                         type="button"
                                         onClick={() => onToggleAssignment(idx, p)}
                                         className={`px-3 py-2 text-sm rounded-full border min-h-[44px] ${isAssigned
-                                            ? isUnassigned
-                                                ? 'bg-yellow-200 dark:bg-yellow-700/50 border-yellow-500 dark:border-yellow-500 text-yellow-900 dark:text-yellow-100 font-medium'
-                                                : 'bg-teal-100 dark:bg-teal-900/30 border-teal-500 dark:border-teal-600 text-teal-700 dark:text-teal-300'
+                                            ? 'bg-teal-100 dark:bg-teal-900/30 border-teal-500 dark:border-teal-600 text-teal-700 dark:text-teal-300'
                                             : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
                                             }`}
                                     >
-                                        {isUnassigned ? '? Unassigned' : getParticipantName(p)}
+                                        {getParticipantName(p)}
                                     </button>
                                 );
                             })}

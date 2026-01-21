@@ -33,7 +33,7 @@ export const getAssignmentDisplayText = (
     currentUserId?: number
 ): string => {
     if (assignments.length === 0) {
-        return 'No one selected';
+        return 'Unassigned';
     }
 
     if (assignments.length === allParticipants.length) {
