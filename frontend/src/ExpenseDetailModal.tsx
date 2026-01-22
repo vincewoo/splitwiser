@@ -895,7 +895,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             <span className="text-gray-500 dark:text-gray-400">Split type</span>
                                             <span className="text-gray-900 dark:text-gray-100">{expense.split_type}</span>
                                         </div>
-                                        {groupDefaultCurrency && expense.currency !== groupDefaultCurrency && expense.exchange_rate && groupDefaultCurrency === 'USD' && (
+                                        {groupDefaultCurrency && expense.currency !== groupDefaultCurrency && expense.exchange_rate && (
                                             <div className="flex justify-between text-sm">
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-gray-500 dark:text-gray-400">Exchange Rate</span>
@@ -933,7 +933,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                         </div>
                                                     )}
                                                 </div>
-                                                <span className="text-gray-900 dark:text-gray-100">1 {expense.currency} = {expense.exchange_rate} USD</span>
+                                                <span className="text-gray-900 dark:text-gray-100">1 {expense.currency} = {expense.exchange_rate} {expense.exchange_rate_target_currency || 'USD'}</span>
                                             </div>
                                         )}
                                     </div>

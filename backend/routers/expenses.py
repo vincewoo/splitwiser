@@ -12,7 +12,7 @@ from database import get_db
 from dependencies import get_current_user
 from utils.validation import get_group_or_404, verify_group_membership, validate_expense_participants, validate_item_split_details
 from utils.splits import calculate_itemized_splits
-from utils.currency import get_exchange_rate_for_expense
+from utils.currency import get_exchange_rate_for_expense, fetch_historical_exchange_rate
 from utils.display import get_guest_display_name
 
 
@@ -296,6 +296,35 @@ def get_expense(
                 split_details=split_details
             ))
 
+    # Calculate display exchange rate relative to group's default currency
+    display_exchange_rate = expense.exchange_rate
+    exchange_rate_target_currency = "USD"  # Default to USD
+
+    if expense.group_id and expense.exchange_rate:
+        group = db.query(models.Group).filter(models.Group.id == expense.group_id).first()
+        if group and group.default_currency != "USD":
+            # Calculate exchange rate from expense.currency to group.default_currency
+            # expense.exchange_rate is expense.currency to USD
+            # We need expense.currency to group.default_currency
+            try:
+                expense_to_usd = float(expense.exchange_rate)
+
+                # Fetch historical USD to group.default_currency rate
+                usd_to_group_currency = fetch_historical_exchange_rate(
+                    expense.date.split('T')[0],  # Use date portion only
+                    "USD",
+                    group.default_currency
+                )
+
+                if usd_to_group_currency is not None:
+                    # Calculate: expense.currency to group.default_currency
+                    display_rate = expense_to_usd * usd_to_group_currency
+                    display_exchange_rate = f"{display_rate:.6f}".rstrip('0').rstrip('.')
+                    exchange_rate_target_currency = group.default_currency
+            except (ValueError, TypeError):
+                # If calculation fails, keep the original USD rate
+                pass
+
     return schemas.ExpenseWithSplits(
         id=expense.id,
         description=expense.description,
@@ -309,7 +338,8 @@ def get_expense(
         splits=splits_with_names,
         split_type=split_type,
         items=items_data,
-        exchange_rate=expense.exchange_rate,
+        exchange_rate=display_exchange_rate,
+        exchange_rate_target_currency=exchange_rate_target_currency,
         icon=expense.icon,
         receipt_image_path=expense.receipt_image_path,
         notes=expense.notes,
@@ -547,7 +577,7 @@ def get_group_expenses(
     current_user: Annotated[models.User, Depends(get_current_user)],
     db: Session = Depends(get_db)
 ):
-    get_group_or_404(db, group_id)
+    group = get_group_or_404(db, group_id)
     verify_group_membership(db, group_id, current_user.id)
 
     # 1. Fetch all expenses
@@ -666,6 +696,26 @@ def get_group_expenses(
                 user_name=user_name
             ))
 
+        # Calculate display exchange rate relative to group's default currency
+        display_exchange_rate = expense.exchange_rate
+        exchange_rate_target_currency = "USD"  # Default to USD
+
+        if expense.exchange_rate and group.default_currency != "USD":
+            try:
+                expense_to_usd = float(expense.exchange_rate)
+                # Fetch historical USD to group.default_currency rate
+                usd_to_group_currency = fetch_historical_exchange_rate(
+                    expense.date.split('T')[0],
+                    "USD",
+                    group.default_currency
+                )
+                if usd_to_group_currency is not None:
+                    display_rate = expense_to_usd * usd_to_group_currency
+                    display_exchange_rate = f"{display_rate:.6f}".rstrip('0').rstrip('.')
+                    exchange_rate_target_currency = group.default_currency
+            except (ValueError, TypeError):
+                pass
+
         expense_dict = {
             "id": expense.id,
             "description": expense.description,
@@ -679,7 +729,8 @@ def get_group_expenses(
             "split_type": expense.split_type,
             "splits": splits_with_names,
             "items": [],
-            "exchange_rate": expense.exchange_rate,
+            "exchange_rate": display_exchange_rate,
+            "exchange_rate_target_currency": exchange_rate_target_currency,
             "icon": expense.icon,
             "notes": expense.notes,
             "is_settlement": expense.is_settlement,

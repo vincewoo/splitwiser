@@ -113,6 +113,7 @@ class ExpenseWithSplits(Expense):
     split_type: Optional[str] = None
     items: list[ExpenseItemDetail] = []  # Only populated for ITEMIZED type
     has_unknown_assignments: bool = False  # True if expense has items with no assignments (incomplete)
+    exchange_rate_target_currency: Optional[str] = None  # Currency that exchange_rate is relative to (e.g., "USD" or group default)
 
 class ExpenseUpdate(BaseModel):
     description: str = Field(..., max_length=200)
