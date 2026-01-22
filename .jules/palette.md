@@ -1,3 +1,3 @@
-## 2026-01-09 - Accessibility in Complex Collapsible Headers
-**Learning:** Collapsible headers that contain other interactive elements (like a currency toggle inside a header row) present a semantic challenge. Nesting buttons is invalid HTML.
-**Action:** The solution is to split the visual row into a main `<button>` for the toggle action (occupying the majority of the space) and a separate container for the other interactive elements. Use `pointer-events-none` on the secondary container to prevent it from blocking the main button's click area, while re-enabling `pointer-events-auto` on the specific interactive children.
+## 2024-05-23 - Loading States in Financial Transactions
+**Learning:** Users need explicit feedback during financial actions (like settling up) to prevent anxiety about double-payment or failed transactions. A simple "Saving..." state with a disabled button prevents multiple submissions and provides reassurance.
+**Action:** Always wrap async financial operations in a try/finally block that manages an `isSubmitting` state, and reflect this in the UI with a spinner and disabled inputs.
