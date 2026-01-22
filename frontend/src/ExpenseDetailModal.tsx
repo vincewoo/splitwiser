@@ -954,8 +954,11 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                     <div key={item.id} className="flex justify-between items-start text-sm">
                                                         <div>
                                                             <span className="text-gray-700 dark:text-gray-300">{item.description}</span>
-                                                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                                                                {item.assignments.map(a => a.user_name).join(', ')}
+                                                            <div className={`text-xs ${item.assignments.length === 0 ? 'text-orange-600 dark:text-orange-400 font-medium' : 'text-gray-500 dark:text-gray-400'}`}>
+                                                                {item.assignments.length === 0
+                                                                    ? '⚠️ Unclaimed'
+                                                                    : item.assignments.map(a => a.user_name).join(', ')
+                                                                }
                                                             </div>
                                                         </div>
                                                         <span className="text-gray-600 dark:text-gray-400">

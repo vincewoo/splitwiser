@@ -33,7 +33,7 @@ export const getAssignmentDisplayText = (
     currentUserId?: number
 ): string => {
     if (assignments.length === 0) {
-        return 'Unassigned';
+        return '⚠️ Unclaimed';
     }
 
     if (assignments.length === allParticipants.length) {
