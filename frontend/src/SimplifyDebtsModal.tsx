@@ -83,6 +83,7 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
         split_type: 'EQUAL',
         icon: '🏦',
         notes: 'Created by Simplify Debts',
+        is_settlement: true,
         splits: [
           {
             user_id: transaction.to_id,
