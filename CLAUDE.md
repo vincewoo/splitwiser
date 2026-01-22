@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Splitwiser is a Splitwise clone for expense splitting among friends and groups. Key features: multi-currency support (USD, EUR, GBP, JPY, CAD, CNY, HKD), various split types (equal, exact, percentage, shares, itemized), two-phase OCR receipt scanning, debt simplification, guest/member management, dark mode, refresh token auth, email notifications via Brevo, PWA with offline support, and mobile-optimized UI.
+Splitwiser is a Splitwise clone for expense splitting among friends and groups. Key features: multi-currency support (USD, EUR, GBP, JPY, CAD, CNY, HKD, CHF), various split types (equal, exact, percentage, shares, itemized), two-phase OCR receipt scanning, debt simplification, guest/member management, dark mode, refresh token auth, email notifications via Brevo, PWA with offline support, and mobile-optimized UI.
 
 ## Architecture
 
