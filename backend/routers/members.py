@@ -118,42 +118,6 @@ def add_guest(
     return db_guest
 
 
-@router.get("/unknown-guest", response_model=schemas.GuestMember)
-def get_or_create_unknown_guest(
-    group_id: int,
-    current_user: Annotated[models.User, Depends(get_current_user)],
-    db: Session = Depends(get_db)
-):
-    """Get or create the special 'Unknown' placeholder guest for a group.
-
-    This allows items to be assigned to an 'Unknown' participant that can
-    be claimed later by any group member.
-    """
-    get_group_or_404(db, group_id)
-    verify_group_membership(db, group_id, current_user.id)
-
-    # Check if unknown guest already exists for this group
-    unknown_guest = db.query(models.GuestMember).filter(
-        models.GuestMember.group_id == group_id,
-        models.GuestMember.is_unknown_placeholder == True
-    ).first()
-
-    if unknown_guest:
-        return unknown_guest
-
-    # Create new unknown guest
-    unknown_guest = models.GuestMember(
-        group_id=group_id,
-        name="Unassigned",
-        created_by_id=current_user.id,
-        is_unknown_placeholder=True
-    )
-    db.add(unknown_guest)
-    db.commit()
-    db.refresh(unknown_guest)
-    return unknown_guest
-
-
 @router.delete("/guests/{guest_id}")
 def remove_guest(
     group_id: int, 
@@ -207,9 +171,6 @@ def claim_guest(
 
     if not guest:
         raise HTTPException(status_code=404, detail="Guest not found")
-
-    if guest.is_unknown_placeholder:
-        raise HTTPException(status_code=400, detail="Cannot claim the Unknown placeholder. Use claim-unknown-items to claim specific items.")
 
     if guest.claimed_by_id:
         raise HTTPException(status_code=400, detail="Guest already claimed")
@@ -502,114 +463,3 @@ def unmanage_member(
     db.commit()
 
     return {"message": "Member manager removed successfully"}
-
-
-@router.post("/claim-unknown-items")
-def claim_unknown_items(
-    group_id: int,
-    request: schemas.ClaimUnknownItemsRequest,
-    current_user: Annotated[models.User, Depends(get_current_user)],
-    db: Session = Depends(get_db)
-):
-    """Claim specific item assignments from the Unknown guest.
-
-    Allows users to claim items that were assigned to 'Unknown' when the expense
-    was created. The assignments are transferred to the claiming user.
-    """
-    get_group_or_404(db, group_id)
-    verify_group_membership(db, group_id, current_user.id)
-
-    # Get the unknown guest for this group
-    unknown_guest = db.query(models.GuestMember).filter(
-        models.GuestMember.group_id == group_id,
-        models.GuestMember.is_unknown_placeholder == True
-    ).first()
-
-    if not unknown_guest:
-        raise HTTPException(status_code=404, detail="No Unknown guest found for this group")
-
-    item_assignment_ids = request.item_assignment_ids
-
-    # Get all the item assignments that belong to the Unknown guest
-    assignments = db.query(models.ExpenseItemAssignment).filter(
-        models.ExpenseItemAssignment.id.in_(item_assignment_ids),
-        models.ExpenseItemAssignment.user_id == unknown_guest.id,
-        models.ExpenseItemAssignment.is_guest == True
-    ).all()
-
-    if len(assignments) != len(item_assignment_ids):
-        raise HTTPException(
-            status_code=400,
-            detail="Some item assignments are not from the Unknown guest or do not exist"
-        )
-
-    # Transfer the assignments to the current user
-    transferred_count = db.query(models.ExpenseItemAssignment).filter(
-        models.ExpenseItemAssignment.id.in_(item_assignment_ids)
-    ).update({
-        "user_id": current_user.id,
-        "is_guest": False
-    }, synchronize_session=False)
-
-    # Recalculate splits for the affected expenses
-    # Get unique expense IDs from the items
-    item_ids = [a.expense_item_id for a in assignments]
-    items = db.query(models.ExpenseItem).filter(
-        models.ExpenseItem.id.in_(item_ids)
-    ).all()
-    expense_ids = list(set(item.expense_id for item in items))
-
-    # Recalculate splits for each affected expense
-    from utils.splits import calculate_itemized_splits
-    for expense_id in expense_ids:
-        expense = db.query(models.Expense).filter(models.Expense.id == expense_id).first()
-        if expense and expense.split_type == 'ITEMIZED':
-            # Get all items for this expense
-            expense_items = db.query(models.ExpenseItem).filter(
-                models.ExpenseItem.expense_id == expense_id
-            ).all()
-
-            # Get all assignments for these items
-            all_item_ids = [item.id for item in expense_items]
-            all_assignments = db.query(models.ExpenseItemAssignment).filter(
-                models.ExpenseItemAssignment.expense_item_id.in_(all_item_ids)
-            ).all()
-
-            # Build items data structure for split calculation
-            items_data = []
-            for item in expense_items:
-                item_assignments = [a for a in all_assignments if a.expense_item_id == item.id]
-                items_data.append({
-                    "price": item.price,
-                    "is_tax_tip": item.is_tax_tip,
-                    "assignments": [{"user_id": a.user_id, "is_guest": a.is_guest} for a in item_assignments],
-                    "split_type": item.split_type or "EQUAL",
-                    "split_details": item.split_details
-                })
-
-            # Calculate new splits
-            new_splits = calculate_itemized_splits(items_data)
-
-            # Delete old splits
-            db.query(models.ExpenseSplit).filter(
-                models.ExpenseSplit.expense_id == expense_id
-            ).delete(synchronize_session=False)
-
-            # Create new splits
-            for user_key, amount in new_splits.items():
-                is_guest = user_key.startswith("guest_")
-                user_id = int(user_key.split("_")[1])
-                db.add(models.ExpenseSplit(
-                    expense_id=expense_id,
-                    user_id=user_id,
-                    is_guest=is_guest,
-                    amount_owed=amount
-                ))
-
-    db.commit()
-
-    return {
-        "message": f"Successfully claimed {transferred_count} item assignment(s)",
-        "transferred_count": transferred_count,
-        "affected_expenses": expense_ids
-    }

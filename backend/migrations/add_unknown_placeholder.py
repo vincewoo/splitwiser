@@ -2,6 +2,14 @@
 """
 Database migration: Add unknown placeholder support for guest members
 ----------------------------------------------------------------------
+*** OBSOLETE - DO NOT USE ***
+
+This migration is no longer needed as of 2026-01-22. The "Unassigned" guest
+account feature has been removed in favor of implicit handling of unassigned
+itemized expense items. Items without assignments are now simply skipped in
+split calculations.
+
+Historical purpose:
 Adds is_unknown_placeholder column to guest_members table to support
 assigning expense items to "Unknown" that can be claimed later.
 

@@ -251,7 +251,6 @@ class GuestMember(BaseModel):
     managed_by_id: Optional[int] = None
     managed_by_type: Optional[str] = None  # 'user' or 'guest'
     managed_by_name: Optional[str] = None
-    is_unknown_placeholder: bool = False  # True for "Unknown" placeholder guests
 
     class Config:
         from_attributes = True
@@ -300,10 +299,6 @@ class RefreshTokenRequest(BaseModel):
 class ManageGuestRequest(BaseModel):
     user_id: int
     is_guest: bool = False  # Set to True if manager is a guest
-
-
-class ClaimUnknownItemsRequest(BaseModel):
-    item_assignment_ids: list[int]
 
 
 class Balance(BaseModel):
