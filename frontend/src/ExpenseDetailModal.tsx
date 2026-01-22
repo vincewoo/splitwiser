@@ -933,7 +933,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                         </div>
                                                     )}
                                                 </div>
-                                                <span className="text-gray-900 dark:text-gray-100">1 {expense.currency} = {expense.exchange_rate} USD</span>
+                                                <span className="text-gray-900 dark:text-gray-100">1 {expense.currency} = {expense.exchange_rate} {expense.exchange_rate_target_currency || 'USD'}</span>
                                             </div>
                                         )}
                                     </div>

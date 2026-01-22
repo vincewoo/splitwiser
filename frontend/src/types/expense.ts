@@ -60,6 +60,7 @@ export interface ExpenseWithSplits {
     receipt_image_path?: string | null;
     notes?: string | null;
     exchange_rate?: string | null;
+    exchange_rate_target_currency?: string | null;  // Currency that exchange_rate is relative to
     has_unknown_assignments?: boolean;  // True if expense has items assigned to Unknown
     is_settlement?: boolean;  // True if this is a payment/settlement
 }
