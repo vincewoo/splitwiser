@@ -45,7 +45,6 @@ class GuestMember(Base):
     claimed_by_id = Column(Integer, nullable=True)  # Set when claimed by registered user
     managed_by_id = Column(Integer, nullable=True)  # ID of manager (user or guest)
     managed_by_type = Column(String, nullable=True)  # 'user' or 'guest'
-    is_unknown_placeholder = Column(Boolean, default=False)  # True for "Unknown" placeholder guests
 
 class Friendship(Base):
     __tablename__ = "friendships"

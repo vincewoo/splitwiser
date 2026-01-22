@@ -344,20 +344,6 @@ export const groupsApi = {
         });
         return response;
     },
-
-    getOrCreateUnknownGuest: async (groupId: number) => {
-        const response = await apiFetch(`/groups/${groupId}/unknown-guest`);
-        if (!response.ok) throw new Error('Failed to get or create Unknown guest');
-        return response.json();
-    },
-
-    claimUnknownItems: async (groupId: number, itemAssignmentIds: number[]) => {
-        const response = await apiFetch(`/groups/${groupId}/claim-unknown-items`, {
-            method: 'POST',
-            body: JSON.stringify({ item_assignment_ids: itemAssignmentIds }),
-        });
-        return response;
-    },
 };
 
 // ============================================================================

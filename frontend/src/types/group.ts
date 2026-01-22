@@ -28,7 +28,6 @@ export interface GuestMember {
     managed_by_id: number | null;
     managed_by_type: string | null;  // 'user' | 'guest'
     managed_by_name: string | null;
-    is_unknown_placeholder?: boolean;  // True for special "Unknown" guest
 }
 
 export interface Group {
