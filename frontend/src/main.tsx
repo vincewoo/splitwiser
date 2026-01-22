@@ -2,23 +2,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
-import { registerSW } from 'virtual:pwa-register'
-
-// Register service worker
-if ('serviceWorker' in navigator) {
-  registerSW({
-    onNeedRefresh() {
-      console.log('New content available, reloading...')
-    },
-    onOfflineReady() {
-      console.log('App ready to work offline')
-    },
-    immediate: true
-  })
-}
+import { UpdateNotification } from './components/UpdateNotification'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
+    <UpdateNotification />
   </StrictMode>,
 )

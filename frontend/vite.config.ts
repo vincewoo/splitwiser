@@ -12,7 +12,7 @@ export default defineConfig(() => ({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
         name: 'Splitwiser',
@@ -51,6 +51,11 @@ export default defineConfig(() => ({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Clean up old caches from previous versions
+        cleanupOutdatedCaches: true,
+        // Skip waiting so new service worker activates immediately when user accepts update
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           // API responses - Network first with cache fallback
           {
