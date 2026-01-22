@@ -13,7 +13,7 @@ A full-featured expense splitting application built with FastAPI and React, insp
 - 🔄 **Debt Simplification** - Minimize transactions using graph algorithms
 
 ### Advanced Features
-- 💱 **Multi-Currency Support** - Support for USD, EUR, GBP, JPY, CAD, CNY, HKD with currency flags
+- 💱 **Multi-Currency Support** - Support for USD, EUR, GBP, JPY, CAD, CNY, HKD, CHF with currency flags
 - 📅 **Historical Exchange Rates** - Automatic caching of exchange rates from expense date
 - 🌍 **Live Currency Conversion** - Real-time exchange rates via Frankfurter API
 - 🎯 **Smart Currency Grouping** - View balances grouped by currency or converted to group default

@@ -12,6 +12,7 @@ export const CURRENCIES: CurrencyInfo[] = [
     { code: 'CAD', flag: '🇨🇦', name: 'Canadian Dollar' },
     { code: 'CNY', flag: '🇨🇳', name: 'Chinese Yuan' },
     { code: 'HKD', flag: '🇭🇰', name: 'Hong Kong Dollar' },
+    { code: 'CHF', flag: '🇨🇭', name: 'Swiss Franc' },
 ];
 
 /**
