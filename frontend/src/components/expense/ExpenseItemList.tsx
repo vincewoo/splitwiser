@@ -73,7 +73,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                 type="button"
                                 onClick={() => onOpenSelector(idx)}
                                 className={`w-full px-4 py-3 rounded-lg border text-left flex items-center justify-between min-h-[44px] ${item.assignments.length === 0
-                                    ? 'border-gray-300 dark:border-gray-500 border-dashed bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                                    ? 'border-orange-300 dark:border-orange-500 border-dashed bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 font-medium'
                                     : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600'
                                     }`}
                             >
