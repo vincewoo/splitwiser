@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ExpenseItem, Participant } from '../../types/expense';
-import { shouldUseCompactMode, getAssignmentDisplayText } from '../../utils/participantHelpers';
+import { shouldUseCompactMode, getAssignmentDisplayText, sortParticipants } from '../../utils/participantHelpers';
 
 interface ExpenseItemListProps {
     items: ExpenseItem[];
@@ -139,20 +139,25 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                             {/* Show input fields based on split type */}
                             {(item.split_type || 'EQUAL') !== 'EQUAL' && (
                                 <div className="space-y-2 mt-3">
-                                    {item.assignments.map(assignment => {
-                                        const participant = participants.find(
-                                            p => p.id === assignment.user_id && p.isGuest === assignment.is_guest
-                                        );
-                                        if (!participant) return null;
+                                    {(() => {
+                                        // Get participants from assignments and sort them
+                                        const assignedParticipants = item.assignments
+                                            .map(assignment => participants.find(
+                                                p => p.id === assignment.user_id && p.isGuest === assignment.is_guest
+                                            ))
+                                            .filter((p): p is Participant => p !== undefined);
 
-                                        const participantKey = participant.isGuest ? `guest_${participant.id}` : `user_${participant.id}`;
-                                        const splitDetail = item.split_details?.[participantKey];
+                                        const sortedParticipants = sortParticipants(assignedParticipants, currentUserId);
 
-                                        return (
-                                            <div key={participantKey} className="flex items-center gap-2">
-                                                <span className="text-sm text-gray-600 dark:text-gray-400 flex-1">
-                                                    {getParticipantName(participant)}:
-                                                </span>
+                                        return sortedParticipants.map(participant => {
+                                            const participantKey = participant.isGuest ? `guest_${participant.id}` : `user_${participant.id}`;
+                                            const splitDetail = item.split_details?.[participantKey];
+
+                                            return (
+                                                <div key={participantKey} className="flex items-center gap-2">
+                                                    <span className="text-sm text-gray-600 dark:text-gray-400 flex-1">
+                                                        {getParticipantName(participant)}:
+                                                    </span>
                                                 {item.split_type === 'EXACT' && (
                                                     <div className="flex items-center gap-1">
                                                         <span className="text-sm text-gray-500">$</span>
@@ -200,7 +205,8 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                                 )}
                                             </div>
                                         );
-                                    })}
+                                        });
+                                    })()}
                                 </div>
                             )}
                         </div>

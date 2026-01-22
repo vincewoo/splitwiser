@@ -25,6 +25,23 @@ export const shouldUseCompactMode = (participants: Participant[]): boolean => {
 };
 
 /**
+ * Sort participants with current user first, then alphabetically by name
+ */
+export const sortParticipants = (participants: Participant[], currentUserId?: number): Participant[] => {
+    return [...participants].sort((a, b) => {
+        // Current user always comes first
+        const aIsCurrentUser = !a.isGuest && currentUserId && a.id === currentUserId;
+        const bIsCurrentUser = !b.isGuest && currentUserId && b.id === currentUserId;
+
+        if (aIsCurrentUser && !bIsCurrentUser) return -1;
+        if (!aIsCurrentUser && bIsCurrentUser) return 1;
+
+        // Otherwise, sort alphabetically by name
+        return a.name.localeCompare(b.name);
+    });
+};
+
+/**
  * Get display text for item assignments
  */
 export const getAssignmentDisplayText = (
