@@ -46,11 +46,26 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Google authentication failed');
+        // Try to parse error as JSON, fall back to status text
+        let errorMessage = 'Google authentication failed';
+        try {
+          const error = await response.json();
+          errorMessage = error.detail || errorMessage;
+        } catch {
+          // Response wasn't JSON (e.g., HTML error page from proxy)
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      const data: GoogleAuthResponse = await response.json();
+      const text = await response.text();
+      let data: GoogleAuthResponse;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.error('Failed to parse response as JSON:', text.substring(0, 500));
+        throw new Error('Invalid response from server');
+      }
       onSuccess(data);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Google authentication failed');
