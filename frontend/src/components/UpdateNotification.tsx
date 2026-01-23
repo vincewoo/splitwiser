@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { registerSW } from 'virtual:pwa-register'
 
 export function UpdateNotification() {
@@ -17,16 +17,6 @@ export function UpdateNotification() {
     })
   }, [])
 
-  const handleUpdate = useCallback(() => {
-    if (updateSWRef.current) {
-      updateSWRef.current()
-    }
-  }, [])
-
-  const handleDismiss = useCallback(() => {
-    setNeedRefresh(false)
-  }, [])
-
   if (!needRefresh) {
     return null
   }
@@ -37,7 +27,7 @@ export function UpdateNotification() {
         <div className="flex items-start">
           <div className="flex-shrink-0">
             <svg
-              className="h-6 w-6 text-white"
+              className="h-6 w-6 text-white animate-spin"
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth="1.5"
@@ -52,25 +42,11 @@ export function UpdateNotification() {
           </div>
           <div className="ml-3 flex-1">
             <p className="text-sm font-medium text-white">
-              A new version is available
+              Update available
             </p>
             <p className="mt-1 text-sm text-teal-100">
-              Refresh to get the latest features and fixes.
+              Applying the latest version...
             </p>
-            <div className="mt-3 flex gap-3">
-              <button
-                onClick={handleUpdate}
-                className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-teal-600 shadow-sm hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-teal-600"
-              >
-                Refresh now
-              </button>
-              <button
-                onClick={handleDismiss}
-                className="rounded-md px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-teal-600"
-              >
-                Later
-              </button>
-            </div>
           </div>
         </div>
       </div>
