@@ -7,9 +7,15 @@ primary_region = 'sjc'
 [build]
   dockerfile = "Dockerfile.fly"
 
+[build.args]
+  # Google OAuth client ID (safe to commit - this is public)
+  VITE_GOOGLE_CLIENT_ID = "411308177468-dhc3vp78shfq5efb5nnrne56kl8a9iob.apps.googleusercontent.com"
+
 [env]
   DATABASE_PATH = "/data/db.sqlite3"
   DATA_DIR = "/data"
+  # Google OAuth client ID for backend verification
+  GOOGLE_CLIENT_ID = "411308177468-dhc3vp78shfq5efb5nnrne56kl8a9iob.apps.googleusercontent.com"
 
 [http_service]
   internal_port = 8080

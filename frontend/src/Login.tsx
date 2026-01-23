@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePageTitle } from './hooks/usePageTitle';
 import { getApiUrl } from './api';
+import { GoogleSignInButton } from './components/auth/GoogleSignInButton';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -12,6 +13,23 @@ const Login = () => {
 
   // Set dynamic page title
   usePageTitle('Login');
+
+  // Check if Google OAuth is configured
+  const googleOAuthEnabled = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+  const handleGoogleSuccess = (response: {
+    access_token: string;
+    refresh_token: string;
+    account_linked: boolean;
+  }) => {
+    localStorage.setItem('token', response.access_token);
+    localStorage.setItem('refreshToken', response.refresh_token);
+    window.location.href = '/';
+  };
+
+  const handleGoogleError = (errorMessage: string) => {
+    setError(errorMessage);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +65,30 @@ const Login = () => {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
       <div className="max-w-md w-full space-y-8 p-8 bg-white dark:bg-gray-800 rounded shadow dark:shadow-gray-900/50">
         <h2 className="text-3xl font-extrabold text-gray-900 dark:text-gray-100 text-center">Sign in</h2>
+
+        {/* Google Sign-In Button */}
+        {googleOAuthEnabled && (
+          <>
+            <div className="mt-4">
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+              />
+            </div>
+
+            {/* Divider */}
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                  Or continue with email
+                </span>
+              </div>
+            </div>
+          </>
+        )}
 
         {error && (
           <div role="alert" className="p-4 rounded-md bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800">

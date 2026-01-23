@@ -167,7 +167,8 @@ def register_user(
 @router.post("/token", dependencies=[Depends(auth_rate_limiter)])
 def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session = Depends(get_db)):
     user = get_user_by_email(db, form_data.username)
-    if not user or not auth.verify_password(form_data.password, user.hashed_password):
+    # Check if user exists and has a password (OAuth-only users cannot use password login)
+    if not user or not user.hashed_password or not auth.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -258,3 +259,27 @@ def logout(request: schemas.RefreshTokenRequest, db: Session = Depends(get_db)):
 @router.get("/users/me", response_model=schemas.User)
 async def read_users_me(current_user: Annotated[models.User, Depends(get_current_user)]):
     return current_user
+
+
+@router.post("/auth/set-password", dependencies=[Depends(auth_rate_limiter)])
+def set_password(
+    request: schemas.SetPasswordRequest,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Set password for OAuth-only users.
+    Allows them to use email/password login in addition to OAuth.
+    """
+    if current_user.hashed_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password already set. Use change-password endpoint."
+        )
+
+    current_user.hashed_password = auth.get_password_hash(request.new_password)
+    current_user.password_changed_at = datetime.utcnow()
+    current_user.auth_provider = "both"
+    db.commit()
+
+    return {"message": "Password set successfully"}

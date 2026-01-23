@@ -6,6 +6,10 @@
 # ============================================
 FROM node:20-alpine AS frontend-build
 
+# Build argument for Google OAuth client ID
+ARG VITE_GOOGLE_CLIENT_ID=""
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+
 WORKDIR /app/frontend
 
 # Copy package files for better caching

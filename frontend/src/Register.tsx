@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { usePageTitle } from './hooks/usePageTitle';
 import { getApiUrl } from './api';
+import { GoogleSignInButton } from './components/auth/GoogleSignInButton';
 
 const Register = () => {
   const [email, setEmail] = useState('');
@@ -15,16 +16,39 @@ const Register = () => {
   // Set dynamic page title
   usePageTitle('Register');
 
+  // Check if Google OAuth is configured
+  const googleOAuthEnabled = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+  // Get guest claiming params from URL
+  const searchParams = new URLSearchParams(location.search);
+  const claimGuestId = searchParams.get('claim_guest_id');
+  const shareLinkId = searchParams.get('share_link_id');
+
+  const handleGoogleSuccess = (response: {
+    access_token: string;
+    refresh_token: string;
+    claimed_group_id?: number;
+  }) => {
+    localStorage.setItem('token', response.access_token);
+    localStorage.setItem('refreshToken', response.refresh_token);
+
+    if (response.claimed_group_id) {
+      window.location.href = `/groups/${response.claimed_group_id}`;
+    } else {
+      window.location.href = '/';
+    }
+  };
+
+  const handleGoogleError = (errorMessage: string) => {
+    setError(errorMessage);
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
     try {
-      const searchParams = new URLSearchParams(location.search);
-      const claimGuestId = searchParams.get('claim_guest_id');
-      const shareLinkId = searchParams.get('share_link_id');
-
       const response = await fetch(getApiUrl('register'), {
         method: 'POST',
         headers: {
@@ -63,6 +87,32 @@ const Register = () => {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
       <div className="max-w-md w-full space-y-8 p-8 bg-white dark:bg-gray-800 rounded shadow dark:shadow-gray-900/50">
         <h2 className="text-3xl font-extrabold text-gray-900 dark:text-gray-100 text-center">Register</h2>
+
+        {/* Google Sign-In Button */}
+        {googleOAuthEnabled && (
+          <>
+            <div className="mt-4">
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                claimGuestId={claimGuestId ? parseInt(claimGuestId) : undefined}
+                shareLinkId={shareLinkId || undefined}
+              />
+            </div>
+
+            {/* Divider */}
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                  Or register with email
+                </span>
+              </div>
+            </div>
+          </>
+        )}
 
         {error && (
           <div role="alert" className="p-4 rounded-md bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800">

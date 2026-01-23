@@ -405,3 +405,31 @@ class ExtractedItem(BaseModel):
     description: str
     price: int  # In cents
     text: str  # Raw text from region
+
+
+# Google OAuth Schemas
+class GoogleAuthRequest(BaseModel):
+    """Request body for Google OAuth authentication."""
+    id_token: str  # The ID token from Google Sign-In
+    claim_guest_id: Optional[int] = None  # For guest claiming during OAuth registration
+    share_link_id: Optional[str] = None
+
+
+class GoogleAuthResponse(BaseModel):
+    """Response for successful Google OAuth."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    is_new_user: bool  # True if a new account was created
+    claimed_group_id: Optional[int] = None
+    account_linked: bool = False  # True if Google was linked to existing account
+
+
+class GoogleLinkRequest(BaseModel):
+    """Request to link Google account to existing user."""
+    id_token: str
+
+
+class SetPasswordRequest(BaseModel):
+    """Request to set password for OAuth-only users."""
+    new_password: str = Field(..., min_length=8, max_length=128)

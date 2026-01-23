@@ -7,13 +7,17 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
+    hashed_password = Column(String, nullable=True)  # Nullable for OAuth-only users
     full_name = Column(String)
     is_active = Column(Boolean, default=True)
     password_changed_at = Column(DateTime, nullable=True)
     email_verified = Column(Boolean, default=False)
     last_login_at = Column(DateTime, nullable=True)
     default_currency = Column(String, default="USD")
+    # OAuth fields
+    google_id = Column(String, unique=True, nullable=True, index=True)  # Google's unique user ID
+    google_picture = Column(String, nullable=True)  # Profile picture URL from Google
+    auth_provider = Column(String, default="local")  # "local", "google", or "both"
 
 class Group(Base):
     __tablename__ = "groups"

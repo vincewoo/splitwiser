@@ -16,6 +16,53 @@ For Fly.io deployments, you can run migrations by SSH-ing into the container unl
 
 ---
 
+## Migration: Add Google OAuth
+
+**File:** `add_google_oauth.py`
+**Date:** 2026-01-22
+**Purpose:** Add Google OAuth support for "Sign in with Google" functionality
+
+### What This Migration Does
+
+Adds three columns to the `users` table:
+- `google_id` (TEXT, unique, nullable) - Google's unique user ID for OAuth lookups
+- `google_picture` (TEXT, nullable) - Profile picture URL from Google
+- `auth_provider` (TEXT, default 'local') - Authentication method: 'local', 'google', or 'both'
+
+Also creates an index on `google_id` for fast OAuth lookups.
+
+### Usage
+
+#### Preview Changes (Dry Run)
+
+```bash
+cd backend
+python migrations/add_google_oauth.py --dry-run
+```
+
+#### Run Migration
+
+```bash
+cd backend
+python migrations/add_google_oauth.py
+```
+
+### Related Configuration
+
+After running the migration, configure Google OAuth by setting environment variables:
+
+**Backend:**
+```bash
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+```
+
+**Frontend:**
+```bash
+VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+```
+
+---
+
 ## Migration: Add Member Management
 
 **File:** `add_member_management.py`
