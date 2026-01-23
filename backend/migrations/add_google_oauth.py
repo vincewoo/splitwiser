@@ -55,16 +55,18 @@ def run_migration(db_path: str, dry_run: bool = False) -> None:
 
     try:
         # Check and add google_id column
+        # Note: SQLite cannot add a UNIQUE column to existing table with data,
+        # so we add the column without UNIQUE and enforce uniqueness via index
         if check_column_exists(cursor, "users", "google_id"):
             print("Column 'google_id' already exists. Skipping.")
         else:
             print("Adding 'google_id' column to users table...")
             if dry_run:
                 print("   [DRY RUN] Would execute:")
-                print("   ALTER TABLE users ADD COLUMN google_id TEXT UNIQUE")
+                print("   ALTER TABLE users ADD COLUMN google_id TEXT")
             else:
                 cursor.execute(
-                    "ALTER TABLE users ADD COLUMN google_id TEXT UNIQUE"
+                    "ALTER TABLE users ADD COLUMN google_id TEXT"
                 )
                 changes_made.append("google_id column")
                 print("Added 'google_id' column")
@@ -99,21 +101,22 @@ def run_migration(db_path: str, dry_run: bool = False) -> None:
                 changes_made.append("auth_provider column")
                 print("Added 'auth_provider' column with default 'local'")
 
-        # Check and add index on google_id
+        # Check and add unique index on google_id
+        # Using UNIQUE index to enforce uniqueness since we couldn't add UNIQUE constraint on column
         index_name = "ix_users_google_id"
         if check_index_exists(cursor, index_name):
             print(f"Index '{index_name}' already exists. Skipping.")
         else:
-            print(f"Creating index '{index_name}' on google_id...")
+            print(f"Creating unique index '{index_name}' on google_id...")
             if dry_run:
                 print("   [DRY RUN] Would execute:")
-                print(f"   CREATE INDEX {index_name} ON users(google_id)")
+                print(f"   CREATE UNIQUE INDEX {index_name} ON users(google_id)")
             else:
                 cursor.execute(
-                    f"CREATE INDEX {index_name} ON users(google_id)"
+                    f"CREATE UNIQUE INDEX {index_name} ON users(google_id)"
                 )
                 changes_made.append("google_id index")
-                print(f"Created index '{index_name}'")
+                print(f"Created unique index '{index_name}'")
 
         if not dry_run:
             conn.commit()
