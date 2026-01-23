@@ -50,3 +50,8 @@
 **Vulnerability:** Although rate limiting was planned and even documented for OCR endpoints, the actual dependency `Depends(ocr_rate_limiter)` was missing from the router code.
 **Learning:** Documentation and intent do not equal code. Verification must be done on the actual implementation.
 **Prevention:** Ensure that security features are verified by automated tests (like `test_ocr_rate_limit.py`) that specifically check for the presence and function of the control, rather than just functional tests that might mock it out.
+
+## 2025-02-19 - IDOR in Global Cache
+**Vulnerability:** The OCR endpoint used a global in-memory dictionary to cache receipt data, keyed by a UUID. While UUIDs are hard to guess, the lack of user ownership validation allowed potential IDOR where one user could access another's receipt data if they obtained the key.
+**Learning:** Global state in web applications (like module-level dictionaries) bypasses per-request context and authentication checks unless explicitly managed.
+**Prevention:** Avoid global state for user-specific data. If using a cache, ensure keys are scoped to the user (e.g., `user_id:uuid`) or validate ownership upon retrieval by storing the `user_id` alongside the data.
