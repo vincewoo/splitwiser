@@ -11,3 +11,7 @@
 ## 2024-05-24 - Public Balances N+1 Optimization
 **Learning:** Public endpoints that access shared resources (like group expenses) are just as susceptible to N+1 issues as authenticated ones, especially when traversing "virtual" relationships like expenses -> splits.
 **Action:** Always batch fetch `ExpenseSplit`s when retrieving multiple expenses, using `expense_id.in_(...)` and grouping in a dictionary.
+
+## 2025-02-18 - Read Friends N+1 Optimization
+**Learning:** The `read_friends` endpoint was iterating over friendships and fetching users one by one, causing N+1 queries. Even simple endpoints need batch fetching.
+**Action:** Always collect IDs from association tables and use `in_` clause to fetch related entities in a single query.
