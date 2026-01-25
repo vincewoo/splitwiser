@@ -32,21 +32,27 @@ class OCRCache:
         self.cache = {}
         self.ttl_seconds = ttl_seconds
 
-    def set(self, key: str, value: dict):
-        """Store OCR response with expiry timestamp."""
+    def set(self, key: str, value: dict, user_id: int = None):
+        """Store OCR response with expiry timestamp and owner."""
         self.cache[key] = {
             "data": value,
+            "user_id": user_id,
             "expires_at": datetime.utcnow() + timedelta(seconds=self.ttl_seconds)
         }
 
-    def get(self, key: str):
-        """Retrieve OCR response if not expired."""
+    def get(self, key: str, user_id: int = None):
+        """Retrieve OCR response if not expired and owner matches."""
         if key not in self.cache:
             return None
 
         entry = self.cache[key]
         if datetime.utcnow() > entry["expires_at"]:
             del self.cache[key]
+            return None
+
+        # Verify ownership if user_id is provided
+        # If entry has an owner, ensure the requesting user matches
+        if entry.get("user_id") is not None and entry.get("user_id") != user_id:
             return None
 
         return entry["data"]
@@ -431,7 +437,7 @@ async def detect_regions(
             "image_width": image_width,
             "image_height": image_height,
             "regions_with_text": regions  # Store the regions with their text
-        })
+        }, user_id=current_user.id if current_user else None)
         print(f"Cached OCR response with key: {cache_key}")
         print(f"Cached {len(regions)} regions with text")
 
@@ -544,7 +550,7 @@ async def extract_regions(
     """
     try:
         # Retrieve cached OCR response
-        cached_data = ocr_cache.get(request.cache_key)
+        cached_data = ocr_cache.get(request.cache_key, user_id=current_user.id if current_user else None)
         if not cached_data:
             raise HTTPException(
                 status_code=404,
