@@ -10,7 +10,7 @@ from database import get_db
 from dependencies import get_current_user
 from utils.validation import get_group_or_404, verify_group_membership
 from utils.display import get_guest_display_name
-from utils.balances import calculate_net_balances
+from utils.balances import calculate_net_balances, calculate_net_balances_batch
 from utils.currency import (
     format_currency,
     convert_to_usd,
@@ -332,17 +332,26 @@ def get_balances(
         amount_in_usd = amount / from_rate
         return amount_in_usd * to_rate
     
-    # For each group, calculate user's net balance using the same logic as Group page
+    # Prepare batch calculation
+    target_currencies = {}
+    valid_group_ids = []
+
     for group_id in user_group_ids:
         group = groups_map.get(group_id)
         if not group:
             continue
-            
-        group_default_currency = group.default_currency or "USD"
+        valid_group_ids.append(group_id)
+        target_currencies[group_id] = group.default_currency or "USD"
         
-        # Use calculate_net_balances - same function as Group page
-        # This handles managed members, historical exchange rates, etc.
-        net_balances = calculate_net_balances(db, group_id, target_currency=group_default_currency)
+    # Use batched calculation
+    # This fetches expenses, splits, and managed members for ALL groups in O(1) queries
+    batch_results = calculate_net_balances_batch(db, valid_group_ids, target_currencies)
+
+    # Process results for each group
+    for group_id in valid_group_ids:
+        group = groups_map[group_id]
+        net_balances = batch_results.get(group_id, {})
+        group_default_currency = target_currencies[group_id]
         
         # Find current user's balance in this group
         user_key = (current_user.id, False)  # (user_id, is_guest=False)

@@ -1,6 +1,5 @@
 
 import pytest
-from conftest import client, db_session
 import models
 
 def test_claim_guest_managed_by_user(client, db_session):
