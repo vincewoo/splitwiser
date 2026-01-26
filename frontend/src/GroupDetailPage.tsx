@@ -215,8 +215,8 @@ const GroupDetailPage: React.FC = () => {
                                                 </span>
                                             )}
                                         </div>
-                                        <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                            {balance.amount >= 0 ? '+' : ''}
+                                        <span className={`text-sm font-semibold ${balance.amount === 0 ? 'text-gray-500 dark:text-gray-400' : balance.amount > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                            {balance.amount > 0 ? '+' : ''}
                                             {formatMoney(balance.amount, balance.currency)}
                                         </span>
                                     </li>
@@ -243,8 +243,8 @@ const GroupDetailPage: React.FC = () => {
                                 </span>
                             )}
                         </div>
-                        <span className={`text-sm font-semibold ${balance.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {balance.amount >= 0 ? '+' : ''}
+                        <span className={`text-sm font-semibold ${balance.amount === 0 ? 'text-gray-500 dark:text-gray-400' : balance.amount > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {balance.amount > 0 ? '+' : ''}
                             {formatMoney(balance.amount, balance.currency)}
                         </span>
                     </li>
