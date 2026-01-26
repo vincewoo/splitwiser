@@ -50,3 +50,8 @@
 **Vulnerability:** Although rate limiting was planned and even documented for OCR endpoints, the actual dependency `Depends(ocr_rate_limiter)` was missing from the router code.
 **Learning:** Documentation and intent do not equal code. Verification must be done on the actual implementation.
 **Prevention:** Ensure that security features are verified by automated tests (like `test_ocr_rate_limit.py`) that specifically check for the presence and function of the control, rather than just functional tests that might mock it out.
+
+## 2025-02-19 - IDOR in In-Memory Cache
+**Vulnerability:** The OCR caching mechanism used a random UUID as a key but did not store or validate the user ownership of the cached data. Knowing the UUID allowed any user to access another user's receipt data (IDOR).
+**Learning:** Random tokens (like UUIDs) provide unpredictability but not authorization. If the token is leaked or shared, access control is lost unless explicit ownership checks are enforced.
+**Prevention:** Always associate cached sensitive data with an owner (user_id) and verify `current_user.id == owner_id` upon retrieval, even for temporary or cached resources.
