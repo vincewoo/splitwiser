@@ -32,15 +32,16 @@ class OCRCache:
         self.cache = {}
         self.ttl_seconds = ttl_seconds
 
-    def set(self, key: str, value: dict):
+    def set(self, key: str, value: dict, user_id: int = None):
         """Store OCR response with expiry timestamp."""
         self.cache[key] = {
             "data": value,
+            "user_id": user_id,
             "expires_at": datetime.utcnow() + timedelta(seconds=self.ttl_seconds)
         }
 
-    def get(self, key: str):
-        """Retrieve OCR response if not expired."""
+    def get(self, key: str, user_id: int = None):
+        """Retrieve OCR response if not expired and ownership matches."""
         if key not in self.cache:
             return None
 
@@ -48,6 +49,11 @@ class OCRCache:
         if datetime.utcnow() > entry["expires_at"]:
             del self.cache[key]
             return None
+
+        # Verify ownership
+        if user_id is not None and entry.get("user_id"):
+            if entry["user_id"] != user_id:
+                return None
 
         return entry["data"]
 
@@ -426,12 +432,16 @@ async def detect_regions(
 
         # Generate cache key and store full OCR response AND regions with text
         cache_key = str(uuid.uuid4())
-        ocr_cache.set(cache_key, {
-            "vision_response": vision_response,
-            "image_width": image_width,
-            "image_height": image_height,
-            "regions_with_text": regions  # Store the regions with their text
-        })
+        ocr_cache.set(
+            cache_key,
+            {
+                "vision_response": vision_response,
+                "image_width": image_width,
+                "image_height": image_height,
+                "regions_with_text": regions  # Store the regions with their text
+            },
+            user_id=current_user.id if current_user else None
+        )
         print(f"Cached OCR response with key: {cache_key}")
         print(f"Cached {len(regions)} regions with text")
 
@@ -544,7 +554,10 @@ async def extract_regions(
     """
     try:
         # Retrieve cached OCR response
-        cached_data = ocr_cache.get(request.cache_key)
+        cached_data = ocr_cache.get(
+            request.cache_key,
+            user_id=current_user.id if current_user else None
+        )
         if not cached_data:
             raise HTTPException(
                 status_code=404,
