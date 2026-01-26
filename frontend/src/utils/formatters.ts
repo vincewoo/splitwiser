@@ -2,15 +2,26 @@
  * Formatting utilities for money, dates, and user names
  */
 
+// Cache for Intl.NumberFormat instances to avoid expensive recreation
+const numberFormatters = new Map<string, Intl.NumberFormat>();
+
 /**
  * Format a monetary amount with currency
  */
 export const formatMoney = (amount: number, currency: string): string => {
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: currency
-    }).format(amount / 100);
+    let formatter = numberFormatters.get(currency);
+    if (!formatter) {
+        formatter = new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currency
+        });
+        numberFormatters.set(currency, formatter);
+    }
+    return formatter.format(amount / 100);
 };
+
+// Cache for Intl.DateTimeFormat instances
+const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
 
 /**
  * Format a date string into a readable format
@@ -33,7 +44,23 @@ export const formatDate = (dateStr: string, options?: Intl.DateTimeFormatOptions
         date = new Date(dateStr);
     }
 
-    return date.toLocaleDateString('en-US', options || defaultOptions);
+    // Safety check for invalid dates to match toLocaleDateString behavior
+    if (isNaN(date.getTime())) {
+        return 'Invalid Date';
+    }
+
+    const opts = options || defaultOptions;
+    // Create a stable cache key. JSON.stringify is fast enough for small option objects
+    // compared to Intl.DateTimeFormat instantiation.
+    const cacheKey = JSON.stringify(opts);
+
+    let formatter = dateTimeFormatters.get(cacheKey);
+    if (!formatter) {
+        formatter = new Intl.DateTimeFormat('en-US', opts);
+        dateTimeFormatters.set(cacheKey, formatter);
+    }
+
+    return formatter.format(date);
 };
 
 /**

@@ -11,3 +11,7 @@
 ## 2024-05-24 - Public Balances N+1 Optimization
 **Learning:** Public endpoints that access shared resources (like group expenses) are just as susceptible to N+1 issues as authenticated ones, especially when traversing "virtual" relationships like expenses -> splits.
 **Action:** Always batch fetch `ExpenseSplit`s when retrieving multiple expenses, using `expense_id.in_(...)` and grouping in a dictionary.
+
+## 2024-05-24 - Intl Formatter Crash Risk
+**Learning:** Replacing `date.toLocaleDateString()` with `Intl.DateTimeFormat.format()` for performance can cause crashes. `toLocaleDateString` gracefully returns "Invalid Date", while `format()` throws a `RangeError`.
+**Action:** Always validate input dates with `isNaN(date.getTime())` before using `Intl.DateTimeFormat.format()`.
