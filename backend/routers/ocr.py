@@ -32,15 +32,16 @@ class OCRCache:
         self.cache = {}
         self.ttl_seconds = ttl_seconds
 
-    def set(self, key: str, value: dict):
-        """Store OCR response with expiry timestamp."""
+    def set(self, key: str, value: dict, user_id: int = None):
+        """Store OCR response with expiry timestamp and owner."""
         self.cache[key] = {
             "data": value,
+            "user_id": user_id,
             "expires_at": datetime.utcnow() + timedelta(seconds=self.ttl_seconds)
         }
 
-    def get(self, key: str):
-        """Retrieve OCR response if not expired."""
+    def get(self, key: str, user_id: int = None):
+        """Retrieve OCR response if not expired and owned by user."""
         if key not in self.cache:
             return None
 
@@ -48,6 +49,12 @@ class OCRCache:
         if datetime.utcnow() > entry["expires_at"]:
             del self.cache[key]
             return None
+
+        # Verify ownership if user_id is provided
+        if user_id is not None:
+            entry_user_id = entry.get("user_id")
+            if entry_user_id is not None and entry_user_id != user_id:
+                return None
 
         return entry["data"]
 
@@ -431,7 +438,7 @@ async def detect_regions(
             "image_width": image_width,
             "image_height": image_height,
             "regions_with_text": regions  # Store the regions with their text
-        })
+        }, user_id=current_user.id if current_user else None)
         print(f"Cached OCR response with key: {cache_key}")
         print(f"Cached {len(regions)} regions with text")
 
@@ -543,8 +550,8 @@ async def extract_regions(
         JSON with items array containing region_id, description, price, and text
     """
     try:
-        # Retrieve cached OCR response
-        cached_data = ocr_cache.get(request.cache_key)
+        # Retrieve cached OCR response (with ownership check)
+        cached_data = ocr_cache.get(request.cache_key, user_id=current_user.id if current_user else None)
         if not cached_data:
             raise HTTPException(
                 status_code=404,
