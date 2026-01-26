@@ -285,5 +285,10 @@ def _claim_guest_for_user(db: Session, user: models.User, guest_id: int, share_l
         mg.managed_by_id = user.id
         mg.managed_by_type = 'user'
 
+    # Clear the guest's managed_by fields to prevent double-counting in balance calculations
+    # The management relationship has been transferred to the GroupMember above
+    guest.managed_by_id = None
+    guest.managed_by_type = None
+
     print(f"Successfully claimed guest {guest_id} for user {user.id}")
     return claimed_group_id

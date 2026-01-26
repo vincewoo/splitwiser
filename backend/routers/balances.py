@@ -136,6 +136,12 @@ def get_group_balances(
     # Build breakdown for managed guests
     # Use dict to deduplicate by name within each breakdown key
     for guest in managed_guests:
+        # Skip claimed guests with managed_by set - this is a data integrity issue
+        # that would cause double-counting since the user's GroupMember record
+        # should handle the management relationship instead
+        if guest.claimed_by_id and guest.managed_by_id:
+            continue
+
         if guest.claimed_by_id:
             guest_key = (guest.claimed_by_id, False)
         else:
@@ -182,6 +188,12 @@ def get_group_balances(
 
         # Convert raw balances to target currency for breakdown display
         for guest in managed_guests:
+            # Skip claimed guests with managed_by set - this is a data integrity issue
+            # that would cause double-counting since the user's GroupMember record
+            # should handle the management relationship instead
+            if guest.claimed_by_id and guest.managed_by_id:
+                continue
+
             if guest.claimed_by_id:
                 guest_key = (guest.claimed_by_id, False)
             else:

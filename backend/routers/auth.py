@@ -124,6 +124,11 @@ def register_user(
                         mg.managed_by_id = db_user.id
                         mg.managed_by_type = 'user'
 
+                    # Clear the guest's managed_by fields to prevent double-counting in balance calculations
+                    # The management relationship has been transferred to the GroupMember above
+                    guest.managed_by_id = None
+                    guest.managed_by_type = None
+
                     print(f"Successfully claimed guest {user.claim_guest_id} for user {db_user.id}")
 
         # Create access token
