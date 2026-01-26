@@ -506,14 +506,16 @@ def simplify_debts(
 
         amount = min(abs(debtor['amount']), creditor['amount'])
 
-        transactions.append({
-            "from_id": debtor['id'],
-            "from_is_guest": debtor['is_guest'],
-            "to_id": creditor['id'],
-            "to_is_guest": creditor['is_guest'],
-            "amount": amount,
-            "currency": target_currency
-        })
+        # Only add transaction if amount is significant (at least 1 cent)
+        if amount >= 1.0:
+            transactions.append({
+                "from_id": debtor['id'],
+                "from_is_guest": debtor['is_guest'],
+                "to_id": creditor['id'],
+                "to_is_guest": creditor['is_guest'],
+                "amount": amount,
+                "currency": target_currency
+            })
 
         debtor['amount'] += amount
         creditor['amount'] -= amount
