@@ -610,12 +610,49 @@ def update_expense(
 
             # Store assignments
             for assignment in item.assignments:
-                db_assignment = models.ExpenseItemAssignment(
-                    expense_item_id=db_item.id,
-                    user_id=assignment.user_id,
-                    is_guest=assignment.is_guest
-                )
-                db.add(db_assignment)
+                # Check if this is an expense guest assignment
+                if hasattr(assignment, 'temp_guest_id') and assignment.temp_guest_id:
+                    # Look up the actual expense guest by temp_id (for new assignments)
+                    expense_guest = db.query(models.ExpenseGuest).filter(
+                        models.ExpenseGuest.expense_id == expense_id,
+                        models.ExpenseGuest.name == assignment.temp_guest_id  # temp_guest_id might contain name
+                    ).first()
+                    if expense_guest:
+                        db_assignment = models.ExpenseItemAssignment(
+                            expense_item_id=db_item.id,
+                            user_id=None,
+                            is_guest=False,
+                            expense_guest_id=expense_guest.id
+                        )
+                        db.add(db_assignment)
+                else:
+                    # Regular user or group guest assignment
+                    # For existing expense guests, user_id will contain the expense_guest.id
+                    # and we need to check if it matches an expense guest
+                    expense_guest = None
+                    if not assignment.is_guest and assignment.user_id:
+                        expense_guest = db.query(models.ExpenseGuest).filter(
+                            models.ExpenseGuest.expense_id == expense_id,
+                            models.ExpenseGuest.id == assignment.user_id
+                        ).first()
+
+                    if expense_guest:
+                        # This is an expense guest assignment
+                        db_assignment = models.ExpenseItemAssignment(
+                            expense_item_id=db_item.id,
+                            user_id=None,
+                            is_guest=False,
+                            expense_guest_id=expense_guest.id
+                        )
+                    else:
+                        # Regular user or group guest
+                        db_assignment = models.ExpenseItemAssignment(
+                            expense_item_id=db_item.id,
+                            user_id=assignment.user_id,
+                            is_guest=assignment.is_guest,
+                            expense_guest_id=None
+                        )
+                    db.add(db_assignment)
 
     db.commit()
     db.refresh(expense)

@@ -47,17 +47,28 @@ export const useItemizedExpense = () => {
             const updated = [...prev];
             const item = { ...updated[itemIdx] };
 
-            const existingIdx = item.assignments.findIndex(
-                a => a.user_id === participant.id && a.is_guest === participant.isGuest
-            );
+            // For expense guests, match by expense_guest_id
+            const existingIdx = item.assignments.findIndex(a => {
+                if (participant.isExpenseGuest) {
+                    return a.expense_guest_id === participant.id;
+                }
+                return a.user_id === participant.id && a.is_guest === participant.isGuest;
+            });
 
             if (existingIdx >= 0) {
                 item.assignments = item.assignments.filter((_, i) => i !== existingIdx);
             } else {
-                item.assignments = [...item.assignments, {
-                    user_id: participant.id,
-                    is_guest: participant.isGuest
-                }];
+                const newAssignment: ItemAssignment = participant.isExpenseGuest
+                    ? {
+                        user_id: participant.id,
+                        is_guest: false,
+                        expense_guest_id: participant.id
+                    }
+                    : {
+                        user_id: participant.id,
+                        is_guest: participant.isGuest
+                    };
+                item.assignments = [...item.assignments, newAssignment];
             }
 
             updated[itemIdx] = item;

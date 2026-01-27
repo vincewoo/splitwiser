@@ -176,14 +176,35 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         setIsSettlement(exp.is_settlement || false);
 
         // Set selected participants from splits
-        const keys = exp.splits.map(s => s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`);
+        const keys = exp.splits.map(s => {
+            // Check if this is an expense guest by matching with expense_guests array
+            if (exp.expense_guests) {
+                const isExpenseGuest = exp.expense_guests.some(eg => eg.id === s.user_id && !s.is_guest);
+                if (isExpenseGuest) {
+                    return `expenseguest_${s.user_id}`;
+                }
+            }
+            return s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`;
+        });
         setSelectedParticipantKeys(keys);
 
         // Set split details for non-EQUAL types
         if (exp.split_type !== 'EQUAL' && exp.split_type !== 'ITEMIZED') {
             const details: { [key: string]: number } = {};
             exp.splits.forEach(s => {
-                const key = s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`;
+                // Check if this is an expense guest
+                let key: string;
+                if (exp.expense_guests) {
+                    const isExpenseGuest = exp.expense_guests.some(eg => eg.id === s.user_id && !s.is_guest);
+                    if (isExpenseGuest) {
+                        key = `expenseguest_${s.user_id}`;
+                    } else {
+                        key = s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`;
+                    }
+                } else {
+                    key = s.is_guest ? `guest_${s.user_id}` : `user_${s.user_id}`;
+                }
+
                 if (exp.split_type === 'PERCENT' && s.percentage !== null) {
                     details[key] = s.percentage;
                 } else if (exp.split_type === 'SHARES' && s.shares !== null) {
@@ -206,10 +227,20 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 description: item.description,
                 price: item.price,
                 is_tax_tip: false,
-                assignments: item.assignments.map(a => ({
-                    user_id: a.user_id,
-                    is_guest: a.is_guest
-                }))
+                assignments: item.assignments.map(a => {
+                    // For expense guests, use expense_guest_id as the user_id
+                    if (a.expense_guest_id !== undefined) {
+                        return {
+                            user_id: a.expense_guest_id,
+                            is_guest: false,
+                            expense_guest_id: a.expense_guest_id
+                        };
+                    }
+                    return {
+                        user_id: a.user_id,
+                        is_guest: a.is_guest
+                    };
+                })
             }));
 
             itemizedExpense.setItems(editableItems);
@@ -256,6 +287,12 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 const guest = groupGuests.find(g => g.id === id);
                 if (guest) {
                     participants.push({ id: guest.id, name: guest.name, isGuest: true });
+                }
+            } else if (type === 'expenseguest') {
+                // For expense guests (non-group expenses)
+                const expenseGuest = expense?.expense_guests?.find(eg => eg.id === id);
+                if (expenseGuest) {
+                    participants.push({ id: expenseGuest.id, name: expenseGuest.name, isGuest: false, isExpenseGuest: true });
                 }
             } else {
                 const member = groupMembers.find(m => m.user_id === id);
@@ -319,6 +356,18 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             });
         });
 
+        // Include expense guests for non-group expenses
+        if (expense?.expense_guests) {
+            expense.expense_guests.forEach(eg => {
+                participants.push({
+                    id: eg.id,
+                    name: eg.name,
+                    isGuest: false,
+                    isExpenseGuest: true
+                });
+            });
+        }
+
         // Sort: "You" first, then alphabetically
         return participants.sort((a, b) => {
             if (a.name === 'You') return -1;
@@ -328,18 +377,30 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     };
 
     const handleMainParticipantSelectorConfirm = (selectedParticipants: Participant[]) => {
-        const keys = selectedParticipants.map(p =>
-            p.isGuest ? `guest_${p.id}` : `user_${p.id}`
-        );
+        const keys = selectedParticipants.map(p => {
+            if (p.isExpenseGuest) {
+                return `expenseguest_${p.id}`;
+            }
+            return p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
+        });
         setSelectedParticipantKeys(keys);
         setShowParticipantSelector(false);
     };
 
     const handleParticipantSelectorConfirm = (itemIdx: number, selectedParticipants: Participant[]) => {
-        itemizedExpense.updateItemAssignments(itemIdx, selectedParticipants.map(p => ({
-            user_id: p.id,
-            is_guest: p.isGuest
-        })));
+        itemizedExpense.updateItemAssignments(itemIdx, selectedParticipants.map(p => {
+            if (p.isExpenseGuest) {
+                return {
+                    user_id: p.id,
+                    is_guest: false,
+                    expense_guest_id: p.id
+                };
+            }
+            return {
+                user_id: p.id,
+                is_guest: p.isGuest
+            };
+        }));
         itemizedExpense.setEditingItemIndex(null);
     };
 
@@ -356,7 +417,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
     const handleSave = async () => {
         const totalAmountCents = Math.round(parseFloat(amount) * 100);
-        const participants = getAllParticipants();
+        const allParticipants = getAllParticipants();
+        // Filter out expense guests from splits (they're handled separately on backend)
+        const participants = allParticipants.filter(p => !p.isExpenseGuest);
         let splits: any[] = [];
 
         // Calculate splits based on type
@@ -444,13 +507,17 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 const itemsTotal = allItems.reduce((sum, item) => sum + item.price, 0);
 
                 // Include all selected participants as splits (backend will merge with calculated amounts)
-                const participantSplits = getAllParticipants().map(p => ({
-                    user_id: p.id,
-                    is_guest: p.isGuest,
-                    amount_owed: 0
-                }));
+                // For expense guests, only include them in splits if they're NOT expense guests
+                // (expense guests are handled separately on the backend)
+                const participantSplits = getAllParticipants()
+                    .filter(p => !p.isExpenseGuest)
+                    .map(p => ({
+                        user_id: p.id,
+                        is_guest: p.isGuest,
+                        amount_owed: 0
+                    }));
 
-                const itemizedPayload = {
+                const itemizedPayload: any = {
                     description,
                     amount: itemsTotal,
                     currency,
@@ -571,7 +638,12 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     participants={getAllParticipants()}
                     selectedParticipants={getAllParticipants().filter(p => {
                         const item = itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex!];
-                        return item?.assignments.some(a => a.user_id === p.id && a.is_guest === p.isGuest);
+                        return item?.assignments.some(a => {
+                            if (p.isExpenseGuest) {
+                                return a.expense_guest_id === p.id;
+                            }
+                            return a.user_id === p.id && a.is_guest === p.isGuest;
+                        });
                     })}
                     onConfirm={(selected) => handleParticipantSelectorConfirm(itemizedExpense.editingItemIndex!, selected)}
                     itemDescription={itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex]?.description || ''}
@@ -746,6 +818,19 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                             className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${selectedParticipantKeys.includes(key) ? 'bg-orange-100 dark:bg-orange-900/30 border-orange-500 dark:border-orange-600 text-orange-700 dark:text-orange-300' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 dark:text-gray-200'}`}
                                                         >
                                                             {guest.name}
+                                                        </button>
+                                                    );
+                                                })}
+                                                {expense?.expense_guests?.map(expenseGuest => {
+                                                    const key = `expenseguest_${expenseGuest.id}`;
+                                                    return (
+                                                        <button
+                                                            key={key}
+                                                            type="button"
+                                                            onClick={() => toggleParticipant(key)}
+                                                            className={`px-4 py-2 rounded-full text-sm border min-h-[44px] ${selectedParticipantKeys.includes(key) ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 dark:border-purple-600 text-purple-700 dark:text-purple-300' : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 dark:text-gray-200'}`}
+                                                        >
+                                                            {expenseGuest.name}
                                                         </button>
                                                     );
                                                 })}

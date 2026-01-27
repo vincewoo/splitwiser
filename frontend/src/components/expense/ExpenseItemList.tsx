@@ -89,13 +89,17 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                         /* Inline buttons for small groups */
                         <div className="flex flex-wrap gap-2">
                             {participants.map(p => {
-                                const isAssigned = item.assignments.some(
-                                    a => a.user_id === p.id && a.is_guest === p.isGuest
-                                );
+                                // Check if participant is assigned to this item
+                                const isAssigned = item.assignments.some(a => {
+                                    if (p.isExpenseGuest) {
+                                        return a.expense_guest_id === p.id;
+                                    }
+                                    return a.user_id === p.id && a.is_guest === p.isGuest;
+                                });
 
                                 return (
                                     <button
-                                        key={p.isGuest ? `guest_${p.id}` : `user_${p.id}`}
+                                        key={p.isExpenseGuest ? `expenseguest_${p.id}` : (p.isGuest ? `guest_${p.id}` : `user_${p.id}`)}
                                         type="button"
                                         onClick={() => onToggleAssignment(idx, p)}
                                         className={`px-3 py-2 text-sm rounded-full border min-h-[44px] ${isAssigned
