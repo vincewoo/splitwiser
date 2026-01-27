@@ -15,3 +15,7 @@
 ## 2024-05-24 - Intl Formatter Crash Risk
 **Learning:** Replacing `date.toLocaleDateString()` with `Intl.DateTimeFormat.format()` for performance can cause crashes. `toLocaleDateString` gracefully returns "Invalid Date", while `format()` throws a `RangeError`.
 **Action:** Always validate input dates with `isNaN(date.getTime())` before using `Intl.DateTimeFormat.format()`.
+
+## 2024-05-24 - Dashboard Balances N+1 Optimization
+**Learning:** Loops over user groups to calculate balances individually trigger N+1 queries. Utility functions like `calculate_net_balances` that take a single `group_id` should have a batch equivalent.
+**Action:** Implement `calculate_net_balances_batch` using `group_id.in_(...)` to fetch all data in O(1) queries, then process in memory.
