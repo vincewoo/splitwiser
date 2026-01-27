@@ -394,6 +394,16 @@ export const expensesApi = {
         });
         return response;
     },
+
+    // Expense guest methods
+    toggleExpenseGuestPaid: async (expenseId: number, guestId: number, paid: boolean) => {
+        const response = await apiFetch(`/expenses/${expenseId}/guests/${guestId}/paid`, {
+            method: 'PATCH',
+            body: JSON.stringify({ paid }),
+        });
+        if (!response.ok) throw new Error('Failed to update guest paid status');
+        return response.json();
+    },
 };
 
 // ============================================================================

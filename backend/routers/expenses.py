@@ -3,6 +3,7 @@
 from typing import Annotated
 import os
 import json
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,7 @@ import schemas
 from database import get_db
 from dependencies import get_current_user
 from utils.validation import get_group_or_404, verify_group_membership, validate_expense_participants, validate_item_split_details
-from utils.splits import calculate_itemized_splits
+from utils.splits import calculate_itemized_splits, calculate_itemized_splits_with_expense_guests
 from utils.currency import get_exchange_rate_for_expense, fetch_historical_exchange_rate
 from utils.display import get_guest_display_name
 
@@ -39,23 +40,87 @@ def normalize_date(date_str: str) -> str:
 
 @router.post("/expenses", response_model=schemas.Expense)
 def create_expense(
-    expense: schemas.ExpenseCreate, 
-    current_user: Annotated[models.User, Depends(get_current_user)], 
+    expense: schemas.ExpenseCreate,
+    current_user: Annotated[models.User, Depends(get_current_user)],
     db: Session = Depends(get_db)
 ):
-    # Handle ITEMIZED split type
+    # Validate: expense guests only allowed for non-group expenses
+    if expense.group_id is not None and expense.expense_guests:
+        raise HTTPException(
+            status_code=400,
+            detail="Expense guests can only be added to expenses outside of a group"
+        )
+
+    # Fetch and cache the historical exchange rate for this expense
+    exchange_rate = get_exchange_rate_for_expense(expense.date, expense.currency)
+
+    # Create the expense first to get an ID
+    db_expense = models.Expense(
+        description=expense.description,
+        amount=expense.amount,
+        currency=expense.currency,
+        date=normalize_date(expense.date),
+        payer_id=expense.payer_id,  # Will be updated if payer is expense guest
+        payer_is_guest=expense.payer_is_guest,
+        payer_is_expense_guest=expense.payer_is_expense_guest,
+        group_id=expense.group_id,
+        created_by_id=current_user.id,
+        exchange_rate=str(exchange_rate),
+        split_type=expense.split_type or "EQUAL",
+        icon=expense.icon,
+        receipt_image_path=expense.receipt_image_path,
+        notes=expense.notes,
+        is_settlement=expense.is_settlement
+    )
+    db.add(db_expense)
+    db.flush()  # Get expense ID without committing
+
+    # Create expense guests and build temp_id mapping
+    temp_id_to_expense_guest = {}
+    expense_guest_amounts = {}  # Will be populated by itemized calculation
+
+    if expense.expense_guests:
+        for guest_data in expense.expense_guests:
+            expense_guest = models.ExpenseGuest(
+                expense_id=db_expense.id,
+                name=guest_data.name,
+                amount_owed=0,  # Will be calculated later
+                created_by_id=current_user.id,
+            )
+            db.add(expense_guest)
+            db.flush()  # Get expense_guest.id
+            temp_id_to_expense_guest[guest_data.temp_id] = expense_guest
+
+    # Resolve payer if it's an expense guest
+    if expense.payer_is_expense_guest and expense.payer_temp_guest_id:
+        payer_expense_guest = temp_id_to_expense_guest.get(expense.payer_temp_guest_id)
+        if not payer_expense_guest:
+            raise HTTPException(status_code=400, detail="Invalid payer temp_guest_id")
+        db_expense.payer_id = payer_expense_guest.id
+
+    # Handle ITEMIZED split type with expense guests
     if expense.split_type == "ITEMIZED":
         if not expense.items:
             raise HTTPException(status_code=400, detail="Items required for ITEMIZED split type")
 
-        # Save provided participants before calculating (to preserve participants without items)
+        # Check if any items have expense guest assignments
+        has_expense_guests = any(
+            a.temp_guest_id for item in expense.items for a in item.assignments
+        )
+
+        if has_expense_guests or expense.expense_guests:
+            # Use the new function that handles expense guests
+            calculated_splits, expense_guest_amounts = calculate_itemized_splits_with_expense_guests(expense.items)
+        else:
+            # Use the original function
+            calculated_splits = calculate_itemized_splits(expense.items)
+
+        # Save provided participants before merging
         provided_participants = {
             f"{'guest' if s.is_guest else 'user'}_{s.user_id}": s
             for s in (expense.splits or [])
         }
 
-        # Calculate splits from items (unassigned items will not be included in splits)
-        calculated_splits = calculate_itemized_splits(expense.items)
         calculated_keys = {
             f"{'guest' if s.is_guest else 'user'}_{s.user_id}"
             for s in calculated_splits
@@ -74,15 +139,18 @@ def create_expense(
 
         # Recalculate total from items
         expense.amount = sum(item.price for item in expense.items)
+        db_expense.amount = expense.amount
 
-    # Validate total amount vs splits
+    # Validate total amount vs splits (excluding expense guest amounts)
     total_split = sum(split.amount_owed for split in expense.splits)
-    # For itemized expenses, allow splits to be less than total (unassigned items absorbed by payer)
+    total_expense_guest = sum(expense_guest_amounts.values())
+    total_all_participants = total_split + total_expense_guest
+
     if expense.split_type == "ITEMIZED":
-        if total_split > expense.amount:
+        if total_all_participants > expense.amount:
             raise HTTPException(
                 status_code=400,
-                detail=f"Split amounts exceed total expense amount. Total: {expense.amount}, Sum: {total_split}"
+                detail=f"Split amounts exceed total expense amount. Total: {expense.amount}, Sum: {total_all_participants}"
             )
     else:
         if abs(total_split - expense.amount) > 1:  # Allow 1 cent diff
@@ -91,42 +159,21 @@ def create_expense(
                 detail=f"Split amounts do not sum to total expense amount. Total: {expense.amount}, Sum: {total_split}"
             )
 
-    # Validate all participants exist
+    # Validate all participants exist (skip expense guest validation since they're newly created)
     validate_expense_participants(
         db=db,
-        payer_id=expense.payer_id,
-        payer_is_guest=expense.payer_is_guest,
+        payer_id=expense.payer_id if not expense.payer_is_expense_guest else current_user.id,
+        payer_is_guest=expense.payer_is_guest if not expense.payer_is_expense_guest else False,
         splits=expense.splits,
-        items=expense.items if expense.split_type == "ITEMIZED" else None
+        items=expense.items if expense.split_type == "ITEMIZED" else None,
+        skip_expense_guest_validation=True
     )
 
     # Validate item split details if itemized expense
     if expense.split_type == "ITEMIZED" and expense.items:
         validate_item_split_details(expense.items)
 
-    # Fetch and cache the historical exchange rate for this expense
-    exchange_rate = get_exchange_rate_for_expense(expense.date, expense.currency)
-
-    db_expense = models.Expense(
-        description=expense.description,
-        amount=expense.amount,
-        currency=expense.currency,
-        date=normalize_date(expense.date),
-        payer_id=expense.payer_id,
-        payer_is_guest=expense.payer_is_guest,
-        group_id=expense.group_id,
-        created_by_id=current_user.id,
-        exchange_rate=str(exchange_rate),
-        split_type=expense.split_type or "EQUAL",
-        icon=expense.icon,
-        receipt_image_path=expense.receipt_image_path,
-        notes=expense.notes,
-        is_settlement=expense.is_settlement
-    )
-    db.add(db_expense)
-    db.commit()
-    db.refresh(db_expense)
-
+    # Create splits for registered users and group guests
     for split in expense.splits:
         db_split = models.ExpenseSplit(
             expense_id=db_expense.id,
@@ -137,6 +184,12 @@ def create_expense(
             shares=split.shares
         )
         db.add(db_split)
+
+    # Update expense guest amounts
+    for temp_id, amount in expense_guest_amounts.items():
+        expense_guest = temp_id_to_expense_guest.get(temp_id)
+        if expense_guest:
+            expense_guest.amount_owed = amount
 
     # Store items if ITEMIZED
     if expense.split_type == "ITEMIZED" and expense.items:
@@ -162,19 +215,33 @@ def create_expense(
                 split_details=split_details_json
             )
             db.add(db_item)
-            db.commit()
-            db.refresh(db_item)
+            db.flush()
 
             # Store assignments
             for assignment in item.assignments:
-                db_assignment = models.ExpenseItemAssignment(
-                    expense_item_id=db_item.id,
-                    user_id=assignment.user_id,
-                    is_guest=assignment.is_guest
-                )
-                db.add(db_assignment)
+                if assignment.temp_guest_id:
+                    # Expense guest assignment
+                    expense_guest = temp_id_to_expense_guest.get(assignment.temp_guest_id)
+                    if expense_guest:
+                        db_assignment = models.ExpenseItemAssignment(
+                            expense_item_id=db_item.id,
+                            user_id=None,
+                            is_guest=False,
+                            expense_guest_id=expense_guest.id
+                        )
+                        db.add(db_assignment)
+                else:
+                    # Regular user or group guest assignment
+                    db_assignment = models.ExpenseItemAssignment(
+                        expense_item_id=db_item.id,
+                        user_id=assignment.user_id,
+                        is_guest=assignment.is_guest,
+                        expense_guest_id=None
+                    )
+                    db.add(db_assignment)
 
     db.commit()
+    db.refresh(db_expense)
     return db_expense
 
 
@@ -260,22 +327,40 @@ def get_expense(
 
             assignment_details = []
             for a in assignments:
-                if a.is_guest:
+                if a.expense_guest_id:
+                    # Expense guest assignment
+                    expense_guest = db.query(models.ExpenseGuest).filter(
+                        models.ExpenseGuest.id == a.expense_guest_id
+                    ).first()
+                    name = expense_guest.name if expense_guest else "Unknown Guest"
+                    assignment_details.append(schemas.ExpenseItemAssignmentDetail(
+                        user_id=None,
+                        is_guest=False,
+                        expense_guest_id=a.expense_guest_id,
+                        user_name=name
+                    ))
+                elif a.is_guest:
                     guest = db.query(models.GuestMember).filter(
                         models.GuestMember.id == a.user_id
                     ).first()
                     name = get_guest_display_name(guest, db)
+                    assignment_details.append(schemas.ExpenseItemAssignmentDetail(
+                        user_id=a.user_id,
+                        is_guest=a.is_guest,
+                        expense_guest_id=None,
+                        user_name=name
+                    ))
                 else:
                     user = db.query(models.User).filter(
                         models.User.id == a.user_id
                     ).first()
                     name = (user.full_name or user.email) if user else "Unknown"
-
-                assignment_details.append(schemas.ExpenseItemAssignmentDetail(
-                    user_id=a.user_id,
-                    is_guest=a.is_guest,
-                    user_name=name
-                ))
+                    assignment_details.append(schemas.ExpenseItemAssignmentDetail(
+                        user_id=a.user_id,
+                        is_guest=a.is_guest,
+                        expense_guest_id=None,
+                        user_name=name
+                    ))
 
             # Deserialize split_details from JSON if present
             split_details = None
@@ -325,6 +410,24 @@ def get_expense(
                 # If calculation fails, keep the original USD rate
                 pass
 
+    # Load expense guests for non-group expenses
+    expense_guests_data = []
+    if expense.group_id is None:
+        expense_guests = db.query(models.ExpenseGuest).filter(
+            models.ExpenseGuest.expense_id == expense_id
+        ).all()
+        expense_guests_data = [
+            schemas.ExpenseGuestResponse(
+                id=eg.id,
+                expense_id=eg.expense_id,
+                name=eg.name,
+                amount_owed=eg.amount_owed,
+                paid=eg.paid,
+                paid_at=eg.paid_at
+            )
+            for eg in expense_guests
+        ]
+
     return schemas.ExpenseWithSplits(
         id=expense.id,
         description=expense.description,
@@ -333,11 +436,13 @@ def get_expense(
         date=expense.date,
         payer_id=expense.payer_id,
         payer_is_guest=expense.payer_is_guest,
+        payer_is_expense_guest=expense.payer_is_expense_guest,
         group_id=expense.group_id,
         created_by_id=expense.created_by_id,
         splits=splits_with_names,
         split_type=split_type,
         items=items_data,
+        expense_guests=expense_guests_data,
         exchange_rate=display_exchange_rate,
         exchange_rate_target_currency=exchange_rate_target_currency,
         icon=expense.icon,
@@ -552,6 +657,9 @@ def delete_expense(
     # Delete associated splits
     db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense_id).delete()
 
+    # Delete expense guests
+    db.query(models.ExpenseGuest).filter(models.ExpenseGuest.expense_id == expense_id).delete()
+
     # Delete receipt image if exists
     if expense.receipt_image_path:
         try:
@@ -724,11 +832,13 @@ def get_group_expenses(
             "date": expense.date,
             "payer_id": expense.payer_id,
             "payer_is_guest": expense.payer_is_guest,
+            "payer_is_expense_guest": getattr(expense, 'payer_is_expense_guest', False),
             "group_id": expense.group_id,
             "created_by_id": expense.created_by_id,
             "split_type": expense.split_type,
             "splits": splits_with_names,
             "items": [],
+            "expense_guests": [],
             "exchange_rate": display_exchange_rate,
             "exchange_rate_target_currency": exchange_rate_target_currency,
             "icon": expense.icon,
@@ -739,3 +849,50 @@ def get_group_expenses(
         result.append(expense_dict)
 
     return result
+
+
+@router.patch("/expenses/{expense_id}/guests/{guest_id}/paid", response_model=schemas.ExpenseGuestResponse)
+def toggle_expense_guest_paid(
+    expense_id: int,
+    guest_id: int,
+    paid_update: schemas.ExpenseGuestPaidUpdate,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """Toggle the paid status of an expense guest."""
+    # Get the expense
+    expense = db.query(models.Expense).filter(models.Expense.id == expense_id).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    # Verify this is a non-group expense
+    if expense.group_id is not None:
+        raise HTTPException(status_code=400, detail="Expense guests are only for non-group expenses")
+
+    # Verify user has access (must be the expense creator)
+    if expense.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the expense creator can update guest paid status")
+
+    # Get the expense guest
+    expense_guest = db.query(models.ExpenseGuest).filter(
+        models.ExpenseGuest.id == guest_id,
+        models.ExpenseGuest.expense_id == expense_id
+    ).first()
+    if not expense_guest:
+        raise HTTPException(status_code=404, detail="Expense guest not found")
+
+    # Update paid status
+    expense_guest.paid = paid_update.paid
+    expense_guest.paid_at = datetime.utcnow() if paid_update.paid else None
+
+    db.commit()
+    db.refresh(expense_guest)
+
+    return schemas.ExpenseGuestResponse(
+        id=expense_guest.id,
+        expense_id=expense_guest.expense_id,
+        name=expense_guest.name,
+        amount_owed=expense_guest.amount_owed,
+        paid=expense_guest.paid,
+        paid_at=expense_guest.paid_at
+    )
