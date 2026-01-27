@@ -13,8 +13,7 @@ import type {
     GroupMember,
     GuestMember,
     Participant,
-    SplitType,
-    ExpenseGuest
+    SplitType
 } from './types/expense';
 import {
     getParticipantName as getParticipantNameUtil
