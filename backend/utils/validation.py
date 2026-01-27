@@ -44,9 +44,14 @@ def validate_expense_participants(
     payer_id: int,
     payer_is_guest: bool,
     splits: list[schemas.ExpenseSplitBase],
-    items: list[schemas.ExpenseItemCreate] | None = None
+    items: list[schemas.ExpenseItemCreate] | None = None,
+    skip_expense_guest_validation: bool = False
 ) -> None:
-    """Validate that all participants (payer, split participants, item assignees) exist."""
+    """Validate that all participants (payer, split participants, item assignees) exist.
+
+    Args:
+        skip_expense_guest_validation: If True, skip validation for expense guests (they're created during expense creation)
+    """
     # Validate payer
     if payer_is_guest:
         payer = db.query(models.GuestMember).filter(models.GuestMember.id == payer_id).first()
@@ -56,7 +61,7 @@ def validate_expense_participants(
         payer = db.query(models.User).filter(models.User.id == payer_id).first()
         if not payer:
             raise HTTPException(status_code=400, detail=f"User payer with ID {payer_id} not found")
-    
+
     # Validate split participants
     for split in splits:
         if split.is_guest:
@@ -67,12 +72,20 @@ def validate_expense_participants(
             user = db.query(models.User).filter(models.User.id == split.user_id).first()
             if not user:
                 raise HTTPException(status_code=400, detail=f"User with ID {split.user_id} not found in splits")
-    
+
     # Validate item assignments if provided
     if items:
         for item in items:
             if item.assignments:
                 for assignment in item.assignments:
+                    # Skip expense guest assignments (they use temp_guest_id)
+                    if skip_expense_guest_validation and assignment.temp_guest_id:
+                        continue
+
+                    # Skip if no user_id (expense guest assignment)
+                    if assignment.user_id is None:
+                        continue
+
                     if assignment.is_guest:
                         guest = db.query(models.GuestMember).filter(models.GuestMember.id == assignment.user_id).first()
                         if not guest:
@@ -81,6 +94,16 @@ def validate_expense_participants(
                         user = db.query(models.User).filter(models.User.id == assignment.user_id).first()
                         if not user:
                             raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} not found in item assignments")
+
+
+def get_assignment_key(assignment: schemas.ItemAssignment) -> str:
+    """Get a unique key for an assignment (user, group guest, or expense guest)."""
+    if assignment.temp_guest_id:
+        return f"expense_guest_{assignment.temp_guest_id}"
+    elif assignment.is_guest:
+        return f"guest_{assignment.user_id}"
+    else:
+        return f"user_{assignment.user_id}"
 
 
 def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
@@ -107,7 +130,7 @@ def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
         if split_type == 'EXACT':
             total_amount = 0
             for assignment in item.assignments:
-                key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+                key = get_assignment_key(assignment)
                 detail = split_details.get(key, {})
                 # Handle both dict and ItemSplitDetail object
                 if hasattr(detail, 'amount'):
@@ -129,7 +152,7 @@ def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
         elif split_type == 'PERCENT':
             total_percentage = 0
             for assignment in item.assignments:
-                key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+                key = get_assignment_key(assignment)
                 detail = split_details.get(key, {})
                 # Handle both dict and ItemSplitDetail object
                 if hasattr(detail, 'percentage'):
@@ -151,7 +174,7 @@ def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
         elif split_type == 'SHARES':
             total_shares = 0
             for assignment in item.assignments:
-                key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+                key = get_assignment_key(assignment)
                 detail = split_details.get(key, {})
                 # Handle both dict and ItemSplitDetail object
                 if hasattr(detail, 'shares'):

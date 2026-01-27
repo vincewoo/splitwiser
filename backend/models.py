@@ -66,7 +66,8 @@ class Expense(Base):
     currency = Column(String, default="USD")
     date = Column(String) # ISO date string
     payer_id = Column(Integer)
-    payer_is_guest = Column(Boolean, default=False)
+    payer_is_guest = Column(Boolean, default=False)  # True if payer is a group guest
+    payer_is_expense_guest = Column(Boolean, default=False)  # True if payer is an expense guest
     # Optimized: Index added for frequent filtering by group
     group_id = Column(Integer, nullable=True, index=True)
     created_by_id = Column(Integer)
@@ -105,8 +106,9 @@ class ExpenseItemAssignment(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     expense_item_id = Column(Integer, nullable=False)
-    user_id = Column(Integer, nullable=False)
-    is_guest = Column(Boolean, default=False)
+    user_id = Column(Integer, nullable=True)  # For registered users and group guests
+    is_guest = Column(Boolean, default=False)  # True if user_id refers to a group guest
+    expense_guest_id = Column(Integer, nullable=True, index=True)  # For ad-hoc expense guests
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
@@ -148,3 +150,16 @@ class FriendRequest(Base):
     to_user_id = Column(Integer, nullable=False, index=True)
     status = Column(String, default="pending")  # pending, accepted, rejected
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ExpenseGuest(Base):
+    """Ad-hoc guest for non-group expenses (one-time splits)"""
+    __tablename__ = "expense_guests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    expense_id = Column(Integer, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    amount_owed = Column(Integer, nullable=False, default=0)  # In cents
+    paid = Column(Boolean, default=False)
+    paid_at = Column(DateTime, nullable=True)
+    created_by_id = Column(Integer, nullable=False)

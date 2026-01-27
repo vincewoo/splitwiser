@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, field_validator, Field
-from typing import Optional, Dict
+from typing import Optional, Dict, List
+from datetime import datetime
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -24,10 +25,36 @@ class ExpenseSplitBase(BaseModel):
     percentage: Optional[int] = None
     shares: Optional[int] = None
 
+# Expense guest schemas (for non-group expenses)
+class ExpenseGuestCreate(BaseModel):
+    """Ad-hoc guest in expense creation request"""
+    temp_id: str  # Client-generated temporary ID for item assignment reference
+    name: str = Field(..., max_length=100)
+
+
+class ExpenseGuestResponse(BaseModel):
+    """Expense guest in response"""
+    id: int
+    expense_id: int
+    name: str
+    amount_owed: int
+    paid: bool
+    paid_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ExpenseGuestPaidUpdate(BaseModel):
+    """Request to update paid status"""
+    paid: bool
+
+
 # Itemized expense schemas
 class ItemAssignment(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None
     is_guest: bool = False
+    temp_guest_id: Optional[str] = None  # For ad-hoc expense guests (references temp_id)
 
 class ItemSplitDetail(BaseModel):
     amount: Optional[int] = None  # For EXACT split (in cents)
@@ -43,8 +70,9 @@ class ExpenseItemCreate(BaseModel):
     split_details: Optional[Dict[str, ItemSplitDetail]] = None  # Keyed by "user_{id}" or "guest_{id}"
 
 class ExpenseItemAssignmentDetail(BaseModel):
-    user_id: int
-    is_guest: bool
+    user_id: Optional[int] = None
+    is_guest: bool = False
+    expense_guest_id: Optional[int] = None
     user_name: str
 
 class ExpenseItemDetail(BaseModel):
@@ -66,11 +94,14 @@ class ExpenseCreate(BaseModel):
     currency: str = Field("USD", min_length=3, max_length=3)
     date: str
     payer_id: int
-    payer_is_guest: bool = False
+    payer_is_guest: bool = False  # True if payer is a group guest
+    payer_is_expense_guest: bool = False  # True if payer is an expense guest
+    payer_temp_guest_id: Optional[str] = None  # Reference to expense guest temp_id if payer is expense guest
     group_id: Optional[int] = None
     splits: list[ExpenseSplitBase]
     split_type: str  # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
     items: Optional[list[ExpenseItemCreate]] = None  # Only for ITEMIZED type
+    expense_guests: Optional[list[ExpenseGuestCreate]] = None  # For non-group expenses only
     icon: Optional[str] = Field(None, max_length=10)  # Optional emoji icon
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)
@@ -84,6 +115,7 @@ class Expense(BaseModel):
     date: str
     payer_id: int
     payer_is_guest: bool = False
+    payer_is_expense_guest: bool = False
     group_id: Optional[int]
     created_by_id: Optional[int] = None
     exchange_rate: Optional[str] = None
@@ -112,6 +144,7 @@ class ExpenseWithSplits(Expense):
     splits: list[ExpenseSplitDetail]
     split_type: Optional[str] = None
     items: list[ExpenseItemDetail] = []  # Only populated for ITEMIZED type
+    expense_guests: list[ExpenseGuestResponse] = []  # For non-group expenses with ad-hoc guests
     has_unknown_assignments: bool = False  # True if expense has items with no assignments (incomplete)
     exchange_rate_target_currency: Optional[str] = None  # Currency that exchange_rate is relative to (e.g., "USD" or group default)
 
@@ -122,9 +155,12 @@ class ExpenseUpdate(BaseModel):
     date: str
     payer_id: int
     payer_is_guest: bool = False
+    payer_is_expense_guest: bool = False
+    payer_temp_guest_id: Optional[str] = None
     splits: list[ExpenseSplitBase]
     split_type: str  # EQUAL, EXACT, PERCENT, SHARES, ITEMIZED
     items: Optional[list[ExpenseItemCreate]] = None  # Only for ITEMIZED type
+    expense_guests: Optional[list[ExpenseGuestCreate]] = None  # For non-group expenses only
     icon: Optional[str] = Field(None, max_length=10)  # Optional emoji icon
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)

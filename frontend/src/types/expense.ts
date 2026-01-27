@@ -7,11 +7,30 @@ export interface Participant {
     id: number;
     name: string;
     isGuest: boolean;
+    isExpenseGuest?: boolean;  // True if this is an ad-hoc expense guest
+    tempId?: string;  // Temporary ID for expense guests before creation
 }
 
 export interface ItemAssignment {
-    user_id: number;
+    user_id?: number;
     is_guest: boolean;
+    temp_guest_id?: string;  // For ad-hoc expense guests
+    expense_guest_id?: number;  // For expense guests in responses
+}
+
+// Expense guest types for non-group expenses
+export interface ExpenseGuestCreate {
+    temp_id: string;
+    name: string;
+}
+
+export interface ExpenseGuest {
+    id: number;
+    expense_id: number;
+    name: string;
+    amount_owed: number;
+    paid: boolean;
+    paid_at: string | null;
 }
 
 export interface ExpenseItem {
@@ -40,7 +59,7 @@ export interface ExpenseItemDetail {
     description: string;
     price: number;
     is_tax_tip: boolean;
-    assignments: Array<ItemAssignment & { user_name: string }>;
+    assignments: Array<ItemAssignment & { user_name: string; expense_guest_id?: number }>;
 }
 
 export interface ExpenseWithSplits {
@@ -51,11 +70,13 @@ export interface ExpenseWithSplits {
     date: string;
     payer_id: number;
     payer_is_guest: boolean;
+    payer_is_expense_guest?: boolean;  // True if payer is an expense guest
     group_id: number | null;
     created_by_id: number | null;
     splits: ExpenseSplit[];
     split_type: string;
     items?: ExpenseItemDetail[];
+    expense_guests?: ExpenseGuest[];  // For non-group expenses with ad-hoc guests
     icon?: string | null;
     receipt_image_path?: string | null;
     notes?: string | null;

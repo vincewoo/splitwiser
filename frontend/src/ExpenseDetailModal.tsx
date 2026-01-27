@@ -13,7 +13,8 @@ import type {
     GroupMember,
     GuestMember,
     Participant,
-    SplitType
+    SplitType,
+    ExpenseGuest
 } from './types/expense';
 import {
     getParticipantName as getParticipantNameUtil
@@ -95,9 +96,42 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
     const currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD'];
 
+    // Quick settle state
+    const [settlingGuestId, setSettlingGuestId] = useState<number | null>(null);
+
     // Use custom hooks
     const itemizedExpense = useItemizedExpense();
     const { splitDetails, setSplitDetails, handleSplitDetailChange } = useSplitDetails();
+
+    // Toggle expense guest paid status
+    const toggleExpenseGuestPaid = async (guestId: number, paid: boolean) => {
+        if (!expense || settlingGuestId !== null) return;
+
+        setSettlingGuestId(guestId);
+        try {
+            const updatedGuest = await expensesApi.toggleExpenseGuestPaid(expense.id, guestId, paid);
+            // Update the expense state with the new guest data
+            setExpense(prev => {
+                if (!prev || !prev.expense_guests) return prev;
+                return {
+                    ...prev,
+                    expense_guests: prev.expense_guests.map(g =>
+                        g.id === guestId ? { ...g, paid: updatedGuest.paid, paid_at: updatedGuest.paid_at } : g
+                    )
+                };
+            });
+        } catch (err) {
+            console.error('Failed to update guest paid status:', err);
+            setAlertDialog({
+                isOpen: true,
+                title: 'Error',
+                message: 'Failed to update payment status',
+                type: 'error'
+            });
+        } finally {
+            setSettlingGuestId(null);
+        }
+    };
 
     useEffect(() => {
         if (isOpen && expenseId) {
@@ -1117,6 +1151,71 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             })}
                                         </div>
                                     </div>
+
+                                    {/* Quick Settle Section - Only for non-group expenses with expense guests */}
+                                    {expense.expense_guests && expense.expense_guests.length > 0 && (
+                                        <div className="border-t dark:border-gray-700 pt-4 mt-4">
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300">Quick Settle</h4>
+                                                <span className={`text-xs px-2 py-1 rounded-full ${
+                                                    expense.expense_guests.filter(g => g.paid).length === expense.expense_guests.length
+                                                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                                                }`}>
+                                                    {expense.expense_guests.filter(g => g.paid).length}/{expense.expense_guests.length} paid
+                                                </span>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {expense.expense_guests.map(guest => (
+                                                    <div
+                                                        key={guest.id}
+                                                        className={`flex items-center justify-between p-3 rounded-lg transition-colors ${
+                                                            guest.paid
+                                                                ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                                                                : 'bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600'
+                                                        }`}
+                                                    >
+                                                        <label className="flex items-center gap-3 cursor-pointer flex-1">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={guest.paid}
+                                                                disabled={settlingGuestId === guest.id || readOnly}
+                                                                onChange={() => toggleExpenseGuestPaid(guest.id, !guest.paid)}
+                                                                className="w-5 h-5 text-green-600 bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 rounded focus:ring-green-500 disabled:opacity-50"
+                                                            />
+                                                            <span className={`font-medium ${
+                                                                guest.paid
+                                                                    ? 'text-green-700 dark:text-green-300'
+                                                                    : 'text-gray-900 dark:text-gray-100'
+                                                            }`}>
+                                                                {guest.name}
+                                                            </span>
+                                                        </label>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`font-medium ${
+                                                                guest.paid
+                                                                    ? 'text-green-600 dark:text-green-400'
+                                                                    : 'text-gray-900 dark:text-gray-100'
+                                                            }`}>
+                                                                {formatMoney(guest.amount_owed, expense.currency)}
+                                                            </span>
+                                                            {guest.paid && (
+                                                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                                </svg>
+                                                            )}
+                                                            {settlingGuestId === guest.id && (
+                                                                <svg className="w-5 h-5 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                </svg>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="sticky bottom-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4 sm:p-5 flex justify-end">
