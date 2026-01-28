@@ -26,6 +26,7 @@ import {
     calculateItemizedTotal
 } from './utils/expenseCalculations';
 import { formatMoney, formatDate } from './utils/formatters';
+import { CURRENCIES } from './utils/currencyHelpers';
 import { expensesApi } from './services/api';
 import { offlineExpensesApi } from './services/offlineApi';
 import { useSync } from './contexts/SyncContext';
@@ -92,8 +93,6 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         message: '',
         type: 'alert'
     });
-
-    const currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD'];
 
     // Quick settle state
     const [settlingGuestId, setSettlingGuestId] = useState<number | null>(null);
@@ -732,7 +731,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             onChange={(e) => setCurrency(e.target.value)}
                                             className="border-b border-gray-300 dark:border-gray-600 py-2 focus:outline-none focus:border-teal-500 bg-transparent dark:bg-gray-700 dark:text-gray-200"
                                         >
-                                            {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                                            {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
                                         </select>
                                         <input
                                             type="text"
