@@ -55,3 +55,8 @@
 **Vulnerability:** The OCR caching mechanism used a random UUID as a key but did not store or validate the user ownership of the cached data. Knowing the UUID allowed any user to access another user's receipt data (IDOR).
 **Learning:** Random tokens (like UUIDs) provide unpredictability but not authorization. If the token is leaked or shared, access control is lost unless explicit ownership checks are enforced.
 **Prevention:** Always associate cached sensitive data with an owner (user_id) and verify `current_user.id == owner_id` upon retrieval, even for temporary or cached resources.
+
+## 2025-02-24 - Unbounded Memory Consumption in File Uploads (Incomplete Fix)
+**Vulnerability:** While a file size limit check existed, the application called `await file.read()` before the check, loading the entire file into memory. This left the server vulnerable to memory exhaustion DoS despite the check.
+**Learning:** `UploadFile.read()` loads the full content into RAM even if the underlying storage is spooled to disk. To prevent OOM, one must read in chunks.
+**Prevention:** Replaced `await file.read()` with a chunked reading utility (`read_upload_file_securely`) that enforces the limit incrementally.
