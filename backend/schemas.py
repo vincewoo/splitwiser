@@ -2,6 +2,8 @@ from pydantic import BaseModel, EmailStr, field_validator, Field
 from typing import Optional, Dict, List
 from datetime import datetime
 
+from utils.currency import VALID_CURRENCIES
+
 class UserBase(BaseModel):
     email: EmailStr
     full_name: Optional[str] = Field(None, max_length=100)
@@ -183,9 +185,8 @@ class GroupBase(BaseModel):
     @field_validator('default_currency')
     @classmethod
     def validate_currency(cls, v):
-        valid_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']
-        if v not in valid_currencies:
-            raise ValueError(f'Currency must be one of {valid_currencies}')
+        if v not in VALID_CURRENCIES:
+            raise ValueError(f'Currency must be one of {VALID_CURRENCIES}')
         return v
 
 class GroupCreate(GroupBase):
@@ -300,9 +301,8 @@ class GroupUpdate(BaseModel):
     @field_validator('default_currency')
     @classmethod
     def validate_currency(cls, v):
-        valid_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']
-        if v not in valid_currencies:
-            raise ValueError(f'Currency must be one of {valid_currencies}')
+        if v not in VALID_CURRENCIES:
+            raise ValueError(f'Currency must be one of {VALID_CURRENCIES}')
         return v
 
 class GroupWithMembers(Group):
@@ -392,9 +392,8 @@ class ProfileUpdateRequest(BaseModel):
     def validate_currency(cls, v):
         if v is None:
             return v
-        valid_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD']
-        if v not in valid_currencies:
-            raise ValueError(f'Currency must be one of {valid_currencies}')
+        if v not in VALID_CURRENCIES:
+            raise ValueError(f'Currency must be one of {VALID_CURRENCIES}')
         return v
 
 

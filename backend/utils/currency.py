@@ -28,6 +28,10 @@ CURRENCY_SYMBOLS = {
     "CHF": "CHF"
 }
 
+# Canonical list of valid currencies - use this for validation
+# Derived from EXCHANGE_RATES keys to ensure consistency
+VALID_CURRENCIES = list(EXCHANGE_RATES.keys())
+
 
 def format_currency(amount_cents: int, currency: str) -> str:
     """
