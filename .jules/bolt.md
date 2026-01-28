@@ -15,3 +15,7 @@
 ## 2024-05-24 - Intl Formatter Crash Risk
 **Learning:** Replacing `date.toLocaleDateString()` with `Intl.DateTimeFormat.format()` for performance can cause crashes. `toLocaleDateString` gracefully returns "Invalid Date", while `format()` throws a `RangeError`.
 **Action:** Always validate input dates with `isNaN(date.getTime())` before using `Intl.DateTimeFormat.format()`.
+
+## 2024-05-25 - Itemized Expense N+1 Optimization
+**Learning:** Display helpers like `get_guest_display_name` can trigger hidden N+1 queries if they internally query for claimed users.
+**Action:** Always pre-fetch "claimed by" users when handling lists of guests, and pass the data explicitly or map it manually, rather than relying on the helper inside a loop.

@@ -320,66 +320,117 @@ def get_expense(
             models.ExpenseItem.expense_id == expense_id
         ).all()
 
-        for item in expense_items:
-            assignments = db.query(models.ExpenseItemAssignment).filter(
-                models.ExpenseItemAssignment.expense_item_id == item.id
+        if expense_items:
+            item_ids = [item.id for item in expense_items]
+
+            # Batch fetch all assignments
+            all_assignments = db.query(models.ExpenseItemAssignment).filter(
+                models.ExpenseItemAssignment.expense_item_id.in_(item_ids)
             ).all()
 
-            assignment_details = []
-            for a in assignments:
+            # Collect IDs for batch fetching
+            user_ids = set()
+            guest_ids = set()
+            expense_guest_ids = set()
+            assignments_by_item = {}
+
+            for a in all_assignments:
+                if a.expense_item_id not in assignments_by_item:
+                    assignments_by_item[a.expense_item_id] = []
+                assignments_by_item[a.expense_item_id].append(a)
+
                 if a.expense_guest_id:
-                    # Expense guest assignment
-                    expense_guest = db.query(models.ExpenseGuest).filter(
-                        models.ExpenseGuest.id == a.expense_guest_id
-                    ).first()
-                    name = expense_guest.name if expense_guest else "Unknown Guest"
-                    assignment_details.append(schemas.ExpenseItemAssignmentDetail(
-                        user_id=None,
-                        is_guest=False,
-                        expense_guest_id=a.expense_guest_id,
-                        user_name=name
-                    ))
+                    expense_guest_ids.add(a.expense_guest_id)
                 elif a.is_guest:
-                    guest = db.query(models.GuestMember).filter(
-                        models.GuestMember.id == a.user_id
-                    ).first()
-                    name = get_guest_display_name(guest, db)
-                    assignment_details.append(schemas.ExpenseItemAssignmentDetail(
-                        user_id=a.user_id,
-                        is_guest=a.is_guest,
-                        expense_guest_id=None,
-                        user_name=name
-                    ))
-                else:
-                    user = db.query(models.User).filter(
-                        models.User.id == a.user_id
-                    ).first()
-                    name = (user.full_name or user.email) if user else "Unknown"
-                    assignment_details.append(schemas.ExpenseItemAssignmentDetail(
-                        user_id=a.user_id,
-                        is_guest=a.is_guest,
-                        expense_guest_id=None,
-                        user_name=name
-                    ))
+                    guest_ids.add(a.user_id)
+                elif a.user_id:
+                    user_ids.add(a.user_id)
 
-            # Deserialize split_details from JSON if present
-            split_details = None
-            if item.split_details:
-                try:
-                    split_details = json.loads(item.split_details)
-                except json.JSONDecodeError:
-                    split_details = None
+            # Batch fetch related records
+            users = {}
+            if user_ids:
+                user_records = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+                users = {u.id: u for u in user_records}
 
-            items_data.append(schemas.ExpenseItemDetail(
-                id=item.id,
-                expense_id=item.expense_id,
-                description=item.description,
-                price=item.price,
-                is_tax_tip=item.is_tax_tip,
-                assignments=assignment_details,
-                split_type=item.split_type or 'EQUAL',
-                split_details=split_details
-            ))
+            guests = {}
+            if guest_ids:
+                guest_records = db.query(models.GuestMember).filter(models.GuestMember.id.in_(guest_ids)).all()
+                guests = {g.id: g for g in guest_records}
+
+                # Fetch users claimed by guests (to avoid N+1 in get_guest_display_name)
+                claimed_user_ids = {g.claimed_by_id for g in guest_records if g.claimed_by_id}
+                missing_claimed_ids = claimed_user_ids - set(users.keys())
+                if missing_claimed_ids:
+                    claimed_users = db.query(models.User).filter(models.User.id.in_(missing_claimed_ids)).all()
+                    for u in claimed_users:
+                        users[u.id] = u
+
+            expense_guests = {}
+            if expense_guest_ids:
+                eg_records = db.query(models.ExpenseGuest).filter(models.ExpenseGuest.id.in_(expense_guest_ids)).all()
+                expense_guests = {eg.id: eg for eg in eg_records}
+
+            for item in expense_items:
+                assignments = assignments_by_item.get(item.id, [])
+                assignment_details = []
+
+                for a in assignments:
+                    if a.expense_guest_id:
+                        # Expense guest assignment
+                        expense_guest = expense_guests.get(a.expense_guest_id)
+                        name = expense_guest.name if expense_guest else "Unknown Guest"
+                        assignment_details.append(schemas.ExpenseItemAssignmentDetail(
+                            user_id=None,
+                            is_guest=False,
+                            expense_guest_id=a.expense_guest_id,
+                            user_name=name
+                        ))
+                    elif a.is_guest:
+                        guest = guests.get(a.user_id)
+                        # Manual implementation of get_guest_display_name logic using pre-fetched data
+                        if guest:
+                            if guest.claimed_by_id and guest.claimed_by_id in users:
+                                claimed_user = users[guest.claimed_by_id]
+                                name = (claimed_user.full_name or claimed_user.email)
+                            else:
+                                name = guest.name
+                        else:
+                            name = "Unknown Guest"
+
+                        assignment_details.append(schemas.ExpenseItemAssignmentDetail(
+                            user_id=a.user_id,
+                            is_guest=a.is_guest,
+                            expense_guest_id=None,
+                            user_name=name
+                        ))
+                    else:
+                        user = users.get(a.user_id)
+                        name = (user.full_name or user.email) if user else "Unknown"
+                        assignment_details.append(schemas.ExpenseItemAssignmentDetail(
+                            user_id=a.user_id,
+                            is_guest=a.is_guest,
+                            expense_guest_id=None,
+                            user_name=name
+                        ))
+
+                # Deserialize split_details from JSON if present
+                split_details = None
+                if item.split_details:
+                    try:
+                        split_details = json.loads(item.split_details)
+                    except json.JSONDecodeError:
+                        split_details = None
+
+                items_data.append(schemas.ExpenseItemDetail(
+                    id=item.id,
+                    expense_id=item.expense_id,
+                    description=item.description,
+                    price=item.price,
+                    is_tax_tip=item.is_tax_tip,
+                    assignments=assignment_details,
+                    split_type=item.split_type or 'EQUAL',
+                    split_details=split_details
+                ))
 
     # Calculate display exchange rate relative to group's default currency
     display_exchange_rate = expense.exchange_rate
