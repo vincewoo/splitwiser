@@ -19,3 +19,7 @@
 ## 2024-05-25 - Itemized Expense N+1 Optimization
 **Learning:** Display helpers like `get_guest_display_name` can trigger hidden N+1 queries if they internally query for claimed users.
 **Action:** Always pre-fetch "claimed by" users when handling lists of guests, and pass the data explicitly or map it manually, rather than relying on the helper inside a loop.
+
+## 2024-05-25 - Friends List N+1 Optimization
+**Learning:** Iterating over a relationship table (like `Friendship`) and querying the related entity (like `User`) one-by-one inside the loop causes N+1 queries.
+**Action:** Collect all related IDs first (e.g., `friend_ids`) and use a single batch query with `filter(Model.id.in_(ids))` to fetch all related records at once.

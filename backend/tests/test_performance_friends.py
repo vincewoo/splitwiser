@@ -1,6 +1,7 @@
 
 import pytest
 from sqlalchemy import create_engine, event
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
@@ -12,7 +13,9 @@ from dependencies import get_current_user
 # Setup in-memory DB for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -170,3 +173,46 @@ def test_get_friend_balance_performance(client, session, query_counter):
     # Base queries + 1 batch fetch splits
     # Should be around 5-7 queries
     assert query_counter.count < 10, f"Expected < 10 queries, got {query_counter.count}"
+
+
+def test_read_friends_n_plus_one(client, session, query_counter):
+    """
+    Test that reading a list of friends does not trigger N+1 queries.
+    """
+    # Create main user
+    user = create_user(session, "main@example.com", "Main User")
+
+    # Authenticate
+    app.dependency_overrides[get_current_user] = lambda: user
+
+    # Create 20 friends
+    for i in range(20):
+        friend = create_user(session, f"friend{i}@example.com", f"Friend {i}")
+        friendship = Friendship(user_id1=user.id, user_id2=friend.id)
+        session.add(friendship)
+    session.commit()
+
+    # Reset query counter
+    query_counter.count = 0
+    query_counter.queries = []
+
+    # Call endpoint
+    response = client.get("/friends")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 20
+
+    print(f"Query count for 20 friends: {query_counter.count}")
+
+    # Expectation for N+1:
+    # 1 query for fetching friendships
+    # 20 queries for fetching each friend user details (if not optimized)
+    # Total ~21 queries
+
+    # Expectation for Optimized:
+    # 1 query for fetching friendships
+    # 1 query for batch fetching friend users
+    # Total ~2-3 queries
+
+    # We set the threshold low to catch N+1
+    assert query_counter.count < 5, f"N+1 detected! Expected < 5 queries, got {query_counter.count}"
