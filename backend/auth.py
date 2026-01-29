@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -6,7 +7,15 @@ import bcrypt
 import secrets
 import hashlib
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-keep-it-secret")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+SPLITWISER_ENV = os.environ.get("SPLITWISER_ENV", "development")
+
+if not SECRET_KEY:
+    if SPLITWISER_ENV.lower() == "production":
+        raise ValueError("FATAL: SECRET_KEY env var is not set. Cannot start in production mode.")
+
+    print("WARNING: SECRET_KEY not set. Using insecure default for development only.", file=sys.stderr)
+    SECRET_KEY = "your-secret-key-keep-it-secret"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Short-lived access token
 REFRESH_TOKEN_EXPIRE_DAYS = 30  # Long-lived refresh token

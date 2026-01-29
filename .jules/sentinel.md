@@ -55,3 +55,8 @@
 **Vulnerability:** The OCR caching mechanism used a random UUID as a key but did not store or validate the user ownership of the cached data. Knowing the UUID allowed any user to access another user's receipt data (IDOR).
 **Learning:** Random tokens (like UUIDs) provide unpredictability but not authorization. If the token is leaked or shared, access control is lost unless explicit ownership checks are enforced.
 **Prevention:** Always associate cached sensitive data with an owner (user_id) and verify `current_user.id == owner_id` upon retrieval, even for temporary or cached resources.
+
+## 2025-02-19 - Insecure Default Configuration
+**Vulnerability:** The application fell back to a hardcoded "weak" secret key if the `SECRET_KEY` environment variable was missing. This "convenience" feature meant that production deployments could silently run with a known compromised key if configuration was missed.
+**Learning:** "Secure by default" means the application should fail to start if critical security configuration is missing, rather than falling back to an insecure state. Convenience for developers (not setting env vars) should not compromise production security.
+**Prevention:** Enforce strict configuration checks at startup. If the environment is production, raise a fatal error if secrets are missing. Only allow weak defaults when explicitly in a development environment.
