@@ -14,6 +14,15 @@ from database import Base, get_db
 from models import User
 from auth import get_password_hash, create_access_token
 
+# Import rate limiters to override them
+from utils.rate_limiter import (
+    auth_rate_limiter,
+    ocr_rate_limiter,
+    password_reset_rate_limiter,
+    email_verification_rate_limiter,
+    profile_update_rate_limiter
+)
+
 # Setup in-memory SQLite database for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
@@ -47,7 +56,8 @@ def client(db_session):
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
         yield c
-    app.dependency_overrides.clear()
+    # Clean up is handled by yield
+    app.dependency_overrides.pop(get_db, None)
 
 @pytest.fixture
 def test_user(db_session):
@@ -68,3 +78,27 @@ def auth_headers(test_user):
     """Return authorization headers for the test user."""
     access_token = create_access_token(data={"sub": test_user.email})
     return {"Authorization": f"Bearer {access_token}"}
+
+@pytest.fixture(autouse=True)
+def disable_rate_limits():
+    """Disable all rate limits during testing using dependency overrides."""
+    async def mock_rate_limit():
+        return True
+
+    overrides = {
+        auth_rate_limiter: mock_rate_limit,
+        ocr_rate_limiter: mock_rate_limit,
+        password_reset_rate_limiter: mock_rate_limit,
+        email_verification_rate_limiter: mock_rate_limit,
+        profile_update_rate_limiter: mock_rate_limit
+    }
+
+    # Apply overrides
+    for limiter, mock in overrides.items():
+        app.dependency_overrides[limiter] = mock
+
+    yield
+
+    # Remove overrides
+    for limiter in overrides.keys():
+        app.dependency_overrides.pop(limiter, None)
