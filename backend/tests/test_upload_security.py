@@ -73,3 +73,26 @@ def test_upload_non_image_content_rejected(mock_ocr):
 
     finally:
         app.dependency_overrides = {}
+
+def test_large_file_upload_rejected(mock_ocr):
+    app.dependency_overrides[get_current_user] = lambda: MagicMock(id=1)
+
+    try:
+        # Create a large file (10MB + 1 byte)
+        # Using a generator to simulate streaming wouldn't work easily with TestClient
+        # as it usually expects bytes or file-like objects.
+        # But creating 10MB in memory is acceptable for test.
+        large_content = b"a" * (10 * 1024 * 1024 + 1)
+
+        files = {
+            "file": ("large.jpg", large_content, "image/jpeg")
+        }
+
+        response = client.post("/ocr/scan-receipt", files=files)
+
+        # Verify fix: Should be rejected as too large (413 Payload Too Large)
+        assert response.status_code == 413
+        assert "File size exceeds maximum allowed size" in response.json()["detail"]
+
+    finally:
+        app.dependency_overrides = {}
