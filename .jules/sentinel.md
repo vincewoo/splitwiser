@@ -60,3 +60,8 @@
 **Vulnerability:** The application fell back to a hardcoded "weak" secret key if the `SECRET_KEY` environment variable was missing. This "convenience" feature meant that production deployments could silently run with a known compromised key if configuration was missed.
 **Learning:** "Secure by default" means the application should fail to start if critical security configuration is missing, rather than falling back to an insecure state. Convenience for developers (not setting env vars) should not compromise production security.
 **Prevention:** Enforce strict configuration checks at startup. If the environment is production, raise a fatal error if secrets are missing. Only allow weak defaults when explicitly in a development environment.
+
+## 2025-05-26 - DoS via Memory Exhaustion in Size Check
+**Vulnerability:** The file size check for OCR uploads was implemented *after* reading the entire file into memory (`await file.read()`), allowing a large file upload to exhaust server memory before the check could reject it.
+**Learning:** Checking `len(content) > LIMIT` is too late for memory exhaustion protection. The check must happen *during* the read process (streaming) or rely on `Content-Length` (which can be spoofed) combined with a hard limit on the read operation.
+**Prevention:** Use a utility that reads the file stream in chunks and enforces the limit incrementally, raising an exception immediately when the limit is exceeded, preventing the full file from loading into RAM.
