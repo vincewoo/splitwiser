@@ -1,17 +1,22 @@
 
 import pytest
+from fastapi import UploadFile, HTTPException
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 import os
 import io
+from io import BytesIO
 from PIL import Image
 
 # Import app to get dependencies
 from main import app, RECEIPT_DIR
 from dependencies import get_current_user
+from utils.files import read_upload_file_securely
 
 # Create client
-client = TestClient(app)
+# Note: This global client is used by the legacy tests below.
+# New tests should prefer the 'client' fixture from conftest.py.
+legacy_client = TestClient(app)
 
 # Mock OCR service to avoid calling Google Cloud
 @pytest.fixture
@@ -35,7 +40,7 @@ def test_upload_malicious_extension_fixed(mock_ocr, tmp_path):
             "file": ("exploit.html", valid_jpeg, "image/jpeg")
         }
 
-        response = client.post("/ocr/scan-receipt", files=files)
+        response = legacy_client.post("/ocr/scan-receipt", files=files)
 
         # Should succeed (200 OK) because content is valid image
         assert response.status_code == 200, f"Upload failed: {response.text}"
@@ -65,7 +70,7 @@ def test_upload_non_image_content_rejected(mock_ocr):
             "file": ("exploit.html", b"<html><script>alert(1)</script></html>", "image/jpeg")
         }
 
-        response = client.post("/ocr/scan-receipt", files=files)
+        response = legacy_client.post("/ocr/scan-receipt", files=files)
 
         # Verify fix: Should be rejected as invalid image (400 Bad Request)
         assert response.status_code == 400
@@ -73,3 +78,51 @@ def test_upload_non_image_content_rejected(mock_ocr):
 
     finally:
         app.dependency_overrides = {}
+
+# --- New Security Tests (DoS Protection) ---
+
+@pytest.mark.asyncio
+async def test_read_upload_file_securely_success():
+    """Test that valid files are read correctly."""
+    content = b"small content"
+    file = UploadFile(filename="test.txt", file=BytesIO(content))
+    result = await read_upload_file_securely(file, max_size_bytes=100)
+    assert result == content
+
+@pytest.mark.asyncio
+async def test_read_upload_file_securely_too_large():
+    """Test that files exceeding the limit raise 413."""
+    content = b"large content " * 10  # 140 bytes
+    file = UploadFile(filename="test.txt", file=BytesIO(content))
+
+    # max_size_bytes=50
+    with pytest.raises(HTTPException) as exc:
+        await read_upload_file_securely(file, max_size_bytes=50)
+
+    assert exc.value.status_code == 413
+    assert "File size exceeds" in exc.value.detail
+
+def test_scan_receipt_enforces_limit(client, auth_headers):
+    """Test that the scan_receipt endpoint enforces size limits (via mock)."""
+    with patch("routers.ocr.read_upload_file_securely", new_callable=AsyncMock) as mock_read:
+        mock_read.side_effect = HTTPException(status_code=413, detail="File too large")
+
+        files = {"file": ("receipt.jpg", b"fake content", "image/jpeg")}
+        # Use the client fixture which handles auth
+        response = client.post("/ocr/scan-receipt", files=files, headers=auth_headers)
+
+        assert response.status_code == 413
+        assert "File too large" in response.json()["detail"]
+        mock_read.assert_called_once()
+
+def test_detect_regions_enforces_limit(client, auth_headers):
+    """Test that the detect_regions endpoint enforces size limits (via mock)."""
+    with patch("routers.ocr.read_upload_file_securely", new_callable=AsyncMock) as mock_read:
+        mock_read.side_effect = HTTPException(status_code=413, detail="File too large")
+
+        files = {"file": ("receipt.jpg", b"fake content", "image/jpeg")}
+        response = client.post("/ocr/detect-regions", files=files, headers=auth_headers)
+
+        assert response.status_code == 413
+        assert "File too large" in response.json()["detail"]
+        mock_read.assert_called_once()

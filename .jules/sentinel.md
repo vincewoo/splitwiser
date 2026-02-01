@@ -60,3 +60,8 @@
 **Vulnerability:** The application fell back to a hardcoded "weak" secret key if the `SECRET_KEY` environment variable was missing. This "convenience" feature meant that production deployments could silently run with a known compromised key if configuration was missed.
 **Learning:** "Secure by default" means the application should fail to start if critical security configuration is missing, rather than falling back to an insecure state. Convenience for developers (not setting env vars) should not compromise production security.
 **Prevention:** Enforce strict configuration checks at startup. If the environment is production, raise a fatal error if secrets are missing. Only allow weak defaults when explicitly in a development environment.
+
+## 2025-02-19 - Regression in File Upload Size Enforcement
+**Vulnerability:** Despite a previous journal entry claiming a fix for unbounded file reads, the code in `backend/routers/ocr.py` still used `await file.read()` before checking the size, re-enabling the DoS vector.
+**Learning:** Security journal entries describing fixes do not guarantee the code remains fixed. Regressions happen easily during refactors if not protected by specific regression tests that fail when the secure pattern is removed.
+**Prevention:** When fixing a security issue, always add a regression test that specifically targets the vulnerability (e.g., mocking the file reader to verify it enforces the limit without reading the whole file). Relying on code review or memory is insufficient.
