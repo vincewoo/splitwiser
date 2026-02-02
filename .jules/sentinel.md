@@ -65,3 +65,10 @@
 **Vulnerability:** The file size check for OCR uploads was implemented *after* reading the entire file into memory (`await file.read()`), allowing a large file upload to exhaust server memory before the check could reject it.
 **Learning:** Checking `len(content) > LIMIT` is too late for memory exhaustion protection. The check must happen *during* the read process (streaming) or rely on `Content-Length` (which can be spoofed) combined with a hard limit on the read operation.
 **Prevention:** Use a utility that reads the file stream in chunks and enforces the limit incrementally, raising an exception immediately when the limit is exceeded, preventing the full file from loading into RAM.
+
+## 2025-02-21 - Unauthorized User Addition to Expenses
+**Vulnerability:** The expense creation and update logic checked that participant users existed in the database, but failed to verify that the `current_user` was authorized to add them. This allowed an attacker to create expenses involving arbitrary users (spamming them/IDOR).
+**Learning:** Checking for existence (`db.query(...).first()`) is not the same as checking for authorization. Authorization context (friendship, group membership) must be explicitly verified for every relationship.
+**Prevention:** In `validate_expense_participants`, I added explicit checks:
+1. For group expenses: All participants must be members of the group.
+2. For personal expenses: All participants must be friends of the creator.
