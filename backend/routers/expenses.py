@@ -159,14 +159,16 @@ def create_expense(
                 detail=f"Split amounts do not sum to total expense amount. Total: {expense.amount}, Sum: {total_split}"
             )
 
-    # Validate all participants exist (skip expense guest validation since they're newly created)
+    # Validate all participants exist and are authorized (skip expense guest validation since they're newly created)
     validate_expense_participants(
         db=db,
         payer_id=expense.payer_id if not expense.payer_is_expense_guest else current_user.id,
         payer_is_guest=expense.payer_is_guest if not expense.payer_is_expense_guest else False,
         splits=expense.splits,
         items=expense.items if expense.split_type == "ITEMIZED" else None,
-        skip_expense_guest_validation=True
+        skip_expense_guest_validation=True,
+        group_id=expense.group_id,
+        current_user_id=current_user.id
     )
 
     # Validate item split details if itemized expense
@@ -570,13 +572,15 @@ def update_expense(
                 detail=f"Split amounts do not sum to total expense amount. Total: {expense_update.amount}, Sum: {total_split}"
             )
 
-    # Validate all participants exist
+    # Validate all participants exist and are authorized
     validate_expense_participants(
         db=db,
         payer_id=expense_update.payer_id,
         payer_is_guest=expense_update.payer_is_guest,
         splits=expense_update.splits,
-        items=expense_update.items if expense_update.split_type == "ITEMIZED" else None
+        items=expense_update.items if expense_update.split_type == "ITEMIZED" else None,
+        group_id=expense.group_id,
+        current_user_id=current_user.id
     )
 
     # Validate item split details if itemized expense

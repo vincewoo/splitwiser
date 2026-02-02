@@ -1,6 +1,7 @@
 """Validation utilities for group membership, access control, and expense participants."""
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_
 from fastapi import HTTPException
 
 import models
@@ -39,28 +40,64 @@ def verify_group_ownership(db: Session, group_id: int, user_id: int):
     return group
 
 
+def is_friend(db: Session, user_id1: int, user_id2: int) -> bool:
+    """Check if two users are friends."""
+    friendship = db.query(models.Friendship).filter(
+        or_(
+            and_(models.Friendship.user_id1 == user_id1, models.Friendship.user_id2 == user_id2),
+            and_(models.Friendship.user_id1 == user_id2, models.Friendship.user_id2 == user_id1)
+        )
+    ).first()
+    return friendship is not None
+
+
+def is_group_member(db: Session, group_id: int, user_id: int) -> bool:
+    """Check if a user is a member of a group."""
+    member = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == user_id
+    ).first()
+    return member is not None
+
+
 def validate_expense_participants(
     db: Session,
     payer_id: int,
     payer_is_guest: bool,
     splits: list[schemas.ExpenseSplitBase],
     items: list[schemas.ExpenseItemCreate] | None = None,
-    skip_expense_guest_validation: bool = False
+    skip_expense_guest_validation: bool = False,
+    group_id: int | None = None,
+    current_user_id: int | None = None
 ) -> None:
-    """Validate that all participants (payer, split participants, item assignees) exist.
+    """Validate that all participants (payer, split participants, item assignees) exist and are authorized.
 
     Args:
         skip_expense_guest_validation: If True, skip validation for expense guests (they're created during expense creation)
+        group_id: If provided, validates that all participants belong to this group.
+        current_user_id: If provided (and group_id is None), validates that all participants are friends of this user.
     """
     # Validate payer
     if payer_is_guest:
         payer = db.query(models.GuestMember).filter(models.GuestMember.id == payer_id).first()
         if not payer:
             raise HTTPException(status_code=400, detail=f"Guest payer with ID {payer_id} not found")
+        if group_id and payer.group_id != group_id:
+            raise HTTPException(status_code=400, detail=f"Guest payer with ID {payer_id} does not belong to group {group_id}")
     else:
         payer = db.query(models.User).filter(models.User.id == payer_id).first()
         if not payer:
             raise HTTPException(status_code=400, detail=f"User payer with ID {payer_id} not found")
+
+        # Validation for group expense
+        if group_id:
+            if not is_group_member(db, group_id, payer_id):
+                raise HTTPException(status_code=400, detail=f"Payer with ID {payer_id} is not a member of the group")
+
+        # Validation for non-group expense (Friendship check)
+        elif current_user_id and payer_id != current_user_id:
+            if not is_friend(db, current_user_id, payer_id):
+                raise HTTPException(status_code=400, detail=f"Payer with ID {payer_id} is not a friend")
 
     # Validate split participants
     for split in splits:
@@ -68,10 +105,26 @@ def validate_expense_participants(
             guest = db.query(models.GuestMember).filter(models.GuestMember.id == split.user_id).first()
             if not guest:
                 raise HTTPException(status_code=400, detail=f"Guest with ID {split.user_id} not found in splits")
+
+            # Guest validation
+            if group_id and guest.group_id != group_id:
+                 raise HTTPException(status_code=400, detail=f"Guest with ID {split.user_id} does not belong to group {group_id}")
+            elif not group_id and current_user_id:
+                 # Ensure current user has access to this guest (must be in the same group)
+                 if not is_group_member(db, guest.group_id, current_user_id):
+                     raise HTTPException(status_code=400, detail=f"You do not have access to guest with ID {split.user_id}")
         else:
             user = db.query(models.User).filter(models.User.id == split.user_id).first()
             if not user:
                 raise HTTPException(status_code=400, detail=f"User with ID {split.user_id} not found in splits")
+
+            # User validation
+            if group_id:
+                if not is_group_member(db, group_id, split.user_id):
+                    raise HTTPException(status_code=400, detail=f"User with ID {split.user_id} is not a member of the group")
+            elif current_user_id and split.user_id != current_user_id:
+                if not is_friend(db, current_user_id, split.user_id):
+                    raise HTTPException(status_code=400, detail=f"User with ID {split.user_id} is not a friend")
 
     # Validate item assignments if provided
     if items:
@@ -90,10 +143,26 @@ def validate_expense_participants(
                         guest = db.query(models.GuestMember).filter(models.GuestMember.id == assignment.user_id).first()
                         if not guest:
                             raise HTTPException(status_code=400, detail=f"Guest with ID {assignment.user_id} not found in item assignments")
+
+                        # Guest validation
+                        if group_id and guest.group_id != group_id:
+                             raise HTTPException(status_code=400, detail=f"Guest with ID {assignment.user_id} does not belong to group {group_id}")
+                        elif not group_id and current_user_id:
+                             if not is_group_member(db, guest.group_id, current_user_id):
+                                 raise HTTPException(status_code=400, detail=f"You do not have access to guest with ID {assignment.user_id}")
+
                     else:
                         user = db.query(models.User).filter(models.User.id == assignment.user_id).first()
                         if not user:
                             raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} not found in item assignments")
+
+                        # User validation
+                        if group_id:
+                            if not is_group_member(db, group_id, assignment.user_id):
+                                raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} is not a member of the group")
+                        elif current_user_id and assignment.user_id != current_user_id:
+                            if not is_friend(db, current_user_id, assignment.user_id):
+                                raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} is not a friend")
 
 
 def get_assignment_key(assignment: schemas.ItemAssignment) -> str:
