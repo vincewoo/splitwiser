@@ -72,3 +72,8 @@
 **Prevention:** In `validate_expense_participants`, I added explicit checks:
 1. For group expenses: All participants must be members of the group.
 2. For personal expenses: All participants must be friends of the creator.
+
+## 2025-05-27 - Stored XSS via Email Injection
+**Vulnerability:** User-provided names (e.g. `full_name`) were injected directly into HTML email templates without sanitization. An attacker could register with a malicious name containing script tags, which would be executed in the victim's email client if it supports HTML rendering (e.g., via friend requests).
+**Learning:** Never trust user input, even in email templates. String formatting (`f"{user_name}"`) is not safe for HTML generation.
+**Prevention:** Use `html.escape()` for all user-controlled variables inserted into HTML content.
