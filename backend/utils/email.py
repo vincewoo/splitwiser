@@ -3,6 +3,7 @@
 import os
 import logging
 import requests
+import html
 from typing import Optional
 
 # Configure logging
@@ -135,7 +136,7 @@ async def send_password_reset_email(
                 <h1>Password Reset Request</h1>
             </div>
             <div class="content">
-                <p>Hi {user_name},</p>
+                <p>Hi {html.escape(user_name)},</p>
                 <p>We received a request to reset your password for your Splitwiser account.</p>
                 <p>Click the button below to reset your password:</p>
                 <p style="text-align: center;">
@@ -215,7 +216,7 @@ async def send_email_verification_email(
                 <h1>Verify Your Email Address</h1>
             </div>
             <div class="content">
-                <p>Hi {user_name},</p>
+                <p>Hi {html.escape(user_name)},</p>
                 <p>Please verify your new email address for your Splitwiser account.</p>
                 <p>Click the button below to verify this email address:</p>
                 <p style="text-align: center;">
@@ -297,10 +298,10 @@ async def send_email_change_notification(
                 <h1>Security Alert</h1>
             </div>
             <div class="content">
-                <p>Hi {user_name},</p>
+                <p>Hi {html.escape(user_name)},</p>
                 <p>This is a security notification that the email address for your Splitwiser account has been changed.</p>
                 <div class="warning">
-                    <strong>New email address:</strong> {masked_email}
+                    <strong>New email address:</strong> {html.escape(masked_email)}
                 </div>
                 <p>If you made this change, you can safely ignore this email.</p>
                 <p><strong>If you did NOT make this change:</strong></p>
@@ -376,7 +377,7 @@ async def send_password_changed_notification(
                 <h1>Password Changed Successfully</h1>
             </div>
             <div class="content">
-                <p>Hi {user_name},</p>
+                <p>Hi {html.escape(user_name)},</p>
                 <p>This is a confirmation that your Splitwiser account password has been changed successfully.</p>
                 <div class="info">
                     <p>For your security, you have been logged out of all other devices.</p>
@@ -459,8 +460,8 @@ async def send_friend_request_email(
                 <h1>New Friend Request</h1>
             </div>
             <div class="content">
-                <p>Hi {to_name},</p>
-                <p><strong>{from_name}</strong> has sent you a friend request on Splitwiser!</p>
+                <p>Hi {html.escape(to_name)},</p>
+                <p><strong>{html.escape(from_name)}</strong> has sent you a friend request on Splitwiser!</p>
                 <div class="info">
                     <p>Adding friends makes it easy to split expenses and keep track of who owes what.</p>
                 </div>
