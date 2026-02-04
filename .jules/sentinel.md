@@ -72,3 +72,8 @@
 **Prevention:** In `validate_expense_participants`, I added explicit checks:
 1. For group expenses: All participants must be members of the group.
 2. For personal expenses: All participants must be friends of the creator.
+
+## 2025-05-27 - Stored XSS in Email Templates
+**Vulnerability:** Transactional emails (friend requests, password resets) injected user-provided data (names, emails) directly into HTML templates using f-strings without escaping. This allowed Stored XSS attacks against email clients.
+**Learning:** Even internal backend systems like email generators can be vectors for XSS if they handle user input. Python f-strings do not auto-escape HTML.
+**Prevention:** Always use `html.escape()` when inserting user-controlled variables into HTML content.
