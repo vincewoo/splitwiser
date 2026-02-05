@@ -72,3 +72,8 @@
 **Prevention:** In `validate_expense_participants`, I added explicit checks:
 1. For group expenses: All participants must be members of the group.
 2. For personal expenses: All participants must be friends of the creator.
+
+## 2025-05-27 - Unauthorized Guest Claiming Bypass
+**Vulnerability:** The `claim_guest` endpoint allowed any authenticated user to claim a guest profile in *any* group (public or private) given the group and guest IDs. It automatically added the claiming user to the group if they weren't already a member, bypassing invite/membership controls.
+**Learning:** Convenience features like "auto-join on claim" can become critical security bypasses if they don't validate authorization tokens (like share links or invites).
+**Prevention:** Enforce strict membership checks (`verify_group_membership`) on all group-related actions. If a non-member needs to perform an action (like joining), it must be done via a dedicated endpoint that requires proof of authorization (e.g., share token).
