@@ -163,6 +163,7 @@ def claim_guest(
     db: Session = Depends(get_db)
 ):
     get_group_or_404(db, group_id)
+    verify_group_membership(db, group_id, current_user.id)
 
     guest = db.query(models.GuestMember).filter(
         models.GuestMember.id == guest_id,
@@ -223,38 +224,7 @@ def claim_guest(
     # Mark guest as claimed
     guest.claimed_by_id = current_user.id
 
-    # Add user to group if not already member
-    existing_member = db.query(models.GroupMember).filter(
-        models.GroupMember.group_id == group_id,
-        models.GroupMember.user_id == current_user.id
-    ).first()
-
-    if not existing_member:
-        new_member = models.GroupMember(group_id=group_id, user_id=current_user.id)
-
-        # If this guest was being managed by another guest, check if that manager has been claimed
-        # If so, update the new member to be managed by the manager's new user ID
-        if guest.managed_by_id and guest.managed_by_type == 'guest':
-            manager_guest = db.query(models.GuestMember).filter(
-                models.GuestMember.id == guest.managed_by_id
-            ).first()
-            if manager_guest and manager_guest.claimed_by_id:
-                # Manager guest was claimed, update to point to the user who claimed it
-                new_member.managed_by_id = manager_guest.claimed_by_id
-                new_member.managed_by_type = 'user'
-            else:
-                # Manager guest not claimed yet, keep the guest reference
-                new_member.managed_by_id = guest.managed_by_id
-                new_member.managed_by_type = 'guest'
-        elif guest.managed_by_id and guest.managed_by_type == 'user':
-            # Already managed by a user, preserve that relationship
-            new_member.managed_by_id = guest.managed_by_id
-            new_member.managed_by_type = 'user'
-
-        db.add(new_member)
-
     # Clear the guest's managed_by fields to prevent double-counting in balance calculations
-    # The management relationship has been transferred to the GroupMember above
     guest.managed_by_id = None
     guest.managed_by_type = None
 
