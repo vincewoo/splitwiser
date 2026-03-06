@@ -4,7 +4,7 @@ import { useSync } from './contexts/SyncContext';
 import { compressImage } from './utils/imageCompression';
 
 interface ReceiptScannerProps {
-    onItemsDetected: (items: { description: string; price: number }[], receiptPath?: string, validationWarning?: string | null) => void;
+    onItemsDetected: (items: { description: string; price: number }[], receiptPath?: string, validationWarning?: string | null, taxCents?: number | null, tipCents?: number | null, totalCents?: number | null) => void;
     onClose: () => void;
 }
 
@@ -115,7 +115,7 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
             }
         }
 
-        onItemsDetected(finalItems, receiptImagePath, warning);
+        onItemsDetected(finalItems, receiptImagePath, warning, tax, tip, total);
     };
 
     const handleCancel = () => {
