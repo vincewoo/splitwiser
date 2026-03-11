@@ -225,6 +225,12 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             const friend = friends.find(f => f.id === fid);
             if (friend) {
                 participants.push({ id: friend.id, name: friend.full_name, isGuest: false });
+            } else if (selectedGroup) {
+                // Group members may not be in the friends list
+                const member = selectedGroup.members?.find(m => m.user_id === fid);
+                if (member) {
+                    participants.push({ id: member.user_id, name: member.full_name, isGuest: false });
+                }
             }
         });
 
@@ -516,6 +522,12 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             const friend = friends.find(f => f.id === fid);
             if (friend) {
                 selected.push({ id: friend.id, name: friend.full_name, isGuest: false });
+            } else if (selectedGroup) {
+                // Group members may not be in the friends list
+                const member = selectedGroup.members?.find(m => m.user_id === fid);
+                if (member) {
+                    selected.push({ id: member.user_id, name: member.full_name, isGuest: false });
+                }
             }
         });
         selectedGuestIds.forEach(gid => {
