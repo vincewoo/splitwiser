@@ -72,8 +72,9 @@ async def scan_receipt(
     try:
         result = parse_receipt(image_content, mime_type=fmt["mime"])
     except RuntimeError as exc:
-        # Missing API key or config error
-        raise HTTPException(status_code=500, detail=str(exc))
+        # Missing API key or config error — log internally, don't leak details
+        print(f"LLM configuration error: {exc}")
+        raise HTTPException(status_code=500, detail="Receipt scanning is not configured. Please contact the administrator.")
     except Exception as exc:
         print(f"LLM receipt parsing error: {exc}")
         raise HTTPException(
