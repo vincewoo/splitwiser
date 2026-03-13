@@ -3,21 +3,31 @@
 Migration script to add expense_guests table and related columns.
 
 This adds support for ad-hoc expense guests in non-group expenses.
+
+Usage:
+    python migrations/add_expense_guests.py [--db-path <path>]
 """
 
 import sqlite3
 import sys
 import os
+import argparse
+from pathlib import Path
 
 # Get the database path from environment or use default
-DATA_DIR = os.getenv("DATA_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB_PATH = os.path.join(DATA_DIR, "db.sqlite3")
+DEFAULT_DB_PATH = Path(__file__).parent.parent / "db.sqlite3"
 
 
-def migrate():
+def migrate(db_path: str):
     """Add expense_guests table and related columns."""
+    if not os.path.exists(db_path):
+        print(f"Error: Database file not found: {db_path}")
+        sys.exit(1)
+
+    print(f"Using database: {db_path}")
+
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
         # 1. Create expense_guests table
@@ -97,4 +107,12 @@ def migrate():
 
 
 if __name__ == "__main__":
-    migrate()
+    parser = argparse.ArgumentParser(description="Add expense guests support")
+    parser.add_argument(
+        "--db-path",
+        type=str,
+        default=str(DEFAULT_DB_PATH),
+        help=f"Path to SQLite database (default: {DEFAULT_DB_PATH})"
+    )
+    args = parser.parse_args()
+    migrate(args.db_path)

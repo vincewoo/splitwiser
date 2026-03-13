@@ -421,7 +421,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     setAlertDialog({
                         isOpen: true,
                         title: 'Error',
-                        message: 'Failed to add expense',
+                        message: (result as any).error || 'Failed to add expense',
                         type: 'error'
                     });
                 }
@@ -452,7 +452,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 setAlertDialog({
                     isOpen: true,
                     title: 'Error',
-                    message: 'Failed to add expense',
+                    message: (result as any).error || 'Failed to add expense',
                     type: 'error'
                 });
             }

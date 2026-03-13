@@ -227,8 +227,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 price: item.price,
                 is_tax_tip: false,
                 assignments: item.assignments.map(a => {
-                    // For expense guests, use expense_guest_id as the user_id
-                    if (a.expense_guest_id !== undefined) {
+                    // For expense guests, use expense_guest_id as the identifier
+                    if (a.expense_guest_id != null) {
                         return {
                             user_id: a.expense_guest_id,
                             is_guest: false,
@@ -544,7 +544,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     setAlertDialog({
                         isOpen: true,
                         title: 'Error',
-                        message: 'Failed to update expense',
+                        message: (result as any).error || 'Failed to update expense',
                         type: 'error'
                     });
                 }
@@ -591,7 +591,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             setAlertDialog({
                 isOpen: true,
                 title: 'Error',
-                message: 'Failed to delete expense',
+                message: (result as any).error || 'Failed to delete expense',
                 type: 'error'
             });
         }

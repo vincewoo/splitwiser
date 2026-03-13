@@ -9,6 +9,7 @@ python init_db.py
 echo "Running migrations..."
 python migrations/add_profile_password_recovery.py --db-path "$DATABASE_PATH"
 python migrations/add_google_oauth.py --db-path "$DATABASE_PATH"
+python migrations/add_expense_guests.py --db-path "$DATABASE_PATH"
 
 # Start supervisor
 echo "Starting Supervisor..."

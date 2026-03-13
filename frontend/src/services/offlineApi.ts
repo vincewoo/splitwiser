@@ -33,10 +33,17 @@ export const offlineExpensesApi = {
 
           return { success: true, data: expense, offline: false };
         }
+        // Client errors (4xx) should not fall through to offline mode —
+        // they indicate invalid data that will fail again on sync
+        if (response.status >= 400 && response.status < 500) {
+          const errorData = await response.json().catch(() => null);
+          const message = errorData?.detail || `Failed to create expense (${response.status})`;
+          return { success: false, error: message, offline: false };
+        }
         throw new Error(`Failed to create expense: ${response.status}`);
       } catch (error) {
-        console.error('Online expense creation failed:', error);
-        // Fall through to offline mode
+        console.error('Online expense creation failed, falling back to offline:', error);
+        // Fall through to offline mode only for network/server errors
       }
     }
 
@@ -86,10 +93,16 @@ export const offlineExpensesApi = {
 
           return { success: true, data: expense, offline: false };
         }
+        // Client errors (4xx) should not fall through to offline mode
+        if (response.status >= 400 && response.status < 500) {
+          const errorData = await response.json().catch(() => null);
+          const message = errorData?.detail || `Failed to update expense (${response.status})`;
+          return { success: false, error: message, offline: false };
+        }
         throw new Error(`Failed to update expense: ${response.status}`);
       } catch (error) {
-        console.error('Online expense update failed:', error);
-        // Fall through to offline mode
+        console.error('Online expense update failed, falling back to offline:', error);
+        // Fall through to offline mode only for network/server errors
       }
     }
 
@@ -132,10 +145,16 @@ export const offlineExpensesApi = {
           await db.expenses.delete(expenseId);
           return { success: true, offline: false };
         }
+        // Client errors (4xx) should not fall through to offline mode
+        if (response.status >= 400 && response.status < 500) {
+          const errorData = await response.json().catch(() => null);
+          const message = errorData?.detail || `Failed to delete expense (${response.status})`;
+          return { success: false, error: message, offline: false };
+        }
         throw new Error(`Failed to delete expense: ${response.status}`);
       } catch (error) {
-        console.error('Online expense deletion failed:', error);
-        // Fall through to offline mode
+        console.error('Online expense deletion failed, falling back to offline:', error);
+        // Fall through to offline mode only for network/server errors
       }
     }
 

@@ -131,8 +131,10 @@ def validate_expense_participants(
         for item in items:
             if item.assignments:
                 for assignment in item.assignments:
-                    # Skip expense guest assignments (they use temp_guest_id)
+                    # Skip expense guest assignments (temp_guest_id for new, expense_guest_id for existing)
                     if skip_expense_guest_validation and assignment.temp_guest_id:
+                        continue
+                    if assignment.expense_guest_id is not None:
                         continue
 
                     # Skip if no user_id (expense guest assignment)
@@ -167,7 +169,9 @@ def validate_expense_participants(
 
 def get_assignment_key(assignment: schemas.ItemAssignment) -> str:
     """Get a unique key for an assignment (user, group guest, or expense guest)."""
-    if assignment.temp_guest_id:
+    if assignment.expense_guest_id is not None:
+        return f"expense_guest_{assignment.expense_guest_id}"
+    elif assignment.temp_guest_id:
         return f"expense_guest_{assignment.temp_guest_id}"
     elif assignment.is_guest:
         return f"guest_{assignment.user_id}"
