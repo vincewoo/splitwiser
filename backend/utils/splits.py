@@ -48,7 +48,7 @@ def calculate_itemized_splits(items: list[schemas.ExpenseItemCreate]) -> list[sc
             remainder = item.price % num_assignees
 
             for idx, assignment in enumerate(item.assignments):
-                key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+                key = get_assignment_key(assignment)
                 # First assignee gets the remainder cents
                 amount = share_per_person + (1 if idx < remainder else 0)
                 person_subtotals[key] = person_subtotals.get(key, 0) + amount
@@ -56,7 +56,7 @@ def calculate_itemized_splits(items: list[schemas.ExpenseItemCreate]) -> list[sc
         elif split_type == 'EXACT':
             # Use exact amounts specified
             for assignment in item.assignments:
-                key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+                key = get_assignment_key(assignment)
                 detail = split_details.get(key, {})
                 # Handle both dict and ItemSplitDetail object
                 if hasattr(detail, 'amount'):
@@ -70,10 +70,10 @@ def calculate_itemized_splits(items: list[schemas.ExpenseItemCreate]) -> list[sc
         elif split_type == 'PERCENT':
             # Use percentages specified
             remaining = item.price
-            sorted_assignments = sorted(item.assignments, key=lambda a: f"{'guest' if a.is_guest else 'user'}_{a.user_id}")
+            sorted_assignments = sorted(item.assignments, key=lambda a: get_assignment_key(a))
 
             for idx, assignment in enumerate(sorted_assignments):
-                key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+                key = get_assignment_key(assignment)
                 detail = split_details.get(key, {})
                 # Handle both dict and ItemSplitDetail object
                 if hasattr(detail, 'percentage'):
@@ -96,7 +96,7 @@ def calculate_itemized_splits(items: list[schemas.ExpenseItemCreate]) -> list[sc
             # Calculate based on shares
             total_shares = 0
             for assignment in item.assignments:
-                key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+                key = get_assignment_key(assignment)
                 detail = split_details.get(key, {})
                 # Handle both dict and ItemSplitDetail object
                 if hasattr(detail, 'shares'):
@@ -109,10 +109,10 @@ def calculate_itemized_splits(items: list[schemas.ExpenseItemCreate]) -> list[sc
 
             if total_shares > 0:
                 remaining = item.price
-                sorted_assignments = sorted(item.assignments, key=lambda a: f"{'guest' if a.is_guest else 'user'}_{a.user_id}")
+                sorted_assignments = sorted(item.assignments, key=lambda a: get_assignment_key(a))
 
                 for idx, assignment in enumerate(sorted_assignments):
-                    key = f"{'guest' if assignment.is_guest else 'user'}_{assignment.user_id}"
+                    key = get_assignment_key(assignment)
                     detail = split_details.get(key, {})
                     # Handle both dict and ItemSplitDetail object
                     if hasattr(detail, 'shares'):

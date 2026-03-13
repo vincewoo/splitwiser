@@ -34,7 +34,7 @@ async def scan_receipt(
     current_user: Annotated[models.User, Depends(get_current_user)] = None,
 ):
     """
-    Scan a receipt image using an LLM (GPT-4o) and return extracted items.
+    Scan a receipt image using an LLM and return extracted items.
 
     Accepts an image upload (JPEG, PNG, or WebP, max 10 MB).
     Returns structured item data with prices in cents.
@@ -61,13 +61,6 @@ async def scan_receipt(
 
     fmt = FORMAT_MAP[img_format]
 
-    # Save receipt image
-    os.makedirs(RECEIPT_DIR, exist_ok=True)
-    filename = f"{uuid.uuid4()}.{fmt['ext']}"
-    file_path = os.path.join(RECEIPT_DIR, filename)
-    with open(file_path, "wb") as f:
-        f.write(image_content)
-
     # Call LLM
     try:
         result = parse_receipt(image_content, mime_type=fmt["mime"])
@@ -81,6 +74,13 @@ async def scan_receipt(
             status_code=502,
             detail="Receipt scanning service is temporarily unavailable. Please try again.",
         )
+
+    # Save receipt image only after successful LLM parse
+    os.makedirs(RECEIPT_DIR, exist_ok=True)
+    filename = f"{uuid.uuid4()}.{fmt['ext']}"
+    file_path = os.path.join(RECEIPT_DIR, filename)
+    with open(file_path, "wb") as f:
+        f.write(image_content)
 
     # Build response
     items = [

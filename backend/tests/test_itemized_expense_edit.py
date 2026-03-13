@@ -299,3 +299,7 @@ class TestItemizedExpenseEdit:
         detail = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()
         total_split = sum(s["amount_owed"] for s in detail["splits"])
         assert total_split == 3400
+        # Verify per-user distribution: each gets 1500 (half of 3000) + 200 (half of 400 tax) = 1700
+        amounts = {s["user_id"]: s["amount_owed"] for s in detail["splits"]}
+        assert amounts[test_user.id] == 1700
+        assert amounts[other.id] == 1700
