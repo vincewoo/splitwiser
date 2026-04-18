@@ -1,6 +1,7 @@
 from datetime import date
-from models import User
+from models import User, Group, GroupMember, GuestMember
 from auth import get_password_hash
+from utils.balances import _fold_managed_relationships
 
 def test_simple_balance(client, auth_headers, db_session, test_user):
     # Setup: Group with 2 users
@@ -142,3 +143,180 @@ def test_guest_balance_aggregation(client, auth_headers, db_session, test_user):
     # We owe 10 for self + 10 for guest = 20 total.
     assert my_balance["amount"] == -2000.0
     assert any("My Guest" in g for g in my_balance["managed_guests"])
+
+
+# ---------------------------------------------------------------------------
+# Characterization tests for the _fold_managed_relationships helper.
+#
+# These pin the scalar folding semantics that calculate_net_balances delegates
+# to the helper in single-currency mode. The multi-currency branch is covered
+# by the existing test_guest_balance_aggregation integration test above and
+# deliberately stays inline in calculate_net_balances.
+# ---------------------------------------------------------------------------
+
+
+def _make_group(db_session, creator_id: int = 1) -> Group:
+    """Insert a Group row and return it (with id populated)."""
+    group = Group(name="Fold Test Group", created_by_id=creator_id, default_currency="USD")
+    db_session.add(group)
+    db_session.commit()
+    db_session.refresh(group)
+    return group
+
+
+def test_fold_managed_guest_scalar(db_session):
+    """Managed guest at -50 folded into manager at +30 → manager ends at -20, guest key removed."""
+    group = _make_group(db_session)
+
+    # Manager is user_id=10 (not a guest)
+    manager_key = (10, False)
+
+    # Guest is managed by user 10
+    guest = GuestMember(
+        group_id=group.id,
+        name="Managed Guest",
+        created_by_id=1,
+        managed_by_id=10,
+        managed_by_type="user",
+    )
+    db_session.add(guest)
+    db_session.commit()
+    db_session.refresh(guest)
+
+    guest_key = (guest.id, True)
+    totals = {manager_key: 30.0, guest_key: -50.0}
+
+    _fold_managed_relationships(db_session, group.id, totals)
+
+    # Byte-for-byte pinned expected output
+    assert totals == {manager_key: -20.0}
+
+
+def test_fold_managed_member_scalar(db_session):
+    """Same shape as the guest case but using GroupMember.managed_by_id."""
+    group = _make_group(db_session)
+
+    # Manager user_id=20. Managed member user_id=21 is managed by user 20.
+    manager_key = (20, False)
+    managed_member_user_id = 21
+
+    member = GroupMember(
+        group_id=group.id,
+        user_id=managed_member_user_id,
+        managed_by_id=20,
+        managed_by_type="user",
+    )
+    db_session.add(member)
+    db_session.commit()
+
+    managed_key = (managed_member_user_id, False)
+    totals = {manager_key: 30.0, managed_key: -50.0}
+
+    _fold_managed_relationships(db_session, group.id, totals)
+
+    assert totals == {manager_key: -20.0}
+
+
+def test_fold_defensive_skip_on_claimed_and_managed_guest(db_session, caplog):
+    """A claimed guest that also has managed_by_id set must be skipped (and warn)."""
+    group = _make_group(db_session)
+
+    claimer_user_id = 100  # the registered user who claimed the guest
+    manager_user_id = 200  # the user the guest would fold into (but won't, due to skip)
+
+    guest = GuestMember(
+        group_id=group.id,
+        name="Bad Data Guest",
+        created_by_id=1,
+        claimed_by_id=claimer_user_id,       # claimed …
+        managed_by_id=manager_user_id,       # … AND managed. Should skip.
+        managed_by_type="user",
+    )
+    db_session.add(guest)
+    db_session.commit()
+
+    # The claimed-guest balance lives under the claimer's key.
+    claimer_key = (claimer_user_id, False)
+    manager_key = (manager_user_id, False)
+
+    totals = {claimer_key: -50.0, manager_key: 30.0}
+    totals_before = dict(totals)
+
+    import logging
+    with caplog.at_level(logging.WARNING):
+        _fold_managed_relationships(db_session, group.id, totals)
+
+    # Nothing moved: the defensive skip fired.
+    assert totals == totals_before
+    # And a warning was logged about the data integrity issue.
+    assert any("Bad Data Guest" in record.message for record in caplog.records)
+
+
+def test_fold_iteration_order_independence_two_guests_into_one_manager(db_session):
+    """Two managed guests fold into the same manager → same final total regardless of order."""
+    group = _make_group(db_session)
+
+    manager_user_id = 50
+    manager_key = (manager_user_id, False)
+
+    guest_a = GuestMember(
+        group_id=group.id,
+        name="Guest A",
+        created_by_id=1,
+        managed_by_id=manager_user_id,
+        managed_by_type="user",
+    )
+    guest_b = GuestMember(
+        group_id=group.id,
+        name="Guest B",
+        created_by_id=1,
+        managed_by_id=manager_user_id,
+        managed_by_type="user",
+    )
+    db_session.add_all([guest_a, guest_b])
+    db_session.commit()
+    db_session.refresh(guest_a)
+    db_session.refresh(guest_b)
+
+    key_a = (guest_a.id, True)
+    key_b = (guest_b.id, True)
+
+    # Build totals in one order; helper folds in its own DB query order.
+    totals_1 = {manager_key: 100.0, key_a: -40.0, key_b: -25.0}
+    _fold_managed_relationships(db_session, group.id, totals_1)
+
+    # Build equivalent totals and run again (helper is idempotent-in-shape
+    # for a fresh dict, so this validates commutativity of the fold).
+    totals_2 = {manager_key: 100.0, key_b: -25.0, key_a: -40.0}
+    _fold_managed_relationships(db_session, group.id, totals_2)
+
+    assert totals_1 == {manager_key: 35.0}
+    assert totals_2 == {manager_key: 35.0}
+    assert totals_1 == totals_2
+
+
+def test_fold_helper_accepts_arbitrary_scalar_dict(db_session):
+    """The helper is callable with an arbitrary scalar-valued dict (no real prior balance scan)."""
+    group = _make_group(db_session)
+
+    manager_user_id = 7
+    manager_key = (manager_user_id, False)
+
+    guest = GuestMember(
+        group_id=group.id,
+        name="Scalar Guest",
+        created_by_id=1,
+        managed_by_id=manager_user_id,
+        managed_by_type="user",
+    )
+    db_session.add(guest)
+    db_session.commit()
+    db_session.refresh(guest)
+
+    # Caller supplies an int-valued dict (the future consumption primitive will
+    # use int cents). Helper should fold without assuming float.
+    totals = {(guest.id, True): 60, manager_key: 0}
+
+    _fold_managed_relationships(db_session, group.id, totals)
+
+    assert totals == {manager_key: 60}

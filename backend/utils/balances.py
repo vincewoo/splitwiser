@@ -1,10 +1,82 @@
 """Balance calculation utilities with management relationship aggregation."""
 
+import logging
 from typing import Dict, Tuple
 from sqlalchemy.orm import Session
 
 import models
 from utils.currency import convert_to_usd, convert_currency
+
+
+def _fold_managed_relationships(
+    db: Session,
+    group_id: int,
+    totals: Dict[Tuple[int, bool], float],
+) -> None:
+    """
+    Fold managed guests and managed members into their managers in-place.
+
+    Scoped to the scalar case: ``totals`` is a dict keyed by ``(user_id, is_guest)``
+    with scalar numeric (int/float) values. For each managed guest or managed member
+    found in the group, the entry is added to the manager's entry and then removed
+    from ``totals``.
+
+    The multi-currency (dict-of-dicts) folding path in ``calculate_net_balances``
+    deliberately stays inline and does NOT use this helper.
+
+    Args:
+        db: Database session.
+        group_id: ID of the group whose managed relationships should be folded.
+        totals: Mutable dict mapping ``(user_id, is_guest)`` to a scalar amount.
+            Mutated in place — folded entries are deleted, manager entries are
+            incremented (and created if missing when iterating in an order that
+            produces them).
+    """
+    # Aggregate managed guests with their managers
+    managed_guests = db.query(models.GuestMember).filter(
+        models.GuestMember.group_id == group_id,
+        models.GuestMember.managed_by_id != None
+    ).all()
+
+    for guest in managed_guests:
+        # Defensive check: claimed guests should not have managed_by set
+        # This would cause double-counting since the user inherits the management relationship
+        if guest.claimed_by_id and guest.managed_by_id:
+            logging.warning(
+                f"Data integrity issue: Claimed guest '{guest.name}' (ID: {guest.id}) "
+                f"has managed_by_id={guest.managed_by_id} set. This should be None. "
+                f"Skipping aggregation to prevent double-counting."
+            )
+            continue
+
+        if guest.claimed_by_id:
+            # If guest is claimed, their balance is now under the user ID
+            guest_key = (guest.claimed_by_id, False)
+        else:
+            # If guest is unclaimed, their balance is under the guest ID
+            guest_key = (guest.id, True)
+
+        manager_is_guest = (guest.managed_by_type == 'guest')
+        manager_key = (guest.managed_by_id, manager_is_guest)
+
+        if guest_key in totals:
+            totals[manager_key] = totals.get(manager_key, 0) + totals[guest_key]
+            del totals[guest_key]
+
+    # Aggregate managed members with their managers
+    managed_members = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.managed_by_id != None
+    ).all()
+
+    for managed_member in managed_members:
+        member_key = (managed_member.user_id, False)
+        manager_is_guest = (managed_member.managed_by_type == 'guest')
+        manager_key = (managed_member.managed_by_id, manager_is_guest)
+
+        if member_key in totals:
+            totals[manager_key] = totals.get(manager_key, 0) + totals[member_key]
+            del totals[member_key]
 
 
 def calculate_net_balances(
@@ -101,39 +173,40 @@ def calculate_net_balances(
                     net_balances[payer_key][expense.currency] = 0
                 net_balances[payer_key][expense.currency] += split.amount_owed
 
-    # Aggregate managed guests with their managers
-    managed_guests = db.query(models.GuestMember).filter(
-        models.GuestMember.group_id == group_id,
-        models.GuestMember.managed_by_id != None
-    ).all()
+    if target_currency:
+        # Single-currency (scalar) mode — delegate folding to the shared helper
+        # so the upcoming consumption-summary primitive can reuse the same logic.
+        _fold_managed_relationships(db, group_id, net_balances)
+    else:
+        # Multi-currency mode — kept inline; the helper is scoped to scalar values.
+        # Aggregate managed guests with their managers
+        managed_guests = db.query(models.GuestMember).filter(
+            models.GuestMember.group_id == group_id,
+            models.GuestMember.managed_by_id != None
+        ).all()
 
-    for guest in managed_guests:
-        # Defensive check: claimed guests should not have managed_by set
-        # This would cause double-counting since the user inherits the management relationship
-        if guest.claimed_by_id and guest.managed_by_id:
-            import logging
-            logging.warning(
-                f"Data integrity issue: Claimed guest '{guest.name}' (ID: {guest.id}) "
-                f"has managed_by_id={guest.managed_by_id} set. This should be None. "
-                f"Skipping aggregation to prevent double-counting."
-            )
-            continue
+        for guest in managed_guests:
+            # Defensive check: claimed guests should not have managed_by set
+            # This would cause double-counting since the user inherits the management relationship
+            if guest.claimed_by_id and guest.managed_by_id:
+                logging.warning(
+                    f"Data integrity issue: Claimed guest '{guest.name}' (ID: {guest.id}) "
+                    f"has managed_by_id={guest.managed_by_id} set. This should be None. "
+                    f"Skipping aggregation to prevent double-counting."
+                )
+                continue
 
-        if guest.claimed_by_id:
-            # If guest is claimed, their balance is now under the user ID
-            guest_key = (guest.claimed_by_id, False)
-        else:
-            # If guest is unclaimed, their balance is under the guest ID
-            guest_key = (guest.id, True)
-
-        manager_is_guest = (guest.managed_by_type == 'guest')
-        manager_key = (guest.managed_by_id, manager_is_guest)
-
-        if guest_key in net_balances:
-            if target_currency:
-                # Single currency mode - simple addition
-                net_balances[manager_key] = net_balances.get(manager_key, 0) + net_balances[guest_key]
+            if guest.claimed_by_id:
+                # If guest is claimed, their balance is now under the user ID
+                guest_key = (guest.claimed_by_id, False)
             else:
+                # If guest is unclaimed, their balance is under the guest ID
+                guest_key = (guest.id, True)
+
+            manager_is_guest = (guest.managed_by_type == 'guest')
+            manager_key = (guest.managed_by_id, manager_is_guest)
+
+            if guest_key in net_balances:
                 # Multi-currency mode - aggregate per currency
                 if manager_key not in net_balances:
                     net_balances[manager_key] = {}
@@ -142,24 +215,20 @@ def calculate_net_balances(
                         net_balances[manager_key][currency] = 0
                     net_balances[manager_key][currency] += amount
 
-            del net_balances[guest_key]
+                del net_balances[guest_key]
 
-    # Aggregate managed members with their managers
-    managed_members = db.query(models.GroupMember).filter(
-        models.GroupMember.group_id == group_id,
-        models.GroupMember.managed_by_id != None
-    ).all()
+        # Aggregate managed members with their managers
+        managed_members = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id == group_id,
+            models.GroupMember.managed_by_id != None
+        ).all()
 
-    for managed_member in managed_members:
-        member_key = (managed_member.user_id, False)
-        manager_is_guest = (managed_member.managed_by_type == 'guest')
-        manager_key = (managed_member.managed_by_id, manager_is_guest)
+        for managed_member in managed_members:
+            member_key = (managed_member.user_id, False)
+            manager_is_guest = (managed_member.managed_by_type == 'guest')
+            manager_key = (managed_member.managed_by_id, manager_is_guest)
 
-        if member_key in net_balances:
-            if target_currency:
-                # Single currency mode - simple addition
-                net_balances[manager_key] = net_balances.get(manager_key, 0) + net_balances[member_key]
-            else:
+            if member_key in net_balances:
                 # Multi-currency mode - aggregate per currency
                 if manager_key not in net_balances:
                     net_balances[manager_key] = {}
@@ -168,6 +237,6 @@ def calculate_net_balances(
                         net_balances[manager_key][currency] = 0
                     net_balances[manager_key][currency] += amount
 
-            del net_balances[member_key]
+                del net_balances[member_key]
 
     return net_balances
