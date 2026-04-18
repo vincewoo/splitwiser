@@ -37,6 +37,7 @@ Design notes (see ``docs/plans/2026-04-17-001-feat-group-spending-summary-plan.m
 
 import datetime
 import logging
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, TypedDict
 
@@ -44,7 +45,6 @@ from sqlalchemy.orm import Session
 
 import models
 from routers.expenses import normalize_date
-from utils.balances import _fold_managed_relationships
 from utils.currency import convert_currency, convert_to_usd
 from utils.display import get_participant_display_name
 
@@ -202,7 +202,10 @@ def calculate_consumption_summary(
         * Expense-guest consumption (ExpenseGuest / ExpenseItemAssignment.expense_guest_id)
           is not counted; only ``ExpenseSplit`` rows contribute.
         * Managed guests and managed members are folded into their managers via
-          :func:`utils.balances._fold_managed_relationships`.
+          :func:`_fold_with_prefetched` (mirrors the scalar-mode semantics of
+          :func:`utils.balances._fold_managed_relationships` but operates on
+          pre-fetched row lists so the fold can be called per time-bucket
+          without extra round-trips).
     """
 
     # ------------------------------------------------------------------
@@ -277,11 +280,40 @@ def calculate_consumption_summary(
     granularity = _select_granularity(min_date, max_date)
 
     # ------------------------------------------------------------------
+    # Prefetch managed relationships once — the rows are static across the
+    # call, so we avoid re-querying for every time-bucket period below.
+    # (Named ``managed_members_managed`` to avoid clashing with the
+    #  ``models.GroupMember`` fetch that lives upstream of this primitive.)
+    # ------------------------------------------------------------------
+    managed_guests: List[models.GuestMember] = (
+        db.query(models.GuestMember)
+        .filter(
+            models.GuestMember.group_id == group_id,
+            models.GuestMember.managed_by_id != None,  # noqa: E711
+        )
+        .all()
+    )
+    managed_members_managed: List[models.GroupMember] = (
+        db.query(models.GroupMember)
+        .filter(
+            models.GroupMember.group_id == group_id,
+            models.GroupMember.managed_by_id != None,  # noqa: E711
+        )
+        .all()
+    )
+
+    # ------------------------------------------------------------------
     # Single scan: accumulate consumption + per-period-per-member totals.
     # period_order preserves chronological ordering of filled buckets for
     # the empty-bucket fill below.
+    #
+    # ``pre_fold_totals`` mirrors ``consumption`` but is never folded. We
+    # use it to reconstruct each manager's per-member breakdown in memory
+    # (no extra query per managed member), so the breakdown shares the same
+    # hybrid conversion path as the main scan.
     # ------------------------------------------------------------------
     consumption: Dict[Tuple[int, bool], int] = {}
+    pre_fold_totals: Dict[Tuple[int, bool], int] = defaultdict(int)
     bucket_totals_per_member: Dict[str, Dict[Tuple[int, bool], int]] = {}
     bucket_starts: Dict[str, datetime.date] = {}
     has_synthesized_historical_rate = False
@@ -321,34 +353,31 @@ def calculate_consumption_summary(
 
             key = (split.user_id, bool(split.is_guest))
             consumption[key] = consumption.get(key, 0) + amount_cents
+            pre_fold_totals[key] += amount_cents
 
             per_member = bucket_totals_per_member.setdefault(period_label, {})
             per_member[key] = per_member.get(key, 0) + amount_cents
 
     # ------------------------------------------------------------------
-    # Fold managed relationships.
+    # Fold managed relationships using the prefetched lists — no DB hits in
+    # the per-period loop.
     # ------------------------------------------------------------------
-    _fold_managed_relationships(db, group_id, consumption)
+    _fold_with_prefetched(consumption, managed_guests, managed_members_managed)
     for period_label in bucket_totals_per_member:
-        _fold_managed_relationships(
-            db, group_id, bucket_totals_per_member[period_label]
+        _fold_with_prefetched(
+            bucket_totals_per_member[period_label],
+            managed_guests,
+            managed_members_managed,
         )
 
     # ------------------------------------------------------------------
-    # Resolve display names and build members[], sorted by total desc.
+    # Build the managed-member breakdown from the in-memory ``pre_fold_totals``
+    # dict — no per-managed-member DB queries. Skip entries with a zero
+    # total so empty rows don't surface.
     # ------------------------------------------------------------------
-    # Build managed-member breakdown: manager_key → list of (name, total).
-    # Query the raw management links first; names come from display helpers.
-    manager_breakdown: Dict[Tuple[int, bool], List[ManagedMemberBreakdown]] = {}
+    manager_breakdown: Dict[Tuple[int, bool], List[Tuple[Tuple[int, bool], int]]] = {}
 
-    for guest in (
-        db.query(models.GuestMember)
-        .filter(
-            models.GuestMember.group_id == group_id,
-            models.GuestMember.managed_by_id != None,  # noqa: E711
-        )
-        .all()
-    ):
+    for guest in managed_guests:
         # Mirror the defensive skip in _fold_managed_relationships.
         if guest.claimed_by_id and guest.managed_by_id:
             continue
@@ -363,55 +392,120 @@ def calculate_consumption_summary(
             guest.managed_by_type == "guest",
         )
 
-        total_for_guest = _guest_totals_from_splits(
-            db, expense_ids, managed_key, target_currency
-        )
+        total_for_guest = pre_fold_totals.get(managed_key, 0)
         if total_for_guest == 0:
             # Skip zero-total managed guests — they'd otherwise surface as
             # a breakdown row with no useful data.
             continue
 
-        display = get_participant_display_name(
-            managed_key[0], managed_key[1], db
-        )
         manager_breakdown.setdefault(manager_key, []).append(
-            {"display_name": display, "total": total_for_guest}
+            (managed_key, total_for_guest)
         )
 
-    for managed_member in (
-        db.query(models.GroupMember)
-        .filter(
-            models.GroupMember.group_id == group_id,
-            models.GroupMember.managed_by_id != None,  # noqa: E711
-        )
-        .all()
-    ):
+    for managed_member in managed_members_managed:
         managed_key = (managed_member.user_id, False)
         manager_key = (
             managed_member.managed_by_id,
             managed_member.managed_by_type == "guest",
         )
-        total_for_member = _guest_totals_from_splits(
-            db, expense_ids, managed_key, target_currency
-        )
-        display = get_participant_display_name(
-            managed_member.user_id, False, db
-        )
+        total_for_member = pre_fold_totals.get(managed_key, 0)
+        if total_for_member == 0:
+            # Match the zero-total skip behaviour above: registered members
+            # with no consumption in this group don't deserve a breakdown row.
+            continue
         manager_breakdown.setdefault(manager_key, []).append(
-            {"display_name": display, "total": total_for_member}
+            (managed_key, total_for_member)
         )
+
+    # ------------------------------------------------------------------
+    # Batch-prefetch display-name tables. Collect every (user_id, is_guest)
+    # key that will surface in the response — post-fold consumption rows and
+    # every managed-member breakdown entry — then issue at most two IN-list
+    # queries (``User`` + ``GuestMember``) instead of one SELECT per name.
+    # ------------------------------------------------------------------
+    all_user_ids: set = {uid for (uid, is_guest) in consumption.keys() if not is_guest}
+    all_guest_ids: set = {uid for (uid, is_guest) in consumption.keys() if is_guest}
+    for entries in manager_breakdown.values():
+        for (uid, is_guest), _ in entries:
+            if is_guest:
+                all_guest_ids.add(uid)
+            else:
+                all_user_ids.add(uid)
+
+    users_by_id: Dict[int, models.User] = {}
+    guests_by_id: Dict[int, models.GuestMember] = {}
+    if all_user_ids:
+        users_by_id = {
+            u.id: u
+            for u in db.query(models.User)
+            .filter(models.User.id.in_(all_user_ids))
+            .all()
+        }
+    if all_guest_ids:
+        guests_by_id = {
+            g.id: g
+            for g in db.query(models.GuestMember)
+            .filter(models.GuestMember.id.in_(all_guest_ids))
+            .all()
+        }
+
+    # Some claimed guests point at a User that's not already in
+    # ``users_by_id`` (e.g. the manager is a guest, so the claimed user never
+    # appears in ``consumption`` or breakdown keys). Fetch those too so
+    # ``resolve_name`` never falls back to a per-row query.
+    claimed_user_ids_to_fetch = {
+        g.claimed_by_id
+        for g in guests_by_id.values()
+        if g.claimed_by_id is not None and g.claimed_by_id not in users_by_id
+    }
+    if claimed_user_ids_to_fetch:
+        for u in (
+            db.query(models.User)
+            .filter(models.User.id.in_(claimed_user_ids_to_fetch))
+            .all()
+        ):
+            users_by_id[u.id] = u
+
+    def resolve_name(user_id: int, is_guest: bool) -> str:
+        """Read from the prefetched dicts; fall back to the shared helper only
+        if a key is unexpectedly missing (shouldn't happen in practice)."""
+        if is_guest:
+            guest = guests_by_id.get(user_id)
+            if guest is None:
+                return get_participant_display_name(user_id, True, db)
+            if guest.claimed_by_id:
+                claimed_user = users_by_id.get(guest.claimed_by_id)
+                if claimed_user:
+                    return claimed_user.full_name or claimed_user.email
+                return guest.name
+            return guest.name
+        user = users_by_id.get(user_id)
+        if user is None:
+            return get_participant_display_name(user_id, False, db)
+        return user.full_name or user.email
+
+    # Now that names are resolvable, build the breakdown list shape the
+    # dataclass expects.
+    manager_breakdown_resolved: Dict[Tuple[int, bool], List[ManagedMemberBreakdown]] = {}
+    for manager_key, entries in manager_breakdown.items():
+        manager_breakdown_resolved[manager_key] = [
+            {
+                "display_name": resolve_name(managed_uid, managed_is_guest),
+                "total": total,
+            }
+            for (managed_uid, managed_is_guest), total in entries
+        ]
 
     # Assemble member rows.
     members: List[SummaryMember] = []
     for (user_id, is_guest), total in consumption.items():
-        display = get_participant_display_name(user_id, is_guest, db)
         members.append(
             SummaryMember(
                 user_id=user_id,
                 is_guest=is_guest,
-                display_name=display,
+                display_name=resolve_name(user_id, is_guest),
                 total=total,
-                managed_members=manager_breakdown.get((user_id, is_guest), []),
+                managed_members=manager_breakdown_resolved.get((user_id, is_guest), []),
             )
         )
     members.sort(key=lambda m: m.total, reverse=True)
@@ -461,47 +555,61 @@ def calculate_consumption_summary(
 # Internal helpers ----------------------------------------------------------
 
 
-def _guest_totals_from_splits(
-    db: Session,
-    expense_ids: List[int],
-    key: Tuple[int, bool],
-    target_currency: str,
-) -> int:
+def _fold_with_prefetched(
+    totals: Dict[Tuple[int, bool], int],
+    managed_guests: List[models.GuestMember],
+    managed_members: List[models.GroupMember],
+) -> None:
     """
-    Compute total converted consumption (int cents) for a single
-    ``(user_id, is_guest)`` key across the supplied ``expense_ids``.
+    In-place fold managed guests and managed members into their managers
+    using pre-fetched rows — no DB session needed.
 
-    Used for the per-manager managed-member breakdown. Uses the same hybrid
-    conversion rules as the main scan, so the breakdown amounts reconcile with
-    the folded total on the manager's row.
+    Mirrors the behaviour of :func:`utils.balances._fold_managed_relationships`
+    for the scalar case. The DB-coupled helper in ``utils.balances`` is kept
+    as the source of truth for ``calculate_net_balances``; this copy exists so
+    the consumption-summary primitive can call the fold N+1 times (once for
+    the top-level dict + once per time-bucket) without re-querying the same
+    static management rows.
 
-    Settlements have already been filtered out of ``expense_ids`` upstream.
+    Args:
+        totals: Mutable dict mapping ``(user_id, is_guest)`` to a scalar amount.
+            Mutated in place — folded entries are deleted, manager entries are
+            incremented (and created if missing).
+        managed_guests: Pre-fetched ``GuestMember`` rows with ``managed_by_id``
+            set, already scoped to the group.
+        managed_members: Pre-fetched ``GroupMember`` rows with
+            ``managed_by_id`` set, already scoped to the group.
     """
-    if not expense_ids:
-        return 0
+    for guest in managed_guests:
+        # Defensive check: claimed guests should not have managed_by set.
+        # This would cause double-counting since the user inherits the
+        # management relationship.
+        if guest.claimed_by_id and guest.managed_by_id:
+            logger.warning(
+                "Data integrity issue: Claimed guest id=%s has managed_by_id=%s set. "
+                "This should be None. Skipping aggregation to prevent double-counting.",
+                guest.id,
+                guest.managed_by_id,
+            )
+            continue
 
-    user_id, is_guest = key
-
-    splits = (
-        db.query(models.ExpenseSplit, models.Expense)
-        .join(models.Expense, models.Expense.id == models.ExpenseSplit.expense_id)
-        .filter(models.ExpenseSplit.expense_id.in_(expense_ids))
-        .filter(models.ExpenseSplit.user_id == user_id)
-        .filter(models.ExpenseSplit.is_guest == is_guest)
-        .all()
-    )
-
-    total = 0
-    for split, expense in splits:
-        if expense.exchange_rate is not None:
-            try:
-                rate = float(expense.exchange_rate)
-                amount_usd = split.amount_owed * rate
-            except (TypeError, ValueError):
-                amount_usd = convert_to_usd(split.amount_owed, expense.currency)
+        if guest.claimed_by_id:
+            guest_key = (guest.claimed_by_id, False)
         else:
-            amount_usd = convert_to_usd(split.amount_owed, expense.currency)
+            guest_key = (guest.id, True)
 
-        amount_in_target = convert_currency(amount_usd, "USD", target_currency)
-        total += int(amount_in_target)
-    return total
+        manager_is_guest = (guest.managed_by_type == 'guest')
+        manager_key = (guest.managed_by_id, manager_is_guest)
+
+        if guest_key in totals:
+            totals[manager_key] = totals.get(manager_key, 0) + totals[guest_key]
+            del totals[guest_key]
+
+    for managed_member in managed_members:
+        member_key = (managed_member.user_id, False)
+        manager_is_guest = (managed_member.managed_by_type == 'guest')
+        manager_key = (managed_member.managed_by_id, manager_is_guest)
+
+        if member_key in totals:
+            totals[manager_key] = totals.get(manager_key, 0) + totals[member_key]
+            del totals[member_key]

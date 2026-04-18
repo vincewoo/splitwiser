@@ -741,3 +741,134 @@ def test_per_member_per_period_reconciles_with_member_totals(db_session):
 
     for m in summary.members:
         assert by_member[(m.user_id, m.is_guest)] == m.total
+
+
+# --------------------------------------------------------------------------- #
+# Query-count regression                                                      #
+# --------------------------------------------------------------------------- #
+
+
+def test_calculate_consumption_summary_query_count_is_bounded(db_session):
+    """
+    Pins the N+1 fixes in ``utils.summary``. Previously the primitive issued:
+
+      * 2 queries per time-bucket for managed-relationship folding
+        (``_fold_managed_relationships``), and
+      * 1 join-query per managed member/guest for the breakdown totals
+        (``_guest_totals_from_splits``), and
+      * 1 SELECT per rendered member for display-name resolution
+        (``get_participant_display_name``).
+
+    With the fixes, all three collapse to at most a fixed number of queries
+    regardless of how many periods or members exist.
+
+    The scenario below creates a group spanning ~2 years (quarterly
+    granularity, ~9 buckets) with enough managed members and guests to have
+    been painful under the old code path. The threshold is chosen to catch
+    regressions (any N-per-period pattern would blow past it) while being
+    loose enough not to wobble on minor internal refactors.
+    """
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    # Small but non-trivial fixture: multiple managed rows + multi-period span
+    # so pre-fix behaviour would issue dozens of extra queries.
+    manager = _mk_user(db_session, "qc-mgr@ex.com", "Manager")
+    payer = _mk_user(db_session, "qc-pay@ex.com", "Payer")
+    other = _mk_user(db_session, "qc-oth@ex.com", "Other")
+    group = _mk_group(db_session, manager.id)
+    _add_member(db_session, group.id, manager.id)
+    _add_member(db_session, group.id, payer.id)
+    _add_member(db_session, group.id, other.id)
+
+    # Managed guest #1 (unclaimed) managed by ``manager``.
+    guest_a = _add_guest(
+        db_session,
+        group.id,
+        "Guest A",
+        creator_id=manager.id,
+        managed_by_id=manager.id,
+        managed_by_type="user",
+    )
+    # Managed guest #2 (unclaimed).
+    guest_b = _add_guest(
+        db_session,
+        group.id,
+        "Guest B",
+        creator_id=manager.id,
+        managed_by_id=manager.id,
+        managed_by_type="user",
+    )
+    # ``other`` is a managed registered user, also managed by ``manager``.
+    managed_member = db_session.query(models.GroupMember).filter_by(
+        group_id=group.id, user_id=other.id
+    ).first()
+    managed_member.managed_by_id = manager.id
+    managed_member.managed_by_type = "user"
+    db_session.commit()
+
+    # Scatter expenses across ~2 years to force quarterly granularity
+    # (≥18-month span) and therefore ≥8 period buckets — the old per-period
+    # fold would have issued 2 queries per bucket on top of everything else.
+    dates_and_amounts = [
+        ("2024-01-15", 1200),
+        ("2024-04-03", 800),
+        ("2024-07-22", 1500),
+        ("2024-10-09", 700),
+        ("2025-01-18", 2000),
+        ("2025-05-05", 1100),
+        ("2025-08-28", 900),
+        ("2025-12-01", 1300),
+        ("2026-02-15", 1700),
+    ]
+    for expense_date, amount in dates_and_amounts:
+        _mk_expense(
+            db_session,
+            group_id=group.id,
+            amount=amount,
+            currency="USD",
+            expense_date=expense_date,
+            payer_id=payer.id,
+            splits=[
+                (manager.id, amount // 5, False),
+                (payer.id, amount // 5, False),
+                (other.id, amount // 5, False),
+                (guest_a.id, amount // 5, True),
+                (guest_b.id, amount // 5, True),
+            ],
+        )
+
+    # Bind the query counter only around the primitive call itself.
+    query_count = 0
+
+    def _count_query(conn, cursor, statement, parameters, context, executemany):
+        nonlocal query_count
+        query_count += 1
+
+    event.listen(Engine, "before_cursor_execute", _count_query)
+    try:
+        summary = calculate_consumption_summary(db_session, group.id, "USD")
+    finally:
+        event.remove(Engine, "before_cursor_execute", _count_query)
+
+    # Sanity: the fixture produced a quarter-granularity series with multiple
+    # buckets so any per-bucket N+1 would blow past the threshold below.
+    assert summary.granularity == "quarter"
+    assert len(summary.series) >= 8
+
+    # Threshold rationale:
+    #   * 1 expenses query
+    #   * 1 splits (IN list) query
+    #   * 1 managed-guests query
+    #   * 1 managed-members query
+    #   * 1 users IN-list query for display-name resolution
+    #   * 1 guests IN-list query for display-name resolution
+    #   * possibly 1 extra users-by-id fetch if any guest is claimed (none here)
+    # → 6-ish queries in practice. We use 15 as a ceiling that leaves headroom
+    # for minor refactors but would still catch any N-per-period regression.
+    assert query_count < 15, (
+        f"Expected bounded query count (< 15), got {query_count}. "
+        "This suggests an N+1 regression in calculate_consumption_summary — "
+        "the fold / breakdown / display-name paths must not re-query per "
+        "bucket or per member."
+    )
