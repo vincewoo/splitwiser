@@ -381,6 +381,37 @@ class GroupSummaryResponse(BaseModel):
     series: list[GroupSummarySeriesPoint] = []
 
 
+# Public (unauthenticated) group summary schemas.
+#
+# These are DELIBERATELY separate types from `GroupSummaryResponse` — not a
+# subset via subclassing, not a reshaped dict. The public endpoint must not
+# leak per-member data or names, and the cleanest way to enforce that is to
+# make it structurally impossible at the serialization boundary: FastAPI's
+# response_model=PublicGroupSummaryResponse will drop any extra fields even
+# if a handler accidentally returned a full ConsumptionSummary.
+class PublicGroupSummarySeriesPoint(BaseModel):
+    """A single time bucket in the public spending series — totals only."""
+    period_label: str  # e.g. "2026-W16", "2026-04", "2026-Q2"
+    period_start: str  # ISO date YYYY-MM-DD — first day of the bucket.
+    total: int  # Integer cents.
+
+
+class PublicGroupSummaryResponse(BaseModel):
+    """
+    Public (share-link) group spending-summary response.
+
+    Strictly narrower than :class:`GroupSummaryResponse`:
+        * NO ``members`` field.
+        * NO ``per_member`` data on series points.
+        * NO ``display_name`` anywhere.
+    """
+    group_total: int  # Integer cents.
+    currency: str  # Group's default currency (pass-through).
+    granularity: str  # "week" | "month" | "quarter"
+    has_synthesized_historical_rate: bool
+    series: list[PublicGroupSummarySeriesPoint] = []
+
+
 # Request/Response models previously inline in main.py
 class RefreshTokenRequest(BaseModel):
     refresh_token: str

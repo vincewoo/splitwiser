@@ -12,6 +12,9 @@ from dependencies import get_current_user
 from utils.validation import get_group_or_404, verify_group_membership, verify_group_ownership
 from utils.display import get_guest_display_name, get_public_user_display_name
 from utils.currency import fetch_historical_exchange_rate
+from utils.rate_limiter import summary_rate_limiter
+from utils.summary import calculate_consumption_summary
+from utils import summary_cache
 
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -246,9 +249,20 @@ def unshare_group(
     # Any group member can unshare the group
     verify_group_membership(db, group_id, current_user.id)
     group = get_group_or_404(db, group_id)
+
+    # Capture the share_link_id BEFORE flipping is_public so we can evict any
+    # cached public-summary response keyed on it. Otherwise a viewer could
+    # continue to see the cached summary for up to 60s after the group is
+    # made private.
+    old_share_link_id = group.share_link_id
+
     group.is_public = False
     db.commit()
     db.refresh(group)
+
+    if old_share_link_id:
+        summary_cache.invalidate(old_share_link_id)
+
     return group
 
 
@@ -823,6 +837,73 @@ def get_public_group_balances(
                 ))
 
     return result
+
+
+@router.get(
+    "/public/{share_link_id}/summary",
+    response_model=schemas.PublicGroupSummaryResponse,
+    dependencies=[Depends(summary_rate_limiter)],
+)
+def get_public_group_summary(
+    share_link_id: str,
+    db: Session = Depends(get_db),
+) -> schemas.PublicGroupSummaryResponse:
+    """
+    Unauthenticated read-only spending summary for a publicly-shared group.
+
+    Strictly narrower than the authenticated counterpart: group total +
+    single-series chart only. No per-member data, no display names.
+    The narrowness is enforced in two places:
+      * The schema (``PublicGroupSummaryResponse`` has no ``members``
+        field; ``PublicGroupSummarySeriesPoint`` has no ``per_member``).
+      * FastAPI's ``response_model`` coerces whatever the handler returns
+        into that schema, so even an accidental full-summary return would
+        be stripped at the serialization boundary.
+
+    Rate-limited per IP (``summary_rate_limiter``) and fronted by a 60s
+    in-memory TTL cache keyed by ``share_link_id`` (see
+    ``utils.summary_cache``).
+    """
+    cached = summary_cache.get(share_link_id)
+    if cached is not None:
+        return cached
+
+    group = db.query(models.Group).filter(
+        models.Group.share_link_id == share_link_id,
+        models.Group.is_public == True
+    ).first()
+
+    if not group:
+        # Deliberately NOT caching 404s so unknown share-link-ids can't be
+        # used to grow the cache.
+        raise HTTPException(status_code=404, detail="Public group not found")
+
+    target_currency = group.default_currency or "USD"
+    summary = calculate_consumption_summary(
+        db,
+        group.id,
+        target_currency=target_currency,
+    )
+
+    # Project onto the narrow schema. Drop the `members` list entirely;
+    # reduce each series point to (period_label, period_start, total).
+    public_response = schemas.PublicGroupSummaryResponse(
+        group_total=summary.group_total,
+        currency=summary.currency,
+        granularity=summary.granularity,
+        has_synthesized_historical_rate=summary.has_synthesized_historical_rate,
+        series=[
+            schemas.PublicGroupSummarySeriesPoint(
+                period_label=s.period_label,
+                period_start=s.period_start,
+                total=s.total,
+            )
+            for s in summary.series
+        ],
+    )
+
+    summary_cache.set(share_link_id, public_response)
+    return public_response
 
 
 @router.post("/public/{share_link_id}/join")

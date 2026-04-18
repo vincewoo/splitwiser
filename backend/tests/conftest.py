@@ -17,7 +17,8 @@ from utils.rate_limiter import (
     ocr_rate_limiter,
     password_reset_rate_limiter,
     email_verification_rate_limiter,
-    profile_update_rate_limiter
+    profile_update_rate_limiter,
+    summary_rate_limiter
 )
 
 # Setup in-memory SQLite database for testing
@@ -77,6 +78,19 @@ def auth_headers(test_user):
     return {"Authorization": f"Bearer {access_token}"}
 
 @pytest.fixture(autouse=True)
+def reset_summary_cache():
+    """
+    Clear the in-memory public-summary cache between tests so state doesn't
+    bleed across tests (e.g. a cache hit from a prior test masking a fresh
+    computation in the next one).
+    """
+    from utils import summary_cache
+    summary_cache._clear_for_tests()
+    yield
+    summary_cache._clear_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def disable_rate_limits():
     """Disable all rate limits during testing using dependency overrides."""
     async def mock_rate_limit():
@@ -87,7 +101,8 @@ def disable_rate_limits():
         ocr_rate_limiter: mock_rate_limit,
         password_reset_rate_limiter: mock_rate_limit,
         email_verification_rate_limiter: mock_rate_limit,
-        profile_update_rate_limiter: mock_rate_limit
+        profile_update_rate_limiter: mock_rate_limit,
+        summary_rate_limiter: mock_rate_limit
     }
 
     # Apply overrides

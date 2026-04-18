@@ -77,3 +77,11 @@ email_verification_rate_limiter = RateLimiter(requests_limit=3, time_window=3600
 
 # 5 requests per minute for profile updates (prevent spam)
 profile_update_rate_limiter = RateLimiter(requests_limit=5, time_window=60)
+
+# 30 requests per minute for the public group summary endpoint.
+# Read-only, expensive per call, but much higher cap than auth/OCR because
+# viral share-links can legitimately produce bursty traffic from a single IP.
+# A 60s in-memory TTL cache sits in front of the handler (see
+# utils/summary_cache.py), so the practical cost per request after the first
+# in any minute is near-zero.
+summary_rate_limiter = RateLimiter(requests_limit=30, time_window=60)
