@@ -307,13 +307,17 @@ const SpendingTrendChart: React.FC<SpendingTrendChartProps> = (props) => {
 
     return (
         <div className="w-full">
-            <div ref={containerRef} className="relative w-full" style={{ minHeight: height }}>
+            <div
+                ref={containerRef}
+                className="relative w-full"
+                style={{ height }}
+            >
                 <svg
                     role="img"
                     aria-label={ariaLabel}
                     width={width}
                     height={height}
-                    className="overflow-visible"
+                    className="block overflow-visible"
                 >
                     <Group top={MARGIN.top} left={MARGIN.left}>
                         {/* Horizontal gridlines from the Y-axis ticks */}
