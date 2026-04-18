@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, field_validator, Field
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Literal
 from datetime import datetime
 
 from utils.currency import VALID_CURRENCIES
@@ -327,6 +327,110 @@ class GroupBalance(BaseModel):
     amount: float
     currency: str
     managed_guests: list[str] = []  # Names of managed guests included in this balance
+
+
+# Group spending summary response schemas
+#
+# Shape is intentionally parallel to `utils.summary.ConsumptionSummary`
+# minus the internal `skipped_unparseable_dates` observability counter, which
+# is logged server-side and not surfaced to clients.
+class GroupSummaryManagedMember(BaseModel):
+    """One managed member folded into a manager's consumption row."""
+    display_name: str
+    total: int  # Integer cents, in the group's default currency.
+
+    class Config:
+        from_attributes = True
+
+
+class GroupSummarySeriesPointMember(BaseModel):
+    """Per-member contribution to a single time bucket."""
+    user_id: int
+    is_guest: bool
+    amount: int  # Integer cents.
+
+    class Config:
+        from_attributes = True
+
+
+class GroupSummarySeriesPoint(BaseModel):
+    """A single time bucket in the spending series."""
+    period_label: str  # e.g. "2026-W16", "2026-04", "2026-Q2"
+    period_start: str  # ISO date YYYY-MM-DD — first day of the bucket.
+    total: int  # Integer cents — Σ per_member[].amount.
+    per_member: list[GroupSummarySeriesPointMember] = []
+
+    class Config:
+        from_attributes = True
+
+
+class GroupSummaryMember(BaseModel):
+    """One top-level member row (managed members already folded in)."""
+    user_id: int
+    is_guest: bool
+    display_name: str
+    total: int  # Integer cents.
+    managed_members: list[GroupSummaryManagedMember] = []
+
+    class Config:
+        from_attributes = True
+
+
+class GroupSummaryResponse(BaseModel):
+    """
+    Authenticated group spending-summary response.
+
+    Invariant (enforced at the aggregation layer):
+        group_total == Σ members[].total
+                    == Σ series[].total
+                    == Σ series[].per_member[].amount
+    """
+    group_total: int  # Integer cents.
+    currency: str  # Group's default currency (pass-through).
+    granularity: Literal["week", "month", "quarter"]
+    has_synthesized_historical_rate: bool
+    members: list[GroupSummaryMember] = []
+    series: list[GroupSummarySeriesPoint] = []
+
+    class Config:
+        from_attributes = True
+
+
+# Public (unauthenticated) group summary schemas.
+#
+# These are DELIBERATELY separate types from `GroupSummaryResponse` — not a
+# subset via subclassing, not a reshaped dict. The public endpoint must not
+# leak per-member data or names, and the cleanest way to enforce that is to
+# make it structurally impossible at the serialization boundary: FastAPI's
+# response_model=PublicGroupSummaryResponse will drop any extra fields even
+# if a handler accidentally returned a full ConsumptionSummary.
+class PublicGroupSummarySeriesPoint(BaseModel):
+    """A single time bucket in the public spending series — totals only."""
+    period_label: str  # e.g. "2026-W16", "2026-04", "2026-Q2"
+    period_start: str  # ISO date YYYY-MM-DD — first day of the bucket.
+    total: int  # Integer cents.
+
+    class Config:
+        from_attributes = True
+
+
+class PublicGroupSummaryResponse(BaseModel):
+    """
+    Public (share-link) group spending-summary response.
+
+    Strictly narrower than :class:`GroupSummaryResponse`:
+        * NO ``members`` field.
+        * NO ``per_member`` data on series points.
+        * NO ``display_name`` anywhere.
+    """
+    group_total: int  # Integer cents.
+    currency: str  # Group's default currency (pass-through).
+    granularity: Literal["week", "month", "quarter"]
+    has_synthesized_historical_rate: bool
+    series: list[PublicGroupSummarySeriesPoint] = []
+
+    class Config:
+        from_attributes = True
 
 
 # Request/Response models previously inline in main.py

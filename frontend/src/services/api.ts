@@ -344,6 +344,45 @@ export const groupsApi = {
         });
         return response;
     },
+
+    getSummary: async (groupId: number) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        try {
+            const response = await apiFetch(`/groups/${groupId}/summary`, {
+                signal: controller.signal,
+            });
+            if (!response.ok) throw new Error('Failed to fetch group summary');
+            return response.json();
+        } catch (err) {
+            if (err instanceof DOMException && err.name === 'AbortError') {
+                throw new Error('Summary request timed out');
+            }
+            throw err;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    },
+
+    getPublicSummary: async (shareLinkId: string) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        try {
+            const response = await fetch(
+                `${API_BASE_URL}/groups/public/${shareLinkId}/summary`,
+                { signal: controller.signal },
+            );
+            if (!response.ok) throw new Error('Failed to fetch public group summary');
+            return response.json();
+        } catch (err) {
+            if (err instanceof DOMException && err.name === 'AbortError') {
+                throw new Error('Summary request timed out');
+            }
+            throw err;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    },
 };
 
 // ============================================================================

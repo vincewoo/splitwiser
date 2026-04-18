@@ -26,6 +26,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `backend/routers/balances.py` - Balance calculations, debt simplification
 - `backend/routers/friends.py` - Friend management, friend request emails
 - `backend/routers/ocr.py` - LLM-based receipt scanning endpoint
+- `backend/routers/summary.py` - Summary endpoint
 
 **Utilities:**
 - `backend/utils/currency.py` - Exchange rate fetching (Frankfurter API), caching
@@ -33,6 +34,8 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `backend/utils/splits.py` - Split calculation logic (equal, exact, percentage, shares, itemized)
 - `backend/utils/display.py` - Display name helpers for guests and claimed users
 - `backend/utils/email.py` - Brevo API email service for transactional emails
+- `backend/utils/summary.py` - Consumption aggregation primitive
+- `backend/utils/summary_cache.py` - Bounded in-memory TTL cache for public summary
 
 **Receipt Scanning:**
 - `backend/ocr/llm_service.py` - OpenAI GPT-4o vision-based receipt parsing with structured output
@@ -56,7 +59,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/services/offlineApi.ts` - Offline API wrapper using IndexedDB
 - `frontend/src/services/syncManager.ts` - Background sync manager for PWA
 - `frontend/src/db/schema.ts` - IndexedDB schema for offline storage
-- `frontend/src/types/` - TypeScript definitions (group.ts, expense.ts, balance.ts, friend.ts)
+- `frontend/src/types/` - TypeScript definitions (group.ts, expense.ts, balance.ts, friend.ts, summary.ts)
 - `frontend/src/utils/formatters.ts` - Money, date, and name formatting
 - `frontend/src/utils/expenseCalculations.ts` - Frontend split calculations
 
@@ -66,6 +69,9 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/ManageGuestModal.tsx` - Guest management and balance aggregation
 - `frontend/src/ManageMemberModal.tsx` - Member management for registered users
 - `frontend/src/hooks/useItemizedExpense.ts` - Itemized expense state management
+- `frontend/src/components/summary/SummarySection.tsx` - Collapsible summary section
+- `frontend/src/components/summary/MemberConsumptionTable.tsx` - Per-member rows
+- `frontend/src/components/summary/SpendingTrendChart.tsx` - Stacked bar chart (visx)
 
 **PWA Support:**
 - `frontend/public/manifest.json` - PWA manifest for installable app
@@ -159,6 +165,10 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 
 ### OCR
 - `POST /ocr/scan-receipt` - Upload receipt image, get LLM-extracted items with prices
+
+### Summary
+- `GET /groups/{group_id}/summary` - Per-member consumption totals, group total, time-bucketed series (authenticated members)
+- `GET /groups/public/{share_link_id}/summary` - Narrower version for public share-link viewers (group total + single-series chart only)
 
 ## Key Database Fields
 

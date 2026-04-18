@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from models import User
 from auth import get_password_hash
 
@@ -100,6 +100,100 @@ def test_update_expense(client, auth_headers, db_session, test_user):
     assert response.status_code == 200
     assert response.json()["description"] == "Updated"
     assert response.json()["amount"] == 2000
+
+def _make_group_for_date_tests(client, auth_headers):
+    """Helper: create a simple group and return its id."""
+    group_resp = client.post(
+        "/groups/",
+        headers=auth_headers,
+        json={"name": "Date Bounds Group", "default_currency": "USD"},
+    )
+    return group_resp.json()["id"]
+
+
+def test_create_expense_rejects_far_future_date(client, auth_headers, test_user):
+    """A date more than 1 year in the future must be rejected with 400."""
+    group_id = _make_group_for_date_tests(client, auth_headers)
+
+    far_future = (date.today() + timedelta(days=365 * 5)).isoformat()
+    payload = {
+        "description": "Future Expense",
+        "amount": 1000,
+        "currency": "USD",
+        "date": far_future,
+        "payer_id": test_user.id,
+        "group_id": group_id,
+        "split_type": "EQUAL",
+        "splits": [{"user_id": test_user.id, "amount_owed": 1000, "is_guest": False}],
+    }
+    resp = client.post("/expenses/", headers=auth_headers, json=payload)
+    assert resp.status_code == 400
+    assert "future" in resp.json()["detail"].lower()
+
+
+def test_create_expense_rejects_far_past_date(client, auth_headers, test_user):
+    """A date more than 100 years in the past must be rejected with 400."""
+    group_id = _make_group_for_date_tests(client, auth_headers)
+
+    far_past = "1800-01-01"
+    payload = {
+        "description": "Ancient Expense",
+        "amount": 1000,
+        "currency": "USD",
+        "date": far_past,
+        "payer_id": test_user.id,
+        "group_id": group_id,
+        "split_type": "EQUAL",
+        "splits": [{"user_id": test_user.id, "amount_owed": 1000, "is_guest": False}],
+    }
+    resp = client.post("/expenses/", headers=auth_headers, json=payload)
+    assert resp.status_code == 400
+    assert "past" in resp.json()["detail"].lower()
+
+
+def test_create_expense_accepts_near_future_date(client, auth_headers, test_user):
+    """A legitimate near-future date (today + 30 days) must still be accepted."""
+    group_id = _make_group_for_date_tests(client, auth_headers)
+
+    soon = (date.today() + timedelta(days=30)).isoformat()
+    payload = {
+        "description": "Upcoming Expense",
+        "amount": 1000,
+        "currency": "USD",
+        "date": soon,
+        "payer_id": test_user.id,
+        "group_id": group_id,
+        "split_type": "EQUAL",
+        "splits": [{"user_id": test_user.id, "amount_owed": 1000, "is_guest": False}],
+    }
+    resp = client.post("/expenses/", headers=auth_headers, json=payload)
+    assert resp.status_code == 200, resp.text
+
+
+def test_update_expense_rejects_far_future_date(client, auth_headers, test_user):
+    """PUT /expenses/{id} must also reject out-of-range dates."""
+    group_id = _make_group_for_date_tests(client, auth_headers)
+
+    create_payload = {
+        "description": "To Update",
+        "amount": 1000,
+        "currency": "USD",
+        "date": str(date.today()),
+        "payer_id": test_user.id,
+        "group_id": group_id,
+        "split_type": "EQUAL",
+        "splits": [{"user_id": test_user.id, "amount_owed": 1000, "is_guest": False}],
+    }
+    created = client.post("/expenses/", headers=auth_headers, json=create_payload).json()
+
+    update_payload = create_payload.copy()
+    update_payload["date"] = "2200-01-01"
+    resp = client.put(
+        f"/expenses/{created['id']}", headers=auth_headers, json=update_payload
+    )
+    assert resp.status_code == 400
+    assert "future" in resp.json()["detail"].lower()
+
 
 def test_delete_expense(client, auth_headers, db_session, test_user):
     # Create Expense
