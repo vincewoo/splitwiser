@@ -344,6 +344,18 @@ export const groupsApi = {
         });
         return response;
     },
+
+    getSummary: async (groupId: number) => {
+        const response = await apiFetch(`/groups/${groupId}/summary`);
+        if (!response.ok) throw new Error('Failed to fetch group summary');
+        return response.json();
+    },
+
+    getPublicSummary: async (shareLinkId: string) => {
+        const response = await fetch(`${API_BASE_URL}/groups/public/${shareLinkId}/summary`);
+        if (!response.ok) throw new Error('Failed to fetch public group summary');
+        return response.json();
+    },
 };
 
 // ============================================================================
