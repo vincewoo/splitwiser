@@ -18,3 +18,46 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
     -moz-appearance: textfield;
 }
+
+/*
+ * Chart palette — 8 member colors plus an "Others" overflow gray.
+ * Values chosen to clear WCAG AA 3:1 non-text contrast against both
+ * bg-white (#ffffff) in light mode and bg-gray-800 (#1f2937) in dark mode.
+ *
+ * Light-mode hexes draw from Tailwind's -600 shades; dark-mode hexes draw
+ * from -400 shades so they pop against the dark surface.
+ *
+ * Palette order:
+ *   1 teal    2 indigo   3 amber    4 rose
+ *   5 emerald 6 violet   7 orange   8 sky
+ * Overflow: gray-400 (light) / gray-500 (dark) for the "Others" aggregate.
+ */
+:root {
+    --chart-color-1: #0d9488; /* teal-600 */
+    --chart-color-2: #4f46e5; /* indigo-600 */
+    --chart-color-3: #d97706; /* amber-600 */
+    --chart-color-4: #e11d48; /* rose-600 */
+    --chart-color-5: #059669; /* emerald-600 */
+    --chart-color-6: #7c3aed; /* violet-600 */
+    --chart-color-7: #ea580c; /* orange-600 */
+    --chart-color-8: #0284c7; /* sky-600 */
+    --chart-overflow: #9ca3af; /* gray-400 */
+    --chart-axis: #6b7280;   /* gray-500, axis lines + ticks in light mode */
+    --chart-axis-text: #374151; /* gray-700, tick labels in light mode */
+    --chart-grid: #e5e7eb;   /* gray-200, faint horizontal rules */
+}
+
+.dark {
+    --chart-color-1: #2dd4bf; /* teal-400 */
+    --chart-color-2: #818cf8; /* indigo-400 */
+    --chart-color-3: #fbbf24; /* amber-400 */
+    --chart-color-4: #fb7185; /* rose-400 */
+    --chart-color-5: #34d399; /* emerald-400 */
+    --chart-color-6: #a78bfa; /* violet-400 */
+    --chart-color-7: #fb923c; /* orange-400 */
+    --chart-color-8: #38bdf8; /* sky-400 */
+    --chart-overflow: #6b7280; /* gray-500 */
+    --chart-axis: #9ca3af;   /* gray-400 */
+    --chart-axis-text: #d1d5db; /* gray-300 */
+    --chart-grid: #374151;   /* gray-700 */
+}
