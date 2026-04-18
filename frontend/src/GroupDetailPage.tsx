@@ -16,6 +16,7 @@ import SimplifyDebtsModal from './SimplifyDebtsModal';
 import AlertDialog from './components/AlertDialog';
 import SendFriendRequestModal from './SendFriendRequestModal';
 import ExpenseListItem from './components/ExpenseListItem';
+import SummarySection from './components/summary/SummarySection';
 import { formatMoney } from './utils/formatters';
 
 interface GroupMember {
@@ -1095,6 +1096,17 @@ const GroupDetailPage: React.FC = () => {
                             )}
                         </div>
                     )}
+                </div>
+
+                {/* Summary Section - Collapsible (last section on the page). Passes
+                    either groupId (authenticated) or shareLinkId (public share-link
+                    view), matching how isPublicView is detected elsewhere on this page. */}
+                <div className="mt-4">
+                    <SummarySection
+                        groupId={!isPublicView && groupId ? parseInt(groupId) : undefined}
+                        shareLinkId={isPublicView ? shareLinkId : undefined}
+                        currentUserId={user?.id ?? null}
+                    />
                 </div>
             </main>
 
