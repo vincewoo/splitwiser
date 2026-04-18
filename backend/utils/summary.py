@@ -44,9 +44,9 @@ from typing import Dict, List, Tuple, TypedDict
 from sqlalchemy.orm import Session
 
 import models
-from routers.expenses import normalize_date
 from utils.balances import _detect_managed_cycles, _managed_key_for_guest
 from utils.currency import convert_currency, convert_to_usd
+from utils.dates import normalize_date
 from utils.display import get_participant_display_name
 
 

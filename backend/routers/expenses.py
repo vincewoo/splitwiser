@@ -15,6 +15,7 @@ from utils.validation import get_group_or_404, verify_group_membership, validate
 from utils.splits import calculate_itemized_splits, calculate_itemized_splits_with_expense_guests
 from utils.currency import get_exchange_rate_for_expense, fetch_historical_exchange_rate
 from utils.display import get_guest_display_name
+from utils.dates import normalize_date
 
 
 # Receipt directory path (must match main.py)
@@ -23,19 +24,6 @@ RECEIPT_DIR = os.path.join(DATA_DIR, "receipts")
 
 
 router = APIRouter(tags=["expenses"])
-
-
-def normalize_date(date_str: str) -> str:
-    """Normalize date string to YYYY-MM-DD format for consistent sorting."""
-    if not date_str:
-        return date_str
-    # If it's already YYYY-MM-DD format, return as-is
-    if len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-':
-        return date_str
-    # Handle ISO format with time component (e.g., 2025-12-27T00:00:00.000Z)
-    if 'T' in date_str:
-        return date_str.split('T')[0]
-    return date_str
 
 
 # Bounds for the acceptable expense-date window. These exist so that a stray
