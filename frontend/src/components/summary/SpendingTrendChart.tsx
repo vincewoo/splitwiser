@@ -472,8 +472,13 @@ const SpendingTrendChart: React.FC<SpendingTrendChartProps> = (props) => {
                 </ul>
             )}
 
-            {/* Visually-hidden data table for screen readers / keyboard users */}
-            <table className="sr-only">
+            {/* Visually-hidden data table for screen readers / keyboard users.
+                Wrapped in an sr-only <div> because Tailwind's .sr-only relies on
+                width:1px/height:1px, which <table> ignores due to its intrinsic
+                table-layout sizing — applied to the wrapper div, it correctly
+                collapses to a 1×1 absolutely-positioned region. */}
+            <div className="sr-only">
+              <table>
                 <caption>
                     {granularityWord(granularity)} spending breakdown (accessible data table)
                 </caption>
@@ -536,7 +541,8 @@ const SpendingTrendChart: React.FC<SpendingTrendChartProps> = (props) => {
                         </tbody>
                     </>
                 )}
-            </table>
+              </table>
+            </div>
         </div>
     );
 };
