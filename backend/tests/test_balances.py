@@ -1,7 +1,11 @@
 from datetime import date
 from models import User, Group, GroupMember, GuestMember
 from auth import get_password_hash
-from utils.balances import _fold_managed_relationships
+from utils.balances import (
+    _detect_managed_cycles,
+    _fold_managed_relationships,
+    calculate_net_balances,
+)
 
 def test_simple_balance(client, auth_headers, db_session, test_user):
     # Setup: Group with 2 users
@@ -326,3 +330,211 @@ def test_fold_helper_accepts_arbitrary_scalar_dict(db_session):
     _fold_managed_relationships(db_session, group.id, totals)
 
     assert totals == {manager_key: 60}
+
+
+# ---------------------------------------------------------------------------
+# Circular managed_by cycle detection
+# ---------------------------------------------------------------------------
+
+
+def test_detect_managed_cycles_empty_when_no_cycle(db_session):
+    """No cycle present → detector returns an empty set."""
+    group = _make_group(db_session)
+    guest = GuestMember(
+        group_id=group.id,
+        name="G",
+        created_by_id=1,
+        managed_by_id=50,
+        managed_by_type="user",
+    )
+    db_session.add(guest)
+    db_session.commit()
+    db_session.refresh(guest)
+
+    cyclic = _detect_managed_cycles([guest], [])
+    assert cyclic == set()
+
+
+def test_detect_managed_cycles_flags_guest_user_two_node_cycle(db_session):
+    """Guest A managed_by user U + user U managed_by guest A → both flagged."""
+    group = _make_group(db_session)
+    user_id = 999
+
+    guest = GuestMember(
+        group_id=group.id,
+        name="Cycle Guest",
+        created_by_id=1,
+        managed_by_id=user_id,
+        managed_by_type="user",
+    )
+    db_session.add(guest)
+    db_session.commit()
+    db_session.refresh(guest)
+
+    member = GroupMember(
+        group_id=group.id,
+        user_id=user_id,
+        managed_by_id=guest.id,
+        managed_by_type="guest",
+    )
+    db_session.add(member)
+    db_session.commit()
+
+    cyclic = _detect_managed_cycles([guest], [member])
+    assert (guest.id, True) in cyclic
+    assert (user_id, False) in cyclic
+
+
+def test_fold_managed_relationships_skips_cyclic_pair(db_session, caplog):
+    """
+    Scalar fold must leave both cyclic entries intact (no silent data loss) and
+    emit a WARNING log.
+    """
+    import logging
+
+    group = _make_group(db_session)
+    user_id = 500
+
+    guest = GuestMember(
+        group_id=group.id,
+        name="Cyclic Guest",
+        created_by_id=1,
+        managed_by_id=user_id,
+        managed_by_type="user",
+    )
+    db_session.add(guest)
+    db_session.commit()
+    db_session.refresh(guest)
+
+    member = GroupMember(
+        group_id=group.id,
+        user_id=user_id,
+        managed_by_id=guest.id,
+        managed_by_type="guest",
+    )
+    db_session.add(member)
+    db_session.commit()
+
+    guest_key = (guest.id, True)
+    user_key = (user_id, False)
+    totals = {guest_key: -40.0, user_key: 25.0}
+    totals_before = dict(totals)
+
+    with caplog.at_level(logging.WARNING):
+        _fold_managed_relationships(db_session, group.id, totals)
+
+    # Neither key collapsed; the fold was skipped defensively.
+    assert totals == totals_before
+    # Total preserved (no silent loss): guest + user = -15, same as before.
+    assert sum(totals.values()) == sum(totals_before.values())
+    # Warning was logged mentioning the cycle and the group id.
+    assert any(
+        "Managed_by cycle detected" in record.getMessage()
+        and str(group.id) in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_calculate_net_balances_circular_managed_by_reconciles(
+    client, auth_headers, db_session, test_user, caplog
+):
+    """
+    Regression: when a cycle exists, ``calculate_net_balances`` must not crash,
+    must log a warning, and the sum of balances must still equal zero — i.e.
+    no currency is silently dropped.
+    """
+    import logging
+
+    # Group with test_user as the owner + a second registered user (payer).
+    group_resp = client.post(
+        "/groups/",
+        headers=auth_headers,
+        json={"name": "Cycle Group", "default_currency": "USD"},
+    )
+    group_id = group_resp.json()["id"]
+
+    payer = User(
+        email="payer-cycle@example.com",
+        hashed_password=get_password_hash("pw"),
+        full_name="Payer",
+        is_active=True,
+    )
+    db_session.add(payer)
+    db_session.commit()
+    client.post(
+        f"/groups/{group_id}/members",
+        headers=auth_headers,
+        json={"email": payer.email},
+    )
+
+    # Create a guest managed by test_user (first leg of the cycle).
+    guest_resp = client.post(
+        f"/groups/{group_id}/guests",
+        headers=auth_headers,
+        json={"name": "Cycle Guest"},
+    )
+    guest_id = guest_resp.json()["id"]
+    client.post(
+        f"/groups/{group_id}/guests/{guest_id}/manage",
+        headers=auth_headers,
+        json={"user_id": test_user.id, "is_guest": False},
+    )
+
+    # Flip test_user's GroupMember to be managed by the guest — closes the cycle.
+    tu_member = (
+        db_session.query(GroupMember)
+        .filter(GroupMember.group_id == group_id, GroupMember.user_id == test_user.id)
+        .first()
+    )
+    tu_member.managed_by_id = guest_id
+    tu_member.managed_by_type = "guest"
+    db_session.commit()
+
+    # Payer funds a $30 dinner; split evenly across payer / test_user / guest.
+    client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Cycle Dinner",
+            "amount": 3000,
+            "currency": "USD",
+            "date": str(date.today()),
+            "payer_id": payer.id,
+            "group_id": group_id,
+            "split_type": "EQUAL",
+            "splits": [
+                {"user_id": payer.id, "amount_owed": 1000, "is_guest": False},
+                {"user_id": test_user.id, "amount_owed": 1000, "is_guest": False},
+                {"user_id": guest_id, "amount_owed": 1000, "is_guest": True},
+            ],
+        },
+    )
+
+    # Scalar (single-currency) path.
+    with caplog.at_level(logging.WARNING):
+        scalar_balances = calculate_net_balances(db_session, group_id, "USD")
+
+    # Total of all balances should be ~zero regardless of the fold outcome
+    # (payer +2000, debtors -1000 each). Cycle detection must not drop any
+    # amount on the floor.
+    assert abs(sum(scalar_balances.values())) < 1e-6
+    assert any(
+        "Managed_by cycle detected" in record.getMessage()
+        and str(group_id) in record.getMessage()
+        for record in caplog.records
+    )
+
+    # Multi-currency path hits a different inline fold — verify it too.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        multi_balances = calculate_net_balances(db_session, group_id)
+
+    total_usd = 0.0
+    for currencies in multi_balances.values():
+        total_usd += currencies.get("USD", 0)
+    assert abs(total_usd) < 1e-6
+    assert any(
+        "Managed_by cycle detected" in record.getMessage()
+        and str(group_id) in record.getMessage()
+        for record in caplog.records
+    )

@@ -872,3 +872,84 @@ def test_calculate_consumption_summary_query_count_is_bounded(db_session):
         "the fold / breakdown / display-name paths must not re-query per "
         "bucket or per member."
     )
+
+
+# --------------------------------------------------------------------------- #
+# Managed_by cycle detection                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def test_circular_managed_by_guest_and_member_breaks_cycle_defensively(
+    db_session, caplog
+):
+    """
+    Guest A managed_by user U, user U managed_by guest A. Without cycle
+    detection, folding would delete guest A's key, then fold U's (now
+    inflated) total onto guest A's deleted key — amounts silently lost.
+
+    With cycle detection, both entries stay unfolded (visible as individual
+    rows) AND a WARNING is logged. ``group_total`` still reconciles with
+    ``Σ members[].total``.
+    """
+    import logging as _logging
+
+    u = _mk_user(db_session, "cycle-u@ex.com", "U")
+    payer = _mk_user(db_session, "cycle-p@ex.com", "Payer")
+    group = _mk_group(db_session, u.id)
+    _add_member(db_session, group.id, u.id)
+    _add_member(db_session, group.id, payer.id)
+
+    # Create the guest first (managed by user U).
+    guest = _add_guest(
+        db_session,
+        group.id,
+        "Cycle Guest",
+        creator_id=u.id,
+        managed_by_id=u.id,
+        managed_by_type="user",
+    )
+
+    # Flip user U's GroupMember to be managed by guest — closes the cycle.
+    u_member = (
+        db_session.query(models.GroupMember)
+        .filter(models.GroupMember.group_id == group.id, models.GroupMember.user_id == u.id)
+        .first()
+    )
+    u_member.managed_by_id = guest.id
+    u_member.managed_by_type = "guest"
+    db_session.commit()
+
+    # Payer funds a $30 dinner; split evenly across payer / U / guest.
+    _mk_expense(
+        db_session,
+        group_id=group.id,
+        amount=3000,
+        currency="USD",
+        expense_date="2026-02-01",
+        payer_id=payer.id,
+        splits=[
+            (payer.id, 1000, False),
+            (u.id, 1000, False),
+            (guest.id, 1000, True),
+        ],
+    )
+
+    with caplog.at_level(_logging.WARNING):
+        summary = calculate_consumption_summary(db_session, group.id, "USD")
+
+    # Reconciles even though the fold was skipped for the cyclic pair.
+    assert summary.group_total == sum(m.total for m in summary.members)
+    assert summary.group_total == 3000
+
+    # Cyclic entries remain as their own rows (not folded into a zombie key).
+    keys = {(m.user_id, m.is_guest) for m in summary.members}
+    assert (u.id, False) in keys
+    assert (guest.id, True) in keys
+    assert (payer.id, False) in keys
+
+    # A warning was logged identifying the cycle.
+    assert any(
+        "Managed_by cycle detected" in record.getMessage()
+        and str(group.id) in record.getMessage()
+        for record in caplog.records
+    )

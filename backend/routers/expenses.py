@@ -3,7 +3,7 @@
 from typing import Annotated
 import os
 import json
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,44 @@ def normalize_date(date_str: str) -> str:
     return date_str
 
 
+# Bounds for the acceptable expense-date window. These exist so that a stray
+# (or malicious) far-future date can't blow up the Summary endpoint's weekly
+# bucket series — each year of span contributes ~52 buckets, so e.g. a
+# date of 2200-01-01 would produce ~9100 weekly buckets per request.
+_MAX_EXPENSE_PAST = timedelta(days=365 * 100)
+_MAX_EXPENSE_FUTURE = timedelta(days=365)
+
+
+def validate_date_range(raw_date: str) -> None:
+    """
+    Enforce ``today - 100 years <= parsed_date <= today + 1 year``.
+
+    Call this on every create/update path after ``normalize_date``. Raises
+    HTTP 400 if the date is out of range. Silently no-ops when the raw
+    string is empty or cannot be parsed as ISO — the rest of the stack
+    already tolerates those cases (e.g. the summary primitive skips
+    unparseable dates).
+    """
+    if not raw_date:
+        return
+    try:
+        parsed = date.fromisoformat(normalize_date(raw_date))
+    except (ValueError, TypeError):
+        return
+
+    today = date.today()
+    if parsed < today - _MAX_EXPENSE_PAST:
+        raise HTTPException(
+            status_code=400,
+            detail="Expense date is too far in the past (max 100 years).",
+        )
+    if parsed > today + _MAX_EXPENSE_FUTURE:
+        raise HTTPException(
+            status_code=400,
+            detail="Expense date is too far in the future (max 1 year).",
+        )
+
+
 @router.post("/expenses", response_model=schemas.Expense)
 def create_expense(
     expense: schemas.ExpenseCreate,
@@ -50,6 +88,10 @@ def create_expense(
             status_code=400,
             detail="Expense guests can only be added to expenses outside of a group"
         )
+
+    # Clamp the date to a reasonable window before any downstream work —
+    # an unbounded date blows up the Summary endpoint's bucket series.
+    validate_date_range(expense.date)
 
     # Fetch and cache the historical exchange rate for this expense
     exchange_rate = get_exchange_rate_for_expense(expense.date, expense.currency)
@@ -620,8 +662,10 @@ def update_expense(
         validate_item_split_details(expense_update.items)
 
     # Update expense fields
-    # Normalize the date first for accurate comparison
+    # Normalize the date first for accurate comparison, then clamp to the
+    # acceptable range so callers can't stamp an out-of-bounds date via PUT.
     normalized_update_date = normalize_date(expense_update.date)
+    validate_date_range(normalized_update_date)
 
     # Check if date or currency changed, if so update exchange rate
     if expense.date != normalized_update_date or expense.currency != expense_update.currency:

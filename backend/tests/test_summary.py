@@ -9,6 +9,7 @@ heavy numeric coverage of the underlying aggregation primitive lives in
 """
 
 from datetime import date
+from unittest.mock import patch
 
 from models import GroupMember, User
 from auth import get_password_hash
@@ -686,6 +687,62 @@ def test_public_summary_series_totals_match_authenticated_per_member_sum(
         per_member_sum = sum(pm["amount"] for pm in a["per_member"])
         assert a["total"] == per_member_sum
         assert p["total"] == per_member_sum
+
+
+def test_public_summary_cache_race_unshare_mid_compute(
+    client, auth_headers, db_session, test_user
+):
+    """
+    TOCTOU guard: if ``is_public`` is flipped off WHILE the primitive is
+    running (between the initial SELECT and the cache ``set``), the handler
+    must notice on the post-compute re-check, evict the just-cached entry,
+    and return 404 rather than caching a stale pre-unshare response that
+    would be served for up to 60s.
+    """
+    from utils import summary_cache
+    import models as _models
+
+    group_id, share_link_id, _ = _create_shared_group_with_expense(
+        client, auth_headers, db_session, test_user
+    )
+
+    # Monkey-patch the primitive (at the import site in routers.groups) so
+    # that right before it returns, we flip ``is_public`` off and commit —
+    # simulating Worker B's unshare landing mid-compute.
+    from utils.summary import calculate_consumption_summary as _real_calc
+
+    def _racing_calc(db, g_id, target_currency):
+        result = _real_calc(db, g_id, target_currency=target_currency)
+        # Simulate a concurrent unshare commit. We use the conftest's
+        # in-memory TestingSessionLocal (bound to the same SQLite test
+        # engine) so a separate session flips ``is_public`` off and commits
+        # before our handler performs its post-compute re-read.
+        import sys as _sys
+
+        TestingSessionLocal = _sys.modules["conftest"].TestingSessionLocal
+        other_session = TestingSessionLocal()
+        try:
+            grp = (
+                other_session.query(_models.Group)
+                .filter(_models.Group.id == g_id)
+                .first()
+            )
+            grp.is_public = False
+            other_session.commit()
+        finally:
+            other_session.close()
+        return result
+
+    with patch(
+        "routers.groups.calculate_consumption_summary",
+        side_effect=_racing_calc,
+    ):
+        resp = client.get(f"/groups/public/{share_link_id}/summary")
+
+    assert resp.status_code == 404, resp.text
+    # Critical: cache must be empty for this share_link_id. Otherwise the
+    # next request within TTL would be served the stale 200.
+    assert share_link_id not in summary_cache._cache
 
 
 def test_public_summary_cache_invalidated_on_is_public_toggle_off(

@@ -45,6 +45,7 @@ from sqlalchemy.orm import Session
 
 import models
 from routers.expenses import normalize_date
+from utils.balances import _detect_managed_cycles, _managed_key_for_guest
 from utils.currency import convert_currency, convert_to_usd
 from utils.display import get_participant_display_name
 
@@ -359,15 +360,32 @@ def calculate_consumption_summary(
             per_member[key] = per_member.get(key, 0) + amount_cents
 
     # ------------------------------------------------------------------
+    # Detect managed_by cycles up-front so we apply the same cycle-skip
+    # logic to every fold below (top-level + each time-bucket) without
+    # re-walking the edge graph.
+    # ------------------------------------------------------------------
+    cyclic_keys = _detect_managed_cycles(managed_guests, managed_members_managed)
+    if cyclic_keys:
+        logger.warning(
+            "Managed_by cycle detected for group_id=%s, keys involved=%s; "
+            "skipping fold to prevent silent data loss.",
+            group_id,
+            sorted(cyclic_keys),
+        )
+
+    # ------------------------------------------------------------------
     # Fold managed relationships using the prefetched lists — no DB hits in
     # the per-period loop.
     # ------------------------------------------------------------------
-    _fold_with_prefetched(consumption, managed_guests, managed_members_managed)
+    _fold_with_prefetched(
+        consumption, managed_guests, managed_members_managed, cyclic_keys
+    )
     for period_label in bucket_totals_per_member:
         _fold_with_prefetched(
             bucket_totals_per_member[period_label],
             managed_guests,
             managed_members_managed,
+            cyclic_keys,
         )
 
     # ------------------------------------------------------------------
@@ -382,15 +400,17 @@ def calculate_consumption_summary(
         if guest.claimed_by_id and guest.managed_by_id:
             continue
 
-        if guest.claimed_by_id:
-            managed_key = (guest.claimed_by_id, False)
-        else:
-            managed_key = (guest.id, True)
-
+        managed_key = _managed_key_for_guest(guest)
         manager_key = (
             guest.managed_by_id,
             guest.managed_by_type == "guest",
         )
+
+        # Cycle-aware: if this entry wasn't folded (cycle), don't emit a
+        # breakdown row — the managed entry is already surfaced as its own
+        # top-level member row.
+        if managed_key in cyclic_keys or manager_key in cyclic_keys:
+            continue
 
         total_for_guest = pre_fold_totals.get(managed_key, 0)
         if total_for_guest == 0:
@@ -408,6 +428,11 @@ def calculate_consumption_summary(
             managed_member.managed_by_id,
             managed_member.managed_by_type == "guest",
         )
+
+        # Cycle-aware: same rationale as the guest loop above.
+        if managed_key in cyclic_keys or manager_key in cyclic_keys:
+            continue
+
         total_for_member = pre_fold_totals.get(managed_key, 0)
         if total_for_member == 0:
             # Match the zero-total skip behaviour above: registered members
@@ -559,6 +584,7 @@ def _fold_with_prefetched(
     totals: Dict[Tuple[int, bool], int],
     managed_guests: List[models.GuestMember],
     managed_members: List[models.GroupMember],
+    cyclic_keys: "frozenset[Tuple[int, bool]] | set[Tuple[int, bool]] | None" = None,
 ) -> None:
     """
     In-place fold managed guests and managed members into their managers
@@ -579,7 +605,15 @@ def _fold_with_prefetched(
             set, already scoped to the group.
         managed_members: Pre-fetched ``GroupMember`` rows with
             ``managed_by_id`` set, already scoped to the group.
+        cyclic_keys: Optional pre-computed set of participant keys that are
+            part of a managed_by cycle — these are excluded from the fold so
+            their amounts stay visible under their own key instead of being
+            dropped onto a deleted key. Pass ``None`` to skip the check
+            (caller has already validated cycle-freeness or doesn't care).
     """
+    if cyclic_keys is None:
+        cyclic_keys = frozenset()
+
     for guest in managed_guests:
         # Defensive check: claimed guests should not have managed_by set.
         # This would cause double-counting since the user inherits the
@@ -593,13 +627,13 @@ def _fold_with_prefetched(
             )
             continue
 
-        if guest.claimed_by_id:
-            guest_key = (guest.claimed_by_id, False)
-        else:
-            guest_key = (guest.id, True)
-
+        guest_key = _managed_key_for_guest(guest)
         manager_is_guest = (guest.managed_by_type == 'guest')
         manager_key = (guest.managed_by_id, manager_is_guest)
+
+        # Cycle-aware: don't fold participants whose chain loops back.
+        if guest_key in cyclic_keys or manager_key in cyclic_keys:
+            continue
 
         if guest_key in totals:
             totals[manager_key] = totals.get(manager_key, 0) + totals[guest_key]
@@ -609,6 +643,10 @@ def _fold_with_prefetched(
         member_key = (managed_member.user_id, False)
         manager_is_guest = (managed_member.managed_by_type == 'guest')
         manager_key = (managed_member.managed_by_id, manager_is_guest)
+
+        # Cycle-aware: don't fold participants whose chain loops back.
+        if member_key in cyclic_keys or manager_key in cyclic_keys:
+            continue
 
         if member_key in totals:
             totals[manager_key] = totals.get(manager_key, 0) + totals[member_key]

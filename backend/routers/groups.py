@@ -913,6 +913,28 @@ def get_public_group_summary(
     )
 
     summary_cache.set(share_link_id, public_response)
+
+    # Close a TOCTOU window: between reading ``is_public`` above and writing to
+    # the cache here, an unshare commit could have landed — at which point
+    # ``unshare_group`` would have called ``summary_cache.invalidate`` while
+    # our cache slot was still empty, and our ``set`` above would have
+    # re-populated it with a stale (pre-unshare) response for up to 60s.
+    #
+    # Re-read ``is_public`` through a fresh query (bypassing the session
+    # identity map, which can otherwise hand back the old value) and evict
+    # the entry if the group is no longer public. A tiny race still exists
+    # between this check and a subsequent ``unshare_group`` call, but the
+    # window shrinks from "entire summary compute" to "two statements".
+    db.expire(group)
+    current_is_public = (
+        db.query(models.Group.is_public)
+        .filter(models.Group.id == group.id)
+        .scalar()
+    )
+    if not current_is_public:
+        summary_cache.invalidate(share_link_id)
+        raise HTTPException(status_code=404, detail="Public group not found")
+
     return public_response
 
 
