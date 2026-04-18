@@ -2,7 +2,7 @@
 
 import json
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 import models
@@ -839,6 +839,9 @@ def get_public_group_balances(
     return result
 
 
+# NOTE: Route ordering matters — this must precede any route with a bare
+# {share_link_id} capture at the same path so FastAPI resolves the more
+# specific 'summary' literal first.
 @router.get(
     "/public/{share_link_id}/summary",
     response_model=schemas.PublicGroupSummaryResponse,
@@ -846,6 +849,7 @@ def get_public_group_balances(
 )
 def get_public_group_summary(
     share_link_id: str,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> schemas.PublicGroupSummaryResponse:
     """
@@ -862,8 +866,14 @@ def get_public_group_summary(
 
     Rate-limited per IP (``summary_rate_limiter``) and fronted by a 60s
     in-memory TTL cache keyed by ``share_link_id`` (see
-    ``utils.summary_cache``).
+    ``utils.summary_cache``). A ``Cache-Control: no-store, private`` header
+    is set on the response so CDNs / shared caches don't bypass the
+    in-memory invalidation hook (see ``unshare_group``).
     """
+    # Make sure no downstream cache (CDN/proxy) stores this response — the
+    # in-memory invalidation hook only covers our own cache.
+    response.headers["Cache-Control"] = "no-store, private"
+
     cached = summary_cache.get(share_link_id)
     if cached is not None:
         return cached

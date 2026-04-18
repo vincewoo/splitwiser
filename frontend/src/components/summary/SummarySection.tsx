@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { groupsApi } from '../../services/api';
-import { formatMoney } from '../../utils/formatters';
 import type {
     GroupSummaryResponse,
     PublicGroupSummaryResponse,
-    SummaryGranularity,
 } from '../../types/summary';
 import MemberConsumptionTable from './MemberConsumptionTable';
 import SpendingTrendChart from './SpendingTrendChart';
+import SummaryHeader from './SummaryHeader';
 
 interface SummarySectionProps {
     /** Set in authenticated mode. Exactly one of groupId / shareLinkId must be provided. */
@@ -19,12 +18,6 @@ interface SummarySectionProps {
 }
 
 type SummaryResponse = GroupSummaryResponse | PublicGroupSummaryResponse;
-
-const granularityLabel = (g: SummaryGranularity): string => {
-    if (g === 'week') return 'Weekly breakdown';
-    if (g === 'month') return 'Monthly breakdown';
-    return 'Quarterly breakdown';
-};
 
 /**
  * Collapsible Summary section. Mirrors the Balances card pattern in
@@ -66,7 +59,8 @@ const SummarySection: React.FC<SummarySectionProps> = ({ groupId, shareLinkId, c
     }, [isExpanded, response, isLoading, error, fetchSummary]);
 
     const handleRetry = () => {
-        // Clear error so the effect fires the fetch again.
+        // Retry directly rather than relying on the effect — the effect's
+        // response/isLoading guards keep it idle here.
         setError(null);
         fetchSummary();
     };
@@ -97,7 +91,11 @@ const SummarySection: React.FC<SummarySectionProps> = ({ groupId, shareLinkId, c
                     )}
 
                     {error && !isLoading && (
-                        <div className="mt-4 flex flex-col items-start gap-3 text-sm">
+                        <div
+                            role="alert"
+                            aria-live="assertive"
+                            className="mt-4 flex flex-col items-start gap-3 text-sm"
+                        >
                             <p className="text-red-600 dark:text-red-400">
                                 {error}
                             </p>
@@ -169,25 +167,14 @@ interface PublicSummaryContentProps {
 const PublicSummaryContent: React.FC<PublicSummaryContentProps> = ({ response }) => {
     const { group_total, currency, granularity, has_synthesized_historical_rate, series } = response;
 
-    // Inline header mirrors the styling MemberConsumptionTable renders for its
-    // auth-path header (large amount, small granularity label, italicized
-    // synthesized-rate caveat). Kept inline to avoid prematurely extracting a
-    // shared sub-component for two render sites.
     return (
         <div>
-            <div className="pb-4">
-                <div className="text-3xl lg:text-4xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    {formatMoney(group_total, currency)}
-                </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    {granularityLabel(granularity)}
-                </div>
-                {has_synthesized_historical_rate && (
-                    <p className="text-xs italic text-gray-500 dark:text-gray-400 mt-2">
-                        One or more historical exchange rates were synthesized from current data.
-                    </p>
-                )}
-            </div>
+            <SummaryHeader
+                groupTotal={group_total}
+                currency={currency}
+                granularity={granularity}
+                hasSynthesizedHistoricalRate={has_synthesized_historical_rate}
+            />
 
             {series.length > 0 ? (
                 <SpendingTrendChart

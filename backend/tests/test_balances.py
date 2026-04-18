@@ -248,8 +248,14 @@ def test_fold_defensive_skip_on_claimed_and_managed_guest(db_session, caplog):
 
     # Nothing moved: the defensive skip fired.
     assert totals == totals_before
-    # And a warning was logged about the data integrity issue.
-    assert any("Bad Data Guest" in record.message for record in caplog.records)
+    # And a warning was logged about the data integrity issue. The guest's
+    # display name is deliberately NOT included in the log (PII); the guest
+    # id is the actionable identifier.
+    assert any(
+        "Data integrity issue" in record.getMessage()
+        and str(guest.id) in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_fold_iteration_order_independence_two_guests_into_one_manager(db_session):

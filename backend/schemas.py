@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, field_validator, Field
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Literal
 from datetime import datetime
 
 from utils.currency import VALID_CURRENCIES
@@ -331,7 +331,7 @@ class GroupBalance(BaseModel):
 
 # Group spending summary response schemas
 #
-# Shape is intentionally parallel to `utils.summary.ConsumptionSummary.to_dict()`
+# Shape is intentionally parallel to `utils.summary.ConsumptionSummary`
 # minus the internal `skipped_unparseable_dates` observability counter, which
 # is logged server-side and not surfaced to clients.
 class GroupSummaryManagedMember(BaseModel):
@@ -339,12 +339,18 @@ class GroupSummaryManagedMember(BaseModel):
     display_name: str
     total: int  # Integer cents, in the group's default currency.
 
+    class Config:
+        from_attributes = True
+
 
 class GroupSummarySeriesPointMember(BaseModel):
     """Per-member contribution to a single time bucket."""
     user_id: int
     is_guest: bool
     amount: int  # Integer cents.
+
+    class Config:
+        from_attributes = True
 
 
 class GroupSummarySeriesPoint(BaseModel):
@@ -354,6 +360,9 @@ class GroupSummarySeriesPoint(BaseModel):
     total: int  # Integer cents — Σ per_member[].amount.
     per_member: list[GroupSummarySeriesPointMember] = []
 
+    class Config:
+        from_attributes = True
+
 
 class GroupSummaryMember(BaseModel):
     """One top-level member row (managed members already folded in)."""
@@ -362,6 +371,9 @@ class GroupSummaryMember(BaseModel):
     display_name: str
     total: int  # Integer cents.
     managed_members: list[GroupSummaryManagedMember] = []
+
+    class Config:
+        from_attributes = True
 
 
 class GroupSummaryResponse(BaseModel):
@@ -375,10 +387,13 @@ class GroupSummaryResponse(BaseModel):
     """
     group_total: int  # Integer cents.
     currency: str  # Group's default currency (pass-through).
-    granularity: str  # "week" | "month" | "quarter"
+    granularity: Literal["week", "month", "quarter"]
     has_synthesized_historical_rate: bool
     members: list[GroupSummaryMember] = []
     series: list[GroupSummarySeriesPoint] = []
+
+    class Config:
+        from_attributes = True
 
 
 # Public (unauthenticated) group summary schemas.
@@ -395,6 +410,9 @@ class PublicGroupSummarySeriesPoint(BaseModel):
     period_start: str  # ISO date YYYY-MM-DD — first day of the bucket.
     total: int  # Integer cents.
 
+    class Config:
+        from_attributes = True
+
 
 class PublicGroupSummaryResponse(BaseModel):
     """
@@ -407,9 +425,12 @@ class PublicGroupSummaryResponse(BaseModel):
     """
     group_total: int  # Integer cents.
     currency: str  # Group's default currency (pass-through).
-    granularity: str  # "week" | "month" | "quarter"
+    granularity: Literal["week", "month", "quarter"]
     has_synthesized_historical_rate: bool
     series: list[PublicGroupSummarySeriesPoint] = []
+
+    class Config:
+        from_attributes = True
 
 
 # Request/Response models previously inline in main.py

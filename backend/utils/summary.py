@@ -38,7 +38,7 @@ Design notes (see ``docs/plans/2026-04-17-001-feat-group-spending-summary-plan.m
 import datetime
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple, TypedDict
 
 from sqlalchemy.orm import Session
 
@@ -68,22 +68,19 @@ _QUARTER_SPAN_DAYS = 18 * 30  # ≈ 18 months
 # Public return shape -------------------------------------------------------
 
 
+class ManagedMemberBreakdown(TypedDict):
+    """Per-managed-member breakdown entry folded into a manager's row."""
+    display_name: str
+    total: int
+
+
 @dataclass
 class SummaryMember:
     user_id: int
     is_guest: bool
     display_name: str
     total: int
-    managed_members: List[Dict[str, Any]] = field(default_factory=list)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "user_id": self.user_id,
-            "is_guest": self.is_guest,
-            "display_name": self.display_name,
-            "total": self.total,
-            "managed_members": list(self.managed_members),
-        }
+    managed_members: List[ManagedMemberBreakdown] = field(default_factory=list)
 
 
 @dataclass
@@ -92,13 +89,6 @@ class SummarySeriesPointMember:
     is_guest: bool
     amount: int
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "user_id": self.user_id,
-            "is_guest": self.is_guest,
-            "amount": self.amount,
-        }
-
 
 @dataclass
 class SummarySeriesPoint:
@@ -106,14 +96,6 @@ class SummarySeriesPoint:
     period_start: str  # ISO date YYYY-MM-DD
     total: int
     per_member: List[SummarySeriesPointMember] = field(default_factory=list)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "period_label": self.period_label,
-            "period_start": self.period_start,
-            "total": self.total,
-            "per_member": [m.to_dict() for m in self.per_member],
-        }
 
 
 @dataclass
@@ -125,17 +107,6 @@ class ConsumptionSummary:
     skipped_unparseable_dates: int
     members: List[SummaryMember] = field(default_factory=list)
     series: List[SummarySeriesPoint] = field(default_factory=list)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "group_total": self.group_total,
-            "currency": self.currency,
-            "granularity": self.granularity,
-            "has_synthesized_historical_rate": self.has_synthesized_historical_rate,
-            "skipped_unparseable_dates": self.skipped_unparseable_dates,
-            "members": [m.to_dict() for m in self.members],
-            "series": [s.to_dict() for s in self.series],
-        }
 
 
 # Period-key helpers --------------------------------------------------------
@@ -368,7 +339,7 @@ def calculate_consumption_summary(
     # ------------------------------------------------------------------
     # Build managed-member breakdown: manager_key → list of (name, total).
     # Query the raw management links first; names come from display helpers.
-    manager_breakdown: Dict[Tuple[int, bool], List[Dict[str, Any]]] = {}
+    manager_breakdown: Dict[Tuple[int, bool], List[ManagedMemberBreakdown]] = {}
 
     for guest in (
         db.query(models.GuestMember)
@@ -396,9 +367,9 @@ def calculate_consumption_summary(
             db, expense_ids, managed_key, target_currency
         )
         if total_for_guest == 0:
-            # Still include the entry so the UI can surface the relationship,
-            # but with a zero total. Skip if we have no useful data.
-            pass
+            # Skip zero-total managed guests — they'd otherwise surface as
+            # a breakdown row with no useful data.
+            continue
 
         display = get_participant_display_name(
             managed_key[0], managed_key[1], db

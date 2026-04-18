@@ -522,6 +522,12 @@ def test_public_summary_rate_limit_429(client, auth_headers, db_session, test_us
     conftest_app = sys.modules["conftest"].app
     from utils.rate_limiter import RateLimiter, summary_rate_limiter
 
+    # Pin the configured production budget so a typo (e.g. 30 → 3) fails
+    # this test instead of silently passing under the override below.
+    assert summary_rate_limiter.requests_limit == 30, (
+        "Production rate limit budget changed; update this assertion"
+    )
+
     _, share_link_id, _ = _create_shared_group_with_expense(
         client, auth_headers, db_session, test_user
     )

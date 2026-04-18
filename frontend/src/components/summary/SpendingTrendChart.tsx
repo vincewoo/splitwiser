@@ -18,6 +18,7 @@ import type {
 } from '../../types/summary';
 import { formatMoney } from '../../utils/formatters';
 import { assignSeriesColors, type AssignedSeries } from './chartPalette';
+import { granularityWord } from './granularity';
 
 /**
  * Discriminated union — TypeScript forces the caller to supply `members` for
@@ -48,24 +49,31 @@ const TAP_TARGET = 44;
 // tick labels like "$1.2k"; bottom makes room for period labels.
 const MARGIN = { top: 16, right: 12, bottom: 40, left: 52 };
 
+/** Extract just the currency symbol (or prefix) from a formatted amount.
+ *  Using formatMoney(0, currency) gives e.g. "$0.00" / "€0.00" / "¥0"; we
+ *  strip the trailing numeric + any trailing whitespace to get "$" / "€" /
+ *  "¥". Formats that place the symbol after the number (e.g. some locales
+ *  for CHF) will still render something reasonable — we fall back to
+ *  whatever leading non-digit prefix we can extract. */
+const currencySymbol = (currency: string): string => {
+    const sample = formatMoney(0, currency);
+    const match = sample.match(/^[^\d-]+/);
+    return match ? match[0].trim() : currency;
+};
+
 /** Abbreviate money values for Y-axis ticks once they exceed 10k. */
 const formatMoneyTick = (amountCents: number, currency: string): string => {
     const abs = Math.abs(amountCents);
+    const symbol = currencySymbol(currency);
     if (abs >= 100_000_000) {
-        // >= $1M
-        return `$${(amountCents / 100_000_000).toFixed(1)}M`;
+        // >= 1M
+        return `${symbol}${(amountCents / 100_000_000).toFixed(1)}M`;
     }
     if (abs >= 1_000_000) {
-        // >= $10k
-        return `$${(amountCents / 100_000).toFixed(1)}k`;
+        // >= 10k
+        return `${symbol}${(amountCents / 100_000).toFixed(1)}k`;
     }
     return formatMoney(amountCents, currency);
-};
-
-const granularityWord = (g: SummaryGranularity): string => {
-    if (g === 'week') return 'Weekly';
-    if (g === 'month') return 'Monthly';
-    return 'Quarterly';
 };
 
 /** Build the SVG aria-label from any series that has a `total` field. */
@@ -162,10 +170,16 @@ const SpendingTrendChart: React.FC<SpendingTrendChartProps> = (props) => {
     // Data shaping: in stacked mode we normalize the per-period per-member
     // array into an object keyed by series key so BarStack can read it.
     // ------------------------------------------------------------------
+    // Extract mode-specific fields to simple locals so useMemo dependency
+    // arrays can be statically checked by react-hooks/exhaustive-deps.
+    const stackedMembers = props.mode === 'stacked' ? props.members : null;
+    const stackedSeries = props.mode === 'stacked' ? props.series : null;
+    const singleSeries = props.mode === 'single' ? props.series : null;
+
     const assignedSeries: AssignedSeries[] = useMemo(() => {
-        if (props.mode !== 'stacked') return [];
-        return assignSeriesColors(props.members);
-    }, [props]);
+        if (stackedMembers === null) return [];
+        return assignSeriesColors(stackedMembers);
+    }, [stackedMembers]);
 
     const stackKeys: string[] = useMemo(
         () => assignedSeries.map(seriesKey),
@@ -173,10 +187,10 @@ const SpendingTrendChart: React.FC<SpendingTrendChartProps> = (props) => {
     );
 
     const stackedData: StackDatum[] = useMemo(() => {
-        if (props.mode !== 'stacked') return [];
+        if (stackedSeries === null) return [];
         // Build a quick lookup for each series definition so we can sum the
         // correct set of member keys (especially for the "Others" overflow).
-        return props.series.map((point) => {
+        return stackedSeries.map((point) => {
             const datum: StackDatum = {
                 period_label: point.period_label,
                 period_start: point.period_start,
@@ -194,7 +208,7 @@ const SpendingTrendChart: React.FC<SpendingTrendChartProps> = (props) => {
             }
             return datum;
         });
-    }, [props, assignedSeries]);
+    }, [stackedSeries, assignedSeries]);
 
     // Global Y max across all periods; zero-safe so an empty-data chart
     // still renders axes.
@@ -260,8 +274,8 @@ const SpendingTrendChart: React.FC<SpendingTrendChartProps> = (props) => {
     // Build tooltip content — depends on mode
     const tooltipContent = useMemo((): { title: string; lines: string[] } | null => {
         if (!tooltip) return null;
-        if (props.mode === 'stacked') {
-            const point = props.series[tooltip.periodIndex];
+        if (stackedSeries !== null) {
+            const point = stackedSeries[tooltip.periodIndex];
             if (!point) return null;
             const lines: string[] = [];
             for (const def of assignedSeries) {
@@ -279,13 +293,14 @@ const SpendingTrendChart: React.FC<SpendingTrendChartProps> = (props) => {
             lines.push(`Total: ${formatMoney(point.total, currency)}`);
             return { title: point.period_label, lines };
         }
-        const point = props.series[tooltip.periodIndex];
+        if (singleSeries === null) return null;
+        const point = singleSeries[tooltip.periodIndex];
         if (!point) return null;
         return {
             title: point.period_label,
             lines: [`Total: ${formatMoney(point.total, currency)}`],
         };
-    }, [tooltip, props, assignedSeries, currency]);
+    }, [tooltip, stackedSeries, singleSeries, assignedSeries, currency]);
 
     // Flip tooltip below the bar when the anchor sits too close to the top.
     const tooltipPlacement: 'above' | 'below' = useMemo(() => {

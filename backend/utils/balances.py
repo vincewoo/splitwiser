@@ -1,11 +1,14 @@
 """Balance calculation utilities with management relationship aggregation."""
 
 import logging
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple, Union, overload
 from sqlalchemy.orm import Session
 
 import models
 from utils.currency import convert_to_usd, convert_currency
+
+
+logger = logging.getLogger(__name__)
 
 
 def _fold_managed_relationships(
@@ -42,10 +45,11 @@ def _fold_managed_relationships(
         # Defensive check: claimed guests should not have managed_by set
         # This would cause double-counting since the user inherits the management relationship
         if guest.claimed_by_id and guest.managed_by_id:
-            logging.warning(
-                f"Data integrity issue: Claimed guest '{guest.name}' (ID: {guest.id}) "
-                f"has managed_by_id={guest.managed_by_id} set. This should be None. "
-                f"Skipping aggregation to prevent double-counting."
+            logger.warning(
+                "Data integrity issue: Claimed guest id=%s has managed_by_id=%s set. "
+                "This should be None. Skipping aggregation to prevent double-counting.",
+                guest.id,
+                guest.managed_by_id,
             )
             continue
 
@@ -79,11 +83,27 @@ def _fold_managed_relationships(
             del totals[member_key]
 
 
+@overload
 def calculate_net_balances(
     db: Session,
     group_id: int,
-    target_currency: str = None
-) -> Dict[Tuple[int, bool], float]:
+    target_currency: None = None,
+) -> Dict[Tuple[int, bool], Dict[str, float]]: ...
+
+
+@overload
+def calculate_net_balances(
+    db: Session,
+    group_id: int,
+    target_currency: str,
+) -> Dict[Tuple[int, bool], float]: ...
+
+
+def calculate_net_balances(
+    db: Session,
+    group_id: int,
+    target_currency: Optional[str] = None,
+) -> Union[Dict[Tuple[int, bool], float], Dict[Tuple[int, bool], Dict[str, float]]]:
     """
     Calculate net balances for all participants in a group, aggregating managed relationships.
 
@@ -189,10 +209,11 @@ def calculate_net_balances(
             # Defensive check: claimed guests should not have managed_by set
             # This would cause double-counting since the user inherits the management relationship
             if guest.claimed_by_id and guest.managed_by_id:
-                logging.warning(
-                    f"Data integrity issue: Claimed guest '{guest.name}' (ID: {guest.id}) "
-                    f"has managed_by_id={guest.managed_by_id} set. This should be None. "
-                    f"Skipping aggregation to prevent double-counting."
+                logger.warning(
+                    "Data integrity issue: Claimed guest id=%s has managed_by_id=%s set. "
+                    "This should be None. Skipping aggregation to prevent double-counting.",
+                    guest.id,
+                    guest.managed_by_id,
                 )
                 continue
 

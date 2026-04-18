@@ -1,17 +1,12 @@
 import React, { useMemo, useRef, useState } from 'react';
 import type { GroupSummaryResponse, GroupSummaryMember } from '../../types/summary';
 import { formatMoney } from '../../utils/formatters';
+import SummaryHeader from './SummaryHeader';
 
 interface MemberConsumptionTableProps {
     response: GroupSummaryResponse;
     currentUserId: number | null;
 }
-
-const granularityLabel = (granularity: GroupSummaryResponse['granularity']): string => {
-    if (granularity === 'week') return 'Weekly breakdown';
-    if (granularity === 'month') return 'Monthly breakdown';
-    return 'Quarterly breakdown';
-};
 
 const memberKey = (member: Pick<GroupSummaryMember, 'user_id' | 'is_guest'>): string =>
     `${member.user_id}-${member.is_guest}`;
@@ -72,19 +67,12 @@ const MemberConsumptionTable: React.FC<MemberConsumptionTableProps> = ({ respons
     return (
         <div className="bg-white dark:bg-gray-800 rounded">
             {/* Header: group total + granularity + optional synthesized-rate note */}
-            <div className="pb-4">
-                <div className="text-3xl lg:text-4xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    {formatMoney(group_total, currency)}
-                </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    {granularityLabel(granularity)}
-                </div>
-                {has_synthesized_historical_rate && (
-                    <p className="text-xs italic text-gray-500 dark:text-gray-400 mt-2">
-                        One or more historical exchange rates were synthesized from current data.
-                    </p>
-                )}
-            </div>
+            <SummaryHeader
+                groupTotal={group_total}
+                currency={currency}
+                granularity={granularity}
+                hasSynthesizedHistoricalRate={has_synthesized_historical_rate}
+            />
 
             {/* Per-member rows */}
             <ul role="list" className="border-t dark:border-gray-700">

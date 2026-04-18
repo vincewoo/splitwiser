@@ -27,7 +27,7 @@ from utils.validation import get_group_or_404, verify_group_membership
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["summary"])
+router = APIRouter(tags=["groups"])
 
 
 @router.get(
