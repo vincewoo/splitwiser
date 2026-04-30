@@ -28,6 +28,7 @@ const Login = () => {
   }) => {
     localStorage.setItem('token', response.access_token);
     localStorage.setItem('refreshToken', response.refresh_token);
+    // Full reload so AuthProvider's mount-time effect rehydrates the user from the freshly-stored token.
     window.location.href = returnTo;
   };
 
