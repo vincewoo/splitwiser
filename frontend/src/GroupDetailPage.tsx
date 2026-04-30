@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { usePageTitle } from './hooks/usePageTitle';
 import { getApiUrl } from './api';
@@ -95,6 +95,7 @@ interface Friend {
 const GroupDetailPage: React.FC = () => {
     const { groupId, shareLinkId } = useParams<{ groupId?: string; shareLinkId?: string }>();
     const navigate = useNavigate();
+    const location = useLocation();
     const { user } = useAuth();
 
     const [group, setGroup] = useState<Group | null>(null);
@@ -691,7 +692,7 @@ const GroupDetailPage: React.FC = () => {
             <header className="bg-white dark:bg-gray-800 shadow-sm dark:shadow-gray-900/50">
                 {isPublicView && !user && (
                     <div className="bg-blue-50 dark:bg-blue-900/30 px-4 py-2 text-sm text-blue-700 dark:text-blue-300 text-center border-b border-blue-100 dark:border-blue-800">
-                        You are viewing this group as a guest. To join, find your name in the <strong>Members</strong> list below and click <strong>Claim</strong>.
+                        You are viewing this group as a guest. To join, find your name in the <strong>Members</strong> list below and click <strong>Claim</strong> — or <Link to={`/login?returnTo=${encodeURIComponent(location.pathname)}`} className="underline font-medium hover:text-blue-900 dark:hover:text-blue-200">log in</Link> if you already have an account.
                     </div>
                 )}
                 {isPublicView && user && (
