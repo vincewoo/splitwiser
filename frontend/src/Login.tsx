@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { usePageTitle } from './hooks/usePageTitle';
 import { getApiUrl } from './api';
 import { GoogleSignInButton } from './components/auth/GoogleSignInButton';
+import { safeReturnTo } from './utils/safeReturnTo';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -14,6 +15,9 @@ const Login = () => {
   // Set dynamic page title
   usePageTitle('Login');
 
+  const [searchParams] = useSearchParams();
+  const returnTo = safeReturnTo(searchParams.get('returnTo'));
+
   // Check if Google OAuth is configured
   const googleOAuthEnabled = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -24,7 +28,8 @@ const Login = () => {
   }) => {
     localStorage.setItem('token', response.access_token);
     localStorage.setItem('refreshToken', response.refresh_token);
-    window.location.href = '/';
+    // Full reload so AuthProvider's mount-time effect rehydrates the user from the freshly-stored token.
+    window.location.href = returnTo;
   };
 
   const handleGoogleError = (errorMessage: string) => {
@@ -53,7 +58,7 @@ const Login = () => {
       const data = await response.json();
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('refreshToken', data.refresh_token);
-      window.location.href = '/';
+      window.location.href = returnTo;
     } catch (err) {
       setError('Invalid credentials');
     } finally {
