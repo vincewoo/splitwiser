@@ -227,10 +227,14 @@ export const groupsApi = {
         return response.json();
     },
 
-    create: async (name: string, defaultCurrency: string = 'USD') => {
+    create: async (
+        name: string,
+        defaultCurrency: string = 'USD',
+        icon: string | null = null
+    ) => {
         const response = await apiFetch('/groups', {
             method: 'POST',
-            body: JSON.stringify({ name, default_currency: defaultCurrency }),
+            body: JSON.stringify({ name, default_currency: defaultCurrency, icon }),
         });
         return response;
     },

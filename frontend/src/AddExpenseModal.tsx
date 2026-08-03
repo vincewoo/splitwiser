@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { Scan, X } from '@phosphor-icons/react';
 import ReceiptScanner from './ReceiptScanner';
-import AmountKeypad, { AmountDisplay } from './components/expense/AmountKeypad';
+import AmountField from './components/expense/AmountField';
 import ParticipantSelector from './ParticipantSelector';
 import ExpenseSplitTypeSelector from './components/expense/ExpenseSplitTypeSelector';
 import ExpenseItemList from './components/expense/ExpenseItemList';
@@ -35,7 +35,7 @@ import {
 } from './utils/expenseTransformations';
 import { formatDateForInput } from './utils/formatters';
 import { formatCurrencyDisplay } from './utils/currencyHelpers';
-import { offlineExpensesApi } from './services/offlineApi';
+import { offlineExpensesApi, offlineGroupsApi } from './services/offlineApi';
 import { useSync } from './contexts/SyncContext';
 
 interface AddExpenseModalProps {
@@ -146,7 +146,39 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const itemizedExpense = useItemizedExpense();
     const { splitDetails, handleSplitDetailChange, removeSplitDetail, setSplitDetails } = useSplitDetails();
 
-    const selectedGroup = groups.find(g => g.id === selectedGroupId);
+    /*
+     * `groups` comes from the list endpoint, which carries the group but not
+     * who is in it — so the roster has to be fetched for whichever group the
+     * expense is being filed against. Without this the modal offers nobody but
+     * "You", whether the group was preselected or picked from the dropdown.
+     */
+    const [groupDetail, setGroupDetail] = useState<Group | null>(null);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        if (selectedGroupId === null) {
+            setGroupDetail(null);
+            return;
+        }
+        let cancelled = false;
+        offlineGroupsApi
+            .getById(selectedGroupId)
+            .then((detail: Group) => {
+                if (!cancelled) setGroupDetail(detail);
+            })
+            .catch(err => {
+                // The list entry still covers the currency and the name; only
+                // the roster is lost, and the form says so.
+                console.error('Failed to load group members:', err);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, selectedGroupId]);
+
+    const listedGroup = groups.find(g => g.id === selectedGroupId) ?? null;
+    const selectedGroup =
+        groupDetail?.id === selectedGroupId ? groupDetail : listedGroup;
     const groupGuests = selectedGroup?.guests || [];
 
     useEffect(() => {
@@ -407,6 +439,28 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    /**
+     * Moving the expense to another group drops everyone already chosen: a
+     * member of the old group is not a member of the new one, and leaving them
+     * selected would build splits the server rejects.
+     */
+    const handleGroupChange = (groupId: number | null) => {
+        if (groupId === selectedGroupId) return;
+        setSelectedGroupId(groupId);
+        setSelectedFriendIds([]);
+        setSelectedGuestIds([]);
+        setCurrentUserSelected(true);
+        setSplitDetails({});
+        setPayerId(user?.id || 0);
+        setPayerIsGuest(false);
+        setPayerIsExpenseGuest(false);
+        setPayerTempGuestId(null);
+        // Scanned lines survive the move; who was on them does not.
+        itemizedExpense.setItemizedItems(prev =>
+            prev.map(item => ({ ...item, assignments: [] }))
+        );
     };
 
     const toggleFriend = (id: number) => {
@@ -675,13 +729,18 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 </div>
 
                 {/*
-                  * The amount hero. The keypad that drives it is pinned below
-                  * the scrolling form, so the figure and its keys stay visible
-                  * together while the rest of the form scrolls between them.
+                  * The amount hero, pinned above the scrolling form so the
+                  * figure stays visible while the rest of the form moves.
+                  * Itemized totals are derived from the items, so there is
+                  * nothing to type.
                   */}
                 {splitType !== 'ITEMIZED' && (
                     <div className="pt-4 pb-1 bg-sw-surface flex-none">
-                        <AmountDisplay value={amount} currency={currency} />
+                        <AmountField
+                            value={amount}
+                            onChange={setAmount}
+                            currency={currency}
+                        />
                     </div>
                 )}
                 <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
@@ -703,7 +762,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                 <select
                                     id="group-select"
                                     value={selectedGroupId || ''}
-                                    onChange={(e) => setSelectedGroupId(e.target.value ? parseInt(e.target.value) : null)}
+                                    onChange={(e) => handleGroupChange(e.target.value ? parseInt(e.target.value) : null)}
                                     className="w-full px-2.5 py-2 rounded-lg border border-sw-line bg-sw-sunk text-sw-text focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
                                 >
                                     <option value="">No group</option>
@@ -734,8 +793,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                         </div>
 
                         {/*
-                          * Non-itemized amounts are entered on the keypad above
-                          * and below this form, so only the currency lives here.
+                          * Non-itemized amounts are typed in the hero above
+                          * this form, so only the currency lives here.
                           * Itemized totals are derived and shown read-only.
                           */}
                         <div className="mb-4 flex items-center gap-2">
@@ -1102,18 +1161,6 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                             )}
                         </div>
                     </div>
-
-                    {/*
-                      * Itemized expenses derive their total from the items, so
-                      * there is nothing for the keypad to edit.
-                      */}
-                    {splitType !== 'ITEMIZED' && (
-                        <AmountKeypad
-                            value={amount}
-                            onChange={setAmount}
-                            currency={currency}
-                        />
-                    )}
 
                     <div className="sticky bottom-0 bg-sw-surface border-t border-sw-line p-4 sm:p-5 flex justify-end gap-2">
                         <Button variant="ghost" onClick={onClose} disabled={isSubmitting} className="min-h-[44px]">

@@ -1,58 +1,50 @@
 /**
- * Keypad editing for the add-expense amount.
+ * Text editing for the add-expense amount.
  *
- * The redesign enters amounts through a keypad rather than a text field, so the
- * value is a string being edited one keystroke at a time — not a number. Kept
+ * The amount is typed on the system's own numeric keyboard, so the value is
+ * whatever the field currently holds — a string mid-edit, not a number. Kept
  * separate from the component so the rules are testable on their own.
  */
-
-export type AmountKey =
-    | '0'
-    | '1'
-    | '2'
-    | '3'
-    | '4'
-    | '5'
-    | '6'
-    | '7'
-    | '8'
-    | '9'
-    | '.'
-    | 'backspace';
 
 /** Digits before the decimal point. 9,999,999.99 is well past any real bill. */
 const MAX_INTEGER_DIGITS = 7;
 const MAX_DECIMALS = 2;
 
 /**
- * Apply one keypress to the current amount string.
+ * Constrain whatever the field now holds to a money entry.
  *
- * Returns the value unchanged when the key would produce something invalid —
- * a third decimal place, a second decimal point, or a leading run of zeros.
+ * `inputMode` only asks for a numeric keyboard; it does not stop other
+ * characters arriving by paste, by a hardware keyboard, or from a locale that
+ * types "," for the decimal separator. So the value is filtered on every
+ * change. Anything invalid is dropped rather than rejecting the whole entry,
+ * so typing never appears to stall.
  */
-export function pressAmountKey(current: string, key: AmountKey): string {
-    if (key === 'backspace') {
-        return current.slice(0, -1);
-    }
+export function sanitizeAmountInput(raw: string): string {
+    /*
+     * A comma is the decimal separator on many locales' numeric keyboards, and
+     * the thousands separator in plenty of pasted figures. Read it as the
+     * decimal point only when it is the sole separator in the string —
+     * otherwise it is grouping, and grouping is dropped.
+     */
+    const commas = raw.match(/,/g)?.length ?? 0;
+    const unified =
+        commas === 1 && !raw.includes('.')
+            ? raw.replace(',', '.')
+            : raw.replace(/,/g, '');
+    const cleaned = unified.replace(/[^0-9.]/g, '');
+    if (cleaned === '') return '';
 
-    if (key === '.') {
-        // One decimal point only; typing "." first gives "0.".
-        if (current.includes('.')) return current;
-        return current === '' ? '0.' : `${current}.`;
-    }
+    const [whole = '', ...rest] = cleaned.split('.');
+    const hasPoint = rest.length > 0;
 
-    const [whole = '', decimals] = current.split('.');
+    // A lone leading zero is a legitimate start ("0.99"); a run of them is not.
+    const trimmed = whole.replace(/^0+(?=\d)/, '').slice(0, MAX_INTEGER_DIGITS);
+    // Typing "." first gives "0.", as the keypad used to.
+    const head = trimmed === '' && hasPoint ? '0' : trimmed;
+    if (!hasPoint) return head;
 
-    if (decimals !== undefined) {
-        if (decimals.length >= MAX_DECIMALS) return current;
-        return `${current}${key}`;
-    }
-
-    // A lone leading zero is replaced rather than extended.
-    if (current === '0') return key === '0' ? current : key;
-    if (whole.length >= MAX_INTEGER_DIGITS) return current;
-
-    return `${current}${key}`;
+    // A second point is absorbed rather than swallowing the digits after it.
+    return `${head}.${rest.join('').slice(0, MAX_DECIMALS)}`;
 }
 
 /**
@@ -64,13 +56,4 @@ export function amountToCents(current: string): number | null {
     const value = parseFloat(current);
     if (!Number.isFinite(value) || value <= 0) return null;
     return Math.round(value * 100);
-}
-
-/**
- * What the keypad shows. An in-progress entry is shown verbatim so the caret
- * sits where the user is typing — "12." stays "12." rather than snapping to
- * "12.00".
- */
-export function formatAmountDisplay(current: string): string {
-    return current === '' ? '0' : current;
 }

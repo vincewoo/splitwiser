@@ -46,7 +46,7 @@ const AddGroupModal: React.FC<AddGroupModalProps> = ({ isOpen, onClose, onGroupA
         setError(null);
 
         try {
-            const result = await offlineGroupsApi.create(name.trim(), currency);
+            const result = await offlineGroupsApi.create(name.trim(), currency, selectedIcon);
 
             if (result.success) {
                 // Record currency usage for sorting

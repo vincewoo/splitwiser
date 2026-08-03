@@ -1,19 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import {
-    amountToCents,
-    formatAmountDisplay,
-    pressAmountKey,
-} from '../amountInput';
-import type { AmountKey } from '../amountInput';
+import { amountToCents, sanitizeAmountInput } from '../amountInput';
 
-/** Type a whole sequence, starting from empty unless given a seed. */
+/** Type a whole sequence one character at a time, as the field receives it. */
 const type = (keys: string, from = ''): string =>
     [...keys].reduce<string>(
-        (value, key) => pressAmountKey(value, key as AmountKey),
+        (value, key) => sanitizeAmountInput(value + key),
         from
     );
 
-describe('pressAmountKey', () => {
+describe('sanitizeAmountInput', () => {
     it('builds up a plain amount', () => {
         expect(type('12480')).toBe('12480');
     });
@@ -23,7 +18,7 @@ describe('pressAmountKey', () => {
     });
 
     it('ignores a second decimal point', () => {
-        expect(pressAmountKey('124.8', '.')).toBe('124.8');
+        expect(sanitizeAmountInput('124.8.')).toBe('124.8');
     });
 
     it('starts a decimal from zero when "." is typed first', () => {
@@ -31,18 +26,18 @@ describe('pressAmountKey', () => {
     });
 
     it('stops at two decimal places', () => {
-        expect(pressAmountKey('124.80', '5')).toBe('124.80');
+        expect(sanitizeAmountInput('124.805')).toBe('124.80');
         expect(type('124.805')).toBe('124.80');
     });
 
     it('replaces a lone leading zero rather than extending it', () => {
-        expect(pressAmountKey('0', '5')).toBe('5');
+        expect(sanitizeAmountInput('05')).toBe('5');
         // But zero followed by a decimal is a legitimate start.
         expect(type('0.99')).toBe('0.99');
     });
 
     it('refuses to pile up leading zeros', () => {
-        expect(pressAmountKey('0', '0')).toBe('0');
+        expect(sanitizeAmountInput('00')).toBe('0');
     });
 
     it('caps the integer part', () => {
@@ -54,16 +49,22 @@ describe('pressAmountKey', () => {
         expect(type('1234567.89')).toBe('1234567.89');
     });
 
-    it('backspaces one character at a time, down to empty', () => {
-        expect(pressAmountKey('124.80', 'backspace')).toBe('124.8');
-        expect(pressAmountKey('1', 'backspace')).toBe('');
-        expect(pressAmountKey('', 'backspace')).toBe('');
+    it('deletes one character at a time, down to empty', () => {
+        // Deleting is the field's own business; the filter must not fight it.
+        expect(sanitizeAmountInput('124.8')).toBe('124.8');
+        expect(sanitizeAmountInput('124.')).toBe('124.');
+        expect(sanitizeAmountInput('')).toBe('');
     });
 
-    it('can rebuild after backspacing past the decimal point', () => {
-        const afterDelete = type('bbb', '124.80'.replace(/b/g, ''));
-        expect(afterDelete).toBe('124.80');
-        expect(pressAmountKey(pressAmountKey('124.', 'backspace'), '5')).toBe('1245');
+    it('takes a comma as the decimal separator', () => {
+        // Numeric keyboards in much of the world offer "," rather than ".".
+        expect(sanitizeAmountInput('124,8')).toBe('124.8');
+    });
+
+    it('strips anything that is not part of a number', () => {
+        expect(sanitizeAmountInput('$1,299.99 USD')).toBe('1299.99');
+        expect(sanitizeAmountInput('abc')).toBe('');
+        expect(sanitizeAmountInput('-12')).toBe('12');
     });
 });
 
@@ -87,17 +88,5 @@ describe('amountToCents', () => {
 
     it('treats a trailing decimal point as its whole part', () => {
         expect(amountToCents('12.')).toBe(1200);
-    });
-});
-
-describe('formatAmountDisplay', () => {
-    it('shows zero for an empty entry', () => {
-        expect(formatAmountDisplay('')).toBe('0');
-    });
-
-    it('shows an in-progress entry verbatim', () => {
-        // Not snapped to "12.00" — the user is still typing.
-        expect(formatAmountDisplay('12.')).toBe('12.');
-        expect(formatAmountDisplay('12.5')).toBe('12.5');
     });
 });
