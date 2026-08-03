@@ -260,10 +260,14 @@ export const offlineGroupsApi = {
   /**
    * Create a group - works offline
    */
-  create: async (name: string, defaultCurrency: string = 'USD') => {
+  create: async (
+    name: string,
+    defaultCurrency: string = 'USD',
+    icon: string | null = null
+  ) => {
     if (navigator.onLine) {
       try {
-        const response = await groupsApi.create(name, defaultCurrency);
+        const response = await groupsApi.create(name, defaultCurrency, icon);
         if (response.ok) {
           const group = await response.json();
 
@@ -288,7 +292,7 @@ export const offlineGroupsApi = {
       id: tempId,
       name,
       default_currency: defaultCurrency,
-      icon: undefined,
+      icon: icon ?? undefined,
       share_link_id: undefined,
       is_public: false,
       members: [],
@@ -304,7 +308,7 @@ export const offlineGroupsApi = {
       type: 'CREATE_GROUP',
       entity_type: 'group',
       entity_id: tempId,
-      payload: { name, default_currency: defaultCurrency }
+      payload: { name, default_currency: defaultCurrency, icon }
     });
 
     return { success: true, data: offlineGroup, offline: true };
