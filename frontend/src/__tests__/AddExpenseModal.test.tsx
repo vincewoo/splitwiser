@@ -82,11 +82,19 @@ describe('AddExpenseModal in a group', () => {
 
     it('says so when the roster cannot be loaded', async () => {
         getGroupById.mockRejectedValue(new Error('offline'));
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
         renderModal();
 
+        // A failed fetch is not an empty group. Saying "no other members"
+        // here is what sent people looking for a bug in their group.
         expect(
-            await screen.findByText('No other members in this group')
+            await screen.findByText(/Couldn't load this group's members/i)
         ).toBeInTheDocument();
+        expect(
+            screen.queryByText('No other members in this group')
+        ).not.toBeInTheDocument();
+
+        consoleError.mockRestore();
     });
 });
 

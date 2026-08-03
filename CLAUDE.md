@@ -147,7 +147,9 @@ Test layout:
   FastAPI app through `TestClient` against a per-test in-memory database.
 - `backend/tests/test_performance_*.py` / `test_perf_*.py` — query-count
   regression guards.
-- `frontend/src/**/__tests__/` — unit tests for pure utilities and hooks.
+- `frontend/src/**/__tests__/` — colocated tests: pure-logic unit tests for
+  utilities and hooks, plus React Testing Library component tests
+  (e.g. `AddExpenseModal.groupMembers.test.tsx`, `ReceiptScanner.test.tsx`).
 
 Conventions:
 - Tests must not depend on execution order. Install FastAPI dependency
@@ -239,7 +241,9 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 - `POST /auth/change-password`, `POST /auth/change-email` - Account changes
 
 ### Groups
-- `POST /groups`, `GET /groups`, `GET /groups/{group_id}`, `PUT /groups/{group_id}`, `DELETE /groups/{group_id}` - Group CRUD
+- `GET /groups` - List groups (`schemas.Group`): **no `members`/`guests` fields at all.** Use for name/currency/icon only
+- `GET /groups/{group_id}` - Full group (`schemas.GroupWithMembers`): the only endpoint that returns `members` and `guests`
+- `POST /groups`, `PUT /groups/{group_id}`, `DELETE /groups/{group_id}` - Group CRUD
 - `GET /groups/{group_id}/balances` - Get group balances
 - `POST /groups/{group_id}/guests` - Add guest member
 - `POST /groups/{group_id}/guests/{guest_id}/claim` - Claim guest profile

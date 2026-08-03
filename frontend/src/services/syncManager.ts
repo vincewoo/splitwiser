@@ -1,6 +1,7 @@
 import { db, type PendingOperation } from '../db';
 import { API_BASE_URL } from '../config';
-import type { CachedGroup, CachedExpense, CachedBalance } from '../db/schema';
+import type { CachedExpense, CachedBalance } from '../db/schema';
+import { mergeCachedGroups } from './groupCache';
 
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'conflict';
 
@@ -339,16 +340,15 @@ class SyncManager {
       const response = await fetch(`${API_BASE_URL}/groups`, { headers });
       if (response.ok) {
         const groups = await response.json();
-        // Delete all non-temp groups
+        // Merge, don't replace: GET /groups carries no members or guests, so
+        // deleting and re-adding would strip the roster off every cached group
+        // — and the next offline read would report a full group as empty.
         const nonTempGroups = await db.groups.filter(g => !g.is_temp).toArray();
-        await db.groups.bulkDelete(nonTempGroups.map(g => g.id));
-        await db.groups.bulkAdd(
-          groups.map((g: Omit<CachedGroup, 'cached_at' | 'is_temp'>) => ({
-            ...g,
-            cached_at: Date.now(),
-            is_temp: false
-          }))
-        );
+        const { upserts, staleIds } = mergeCachedGroups(nonTempGroups, groups, Date.now());
+        await db.transaction('rw', db.groups, async () => {
+          if (staleIds.length > 0) await db.groups.bulkDelete(staleIds);
+          await db.groups.bulkPut(upserts);
+        });
       }
     } catch (e) {
       console.warn('Failed to refresh groups:', e);
