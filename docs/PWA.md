@@ -18,7 +18,13 @@ Splitwiser is installable as a Progressive Web App with offline support.
 
 **IndexedDB Storage ([frontend/src/db/schema.ts](../frontend/src/db/schema.ts)):**
 - `expenses` table - Offline expense creation
-- `groups` table - Cached group data
+- `groups` table - Cached group data. Rows are *merged*, not replaced, when a
+  `GET /groups` response is cached (see `services/groupCache.ts`): that endpoint
+  carries no `members`/`guests`, so replacing would strip the roster off every
+  group and the next offline read would report a full group as empty. The
+  roster is only ever written by `GET /groups/{id}`, and only refreshed when
+  that endpoint is called again — a list sync alone will not notice a
+  membership change made on another device.
 - `exchange_rates` table - Currency conversion offline
 - `sync_queue` table - Pending operations to sync
 

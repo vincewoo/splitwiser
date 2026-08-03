@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { Scan, X } from '@phosphor-icons/react';
 import ReceiptScanner from './ReceiptScanner';
@@ -152,40 +152,70 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
      * expense is being filed against. Without this the modal offers nobody but
      * "You", whether the group was preselected or picked from the dropdown.
      */
-    const [groupDetail, setGroupDetail] = useState<Group | null>(null);
+    // Records the outcome for exactly one group id. A different id being
+    // selected therefore means the fetch for the current pick hasn't settled,
+    // which is what "loading" is derived from — a separate flag is set inside
+    // the effect, one frame after the pick, and that frame renders the empty
+    // state, i.e. the exact message this whole fetch exists to avoid.
+    const [groupDetail, setGroupDetail] = useState<{ id: number; group: Group | null } | null>(null);
+    /** Bumped by the retry button; re-runs the fetch for an unchanged group. */
+    const [detailAttempt, setDetailAttempt] = useState(0);
 
     useEffect(() => {
-        if (!isOpen) return;
-        if (selectedGroupId === null) {
+        if (!isOpen || selectedGroupId === null) {
             setGroupDetail(null);
             return;
         }
+        const groupId = selectedGroupId;
         let cancelled = false;
         offlineGroupsApi
-            .getById(selectedGroupId)
+            .getById(groupId)
             .then((detail: Group) => {
-                if (!cancelled) setGroupDetail(detail);
+                // getById resolves from the IndexedDB cache when the network
+                // fails, and that cached row may be a list-shaped stub with no
+                // roster on it. Treating that as success is what puts "No other
+                // members in this group" on screen, so a group without a
+                // members array counts as not loaded.
+                const loaded = Array.isArray(detail?.members) ? detail : null;
+                if (!cancelled) setGroupDetail({ id: groupId, group: loaded });
             })
             .catch(err => {
-                // The list entry still covers the currency and the name; only
-                // the roster is lost, and the form says so.
                 console.error('Failed to load group members:', err);
+                if (!cancelled) setGroupDetail({ id: groupId, group: null });
             });
         return () => {
             cancelled = true;
         };
-    }, [isOpen, selectedGroupId]);
+    }, [isOpen, selectedGroupId, detailAttempt]);
+
+    const detailSettled = selectedGroupId !== null && groupDetail?.id === selectedGroupId;
+    const rosterLoading = selectedGroupId !== null && !detailSettled;
+    const rosterFailed = detailSettled && groupDetail!.group === null;
 
     const listedGroup = groups.find(g => g.id === selectedGroupId) ?? null;
     const selectedGroup =
-        groupDetail?.id === selectedGroupId ? groupDetail : listedGroup;
+        detailSettled && groupDetail!.group ? groupDetail!.group : listedGroup;
     const groupGuests = selectedGroup?.guests || [];
 
+    // Once the user picks a currency by hand it is theirs; nothing below may
+    // overwrite it. Without this the effect can't safely watch the group list.
+    const currencyTouched = useRef(false);
+
+    // Watches the currency itself, not the group object: `groups` is fetched
+    // asynchronously by AppDataContext and can arrive after the modal has
+    // opened on a preselected group, and the object identity also flips when
+    // the roster lands — which would otherwise undo a deliberate choice.
     useEffect(() => {
-        if (selectedGroup?.default_currency) {
-            setCurrency(selectedGroup.default_currency);
+        if (currencyTouched.current) return;
+        if (listedGroup?.default_currency) {
+            setCurrency(listedGroup.default_currency);
         }
-    }, [selectedGroup]);
+    }, [selectedGroupId, listedGroup?.default_currency]);
+
+    const handleCurrencyChange = (next: string) => {
+        currencyTouched.current = true;
+        setCurrency(next);
+    };
 
     const resetForm = () => {
         setDescription('');
@@ -315,6 +345,20 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Saving before the roster lands would post a group expense split
+        // entirely to the submitter, because nobody else is selectable yet.
+        if (rosterLoading || rosterFailed) {
+            setAlertDialog({
+                isOpen: true,
+                title: rosterFailed ? "Couldn't load members" : 'Still loading members',
+                message: rosterFailed
+                    ? "This group's members haven't loaded, so the expense would be split to you alone. Try loading them again first."
+                    : "Give the group's members a moment to load so you can choose who to split with.",
+                type: 'error'
+            });
+            return;
+        }
 
         const totalAmountCents = amountToCents(amount);
         const participants = getAllParticipants();
@@ -458,8 +502,16 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setPayerIsExpenseGuest(false);
         setPayerTempGuestId(null);
         // Scanned lines survive the move; who was on them does not.
+        // split_details is keyed by `user_{id}`/`guest_{id}` and user ids are
+        // global, so a weight entered for someone in the old group would
+        // silently reapply if they were assigned again here.
         itemizedExpense.setItemizedItems(prev =>
-            prev.map(item => ({ ...item, assignments: [] }))
+            prev.map(item => ({
+                ...item,
+                assignments: [],
+                split_type: 'EQUAL' as const,
+                split_details: undefined,
+            }))
         );
     };
 
@@ -805,7 +857,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                 id="currency-select"
                                 aria-label="Currency"
                                 value={currency}
-                                onChange={(e) => setCurrency(e.target.value)}
+                                onChange={(e) => handleCurrencyChange(e.target.value)}
                                 className="px-2.5 py-2 rounded-lg border border-sw-line bg-sw-sunk text-sw-text focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
                             >
                                 {sortedCurrencies.map(c => (
@@ -863,7 +915,22 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
                         <div className="mb-4">
                             <label className="block text-sw-muted text-sm font-bold mb-2">Participants:</label>
-                            {getAvailableParticipants().length === 1 ? (
+                            {rosterLoading ? (
+                                <div className="text-sm text-sw-dim italic py-2">
+                                    Loading members…
+                                </div>
+                            ) : rosterFailed ? (
+                                <div className="text-sm text-sw-dim py-2 flex flex-wrap items-center gap-2">
+                                    <span className="italic">Couldn't load this group's members.</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDetailAttempt(n => n + 1)}
+                                        className="underline text-sw-accent min-h-[44px]"
+                                    >
+                                        Try again
+                                    </button>
+                                </div>
+                            ) : getAvailableParticipants().length === 1 ? (
                                 <div className="text-sm text-sw-dim italic py-2">
                                     {selectedGroup ? 'No other members in this group' : 'Add friends or select a group with members to split expenses'}
                                 </div>
@@ -1169,7 +1236,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                         <Button
                             type="submit"
                             variant="primary"
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || rosterLoading || rosterFailed}
                             className="min-h-[44px]"
                             icon={
                                 isSubmitting ? (
