@@ -41,7 +41,14 @@ const ExpenseRow: React.FC<{
     compact: boolean;
 }> = ({ expense, currentUserId, payerName, selected, onSelect, compact }) => {
     const impact = expenseImpact(expense, currentUserId);
-    const label = impactLabel(impact);
+    /*
+     * A settlement carries no impact line. It moves money that was already
+     * owed rather than creating a new debt, and the split it is recorded
+     * through makes the person being paid look like the one taking it on —
+     * "Tim pays Vince … you owe $465" to Vince, who was just paid. The row
+     * already says who paid whom, and the amount is the transfer itself.
+     */
+    const label = expense.is_settlement ? 'none' : impactLabel(impact);
 
     const base = compact
         ? 'flex items-center gap-3 px-2.5 py-[11px] rounded-sw-row w-full text-left'
