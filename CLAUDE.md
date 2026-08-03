@@ -81,6 +81,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/routes/TabBoardPage.tsx` - Host's view of a live tab (mobile list / desktop two-pane)
 - `frontend/src/routes/TabClaimPage.tsx` - `/t/:shareToken`; no auth, no shell
 - `frontend/src/routes/TabPassPage.tsx` - Pass-the-phone claiming for a table with no other devices; signed in but outside the shell
+- `frontend/src/components/tab/OpenTabSheet.tsx` - Naming the venue and setting the tip, the last step before a scanned bill becomes a tab
 - `frontend/src/components/tab/` - Receipt paper, item × person matrix, QR, progress
 - `frontend/src/components/tab/TabBreakdown.tsx` - What each person owes and why (their items, unclaimed share, tax and tip); used on the board, the close screen, the claim page and the expense detail modal
 

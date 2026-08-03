@@ -22,6 +22,11 @@ scan receipt → open tab → share link → people join and claim → close →
 
 1. **Open.** `POST /tabs` with the scanned lines, tax, tip and printed total.
    The response carries a `share_token` — the only credential for the link.
+   The tip is set here, on the "Where are you?" sheet, because a receipt is
+   printed before the tip is written on it — the scan almost never finds one,
+   and everyone claiming from the link is shown their share *including* their
+   part of the tip. There is no way to change it afterwards, so a tip added
+   later would leave every figure people had already seen short.
 2. **Claim.** Anyone with the link joins with a display name and ticks lines.
    Several people on the same line is sharing, not a conflict.
 3. **Close.** `POST /tabs/{id}/close` computes what each person owes and writes
@@ -36,7 +41,9 @@ scan receipt → open tab → share link → people join and claim → close →
 - `revoked` - kills the link without closing the tab
 - `status` - `open` | `closed`
 - `payer_id` - who fronted the bill; defaults to the creator at close
-- `tax`, `tip`, `total` - cents. `total` is what the receipt printed.
+- `tax`, `tip`, `total` - cents. `total` is what the receipt printed, except
+  when the host wrote in a tip the scan did not find: then it is the bill they
+  will actually be charged (items + tax + tip).
 - `receipt_image_path`, `created_at`, `closed_at`
 - `expense_id` - set once the tab resolves into a real expense
 

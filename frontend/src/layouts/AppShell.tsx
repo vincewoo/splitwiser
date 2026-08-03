@@ -7,7 +7,8 @@ import type { ResumeTarget } from './FabSheet';
 import AddExpenseModal from '../AddExpenseModal';
 import ReceiptScanner from '../ReceiptScanner';
 import ProfileSheet from '../components/ProfileSheet';
-import { Button, Sheet } from '../components/ui';
+import OpenTabSheet from '../components/tab/OpenTabSheet';
+import type { OpenTabDetails, PendingTab } from '../components/tab/OpenTabSheet';
 import { tabsApi } from '../services/api';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { useAppData } from '../contexts/AppDataContext';
@@ -36,14 +37,7 @@ const AppShell: React.FC = () => {
 
     // "Split a bill at the table": scan the receipt, name the place, open a tab.
     const [tabScannerOpen, setTabScannerOpen] = useState(false);
-    const [pendingTab, setPendingTab] = useState<{
-        items: { description: string; price: number }[];
-        tax: number | null;
-        tip: number | null;
-        total: number | null;
-        receiptPath?: string;
-    } | null>(null);
-    const [tabName, setTabName] = useState('');
+    const [pendingTab, setPendingTab] = useState<PendingTab | null>(null);
     const [openingTab, setOpeningTab] = useState(false);
     const [tabError, setTabError] = useState<string | null>(null);
 
@@ -64,37 +58,39 @@ const AppShell: React.FC = () => {
                 total: total ?? null,
                 receiptPath,
             });
-            setTabName('');
             setTabError(null);
         },
         []
     );
 
-    const openTab = useCallback(async () => {
-        if (!pendingTab || !tabName.trim()) return;
-        setOpeningTab(true);
-        setTabError(null);
-        try {
-            const tab = await tabsApi.create({
-                name: tabName.trim(),
-                items: pendingTab.items,
-                tax: pendingTab.tax ?? 0,
-                tip: pendingTab.tip ?? 0,
-                total: pendingTab.total,
-                receipt_image_path: pendingTab.receiptPath ?? null,
-            });
-            setPendingTab(null);
-            navigate(`/tabs/${tab.id}`);
-        } catch (error) {
-            setTabError(
-                error instanceof Error
-                    ? error.message
-                    : 'Could not open the tab. Please try again.'
-            );
-        } finally {
-            setOpeningTab(false);
-        }
-    }, [pendingTab, tabName, navigate]);
+    const openTab = useCallback(
+        async ({ name, tip, total }: OpenTabDetails) => {
+            if (!pendingTab) return;
+            setOpeningTab(true);
+            setTabError(null);
+            try {
+                const tab = await tabsApi.create({
+                    name,
+                    items: pendingTab.items,
+                    tax: pendingTab.tax ?? 0,
+                    tip,
+                    total,
+                    receipt_image_path: pendingTab.receiptPath ?? null,
+                });
+                setPendingTab(null);
+                navigate(`/tabs/${tab.id}`);
+            } catch (error) {
+                setTabError(
+                    error instanceof Error
+                        ? error.message
+                        : 'Could not open the tab. Please try again.'
+                );
+            } finally {
+                setOpeningTab(false);
+            }
+        },
+        [pendingTab, navigate]
+    );
 
     const pinned = useMemo(
         () =>
@@ -149,40 +145,20 @@ const AppShell: React.FC = () => {
                 />
             )}
 
-            {/* Name the place. The receipt gives us the lines, not the venue. */}
-            <Sheet
-                open={pendingTab !== null}
-                onClose={() => setPendingTab(null)}
-                label="Open a tab"
-                title="Where are you?"
-            >
-                <input
-                    autoFocus
-                    value={tabName}
-                    onChange={(event) => setTabName(event.target.value)}
-                    maxLength={100}
-                    onKeyDown={(event) => {
-                        if (event.key === 'Enter') openTab();
-                    }}
-                    placeholder="Bar Sol"
-                    aria-label="Venue name"
-                    className="px-3 py-3 rounded-sw-card bg-sw-surface text-sw-text border border-sw-line placeholder:text-sw-dim focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
+            {/*
+              * Name the place and settle the tip. The receipt gives us the
+              * lines, not the venue — and rarely the tip, which is written on
+              * it after it prints.
+              */}
+            {pendingTab && (
+                <OpenTabSheet
+                    pending={pendingTab}
+                    onClose={() => setPendingTab(null)}
+                    onOpen={openTab}
+                    busy={openingTab}
+                    error={tabError}
                 />
-                <p className="text-[12.5px] text-sw-muted">
-                    {pendingTab?.items.length ?? 0} lines from the receipt. Everyone
-                    claims their own from a link — no group, nobody to invite.
-                </p>
-                {tabError && <p className="text-[12.5px] text-sw-neg">{tabError}</p>}
-                <Button
-                    variant="primary"
-                    block
-                    disabled={openingTab || !tabName.trim()}
-                    onClick={openTab}
-                    className="min-h-[46px]"
-                >
-                    {openingTab ? 'Opening…' : 'Open the tab'}
-                </Button>
-            </Sheet>
+            )}
         </>
     );
 
