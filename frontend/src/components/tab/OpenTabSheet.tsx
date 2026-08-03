@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { Button, Money, Sheet } from '../ui';
 import { sanitizeAmountInput } from '../../utils/amountInput';
+import { formatMoney } from '../../utils/formatters';
+import {
+    RECONCILE_TOLERANCE_CENTS,
+    reconcileReceipt,
+} from '../../utils/receiptReconciliation';
 
 /** A scanned bill waiting to become a tab. */
 export interface PendingTab {
@@ -71,6 +76,24 @@ const OpenTabSheet: React.FC<OpenTabSheetProps> = ({
     const tax = pending.tax ?? 0;
     const tipCents = inputToCents(tip);
     const total = subtotal + tax + tipCents;
+
+    /*
+     * What the scan could not account for, measured against the tip the scan
+     * itself found — not against the live one. A tip written in by hand is
+     * *meant* to exceed the printed total, so reconciling against the current
+     * field would start crying "over the receipt" the moment anyone tips.
+     */
+    const scanned = reconcileReceipt(items, tax, scannedTip, pending.total);
+    const gap = scanned.status === 'under' ? (scanned.delta ?? 0) : 0;
+    /*
+     * A service charge is the usual explanation for a shortfall: the parser is
+     * told to leave tips and fees off the item list, and a "Service Fee" line
+     * is a tip in all but name. It cannot tell those apart reliably, so the
+     * host says which it is — and putting it in the tip is right either way,
+     * since a fee nobody ordered should ride along in proportion rather than
+     * land on whoever taps it.
+     */
+    const unaccounted = gap - (tipCents - scannedTip);
 
     const submit = () => {
         if (!name.trim() || busy) return;
@@ -159,6 +182,35 @@ const OpenTabSheet: React.FC<OpenTabSheetProps> = ({
                     Split across the table in proportion to what each person
                     ordered.
                 </p>
+
+                {unaccounted > RECONCILE_TOLERANCE_CENTS && (
+                    <div className="rounded-sw-card bg-sw-sunk border border-sw-line px-3 py-2.5 flex flex-col gap-2">
+                        <p className="text-[12.5px] text-sw-muted">
+                            The receipt says{' '}
+                            <Money amount={pending.total ?? 0} currency={currency} />
+                            , which is{' '}
+                            <Money amount={unaccounted} currency={currency} /> more
+                            than these lines. If that is a service charge, put it in
+                            the tip so it rides along with the rest.
+                        </p>
+                        <Button
+                            variant="secondary"
+                            onClick={() => setTip(centsToInput(tipCents + unaccounted))}
+                            className="min-h-[38px] text-[12.5px]"
+                        >
+                            Add {formatMoney(unaccounted, currency)} to the tip
+                        </Button>
+                    </div>
+                )}
+
+                {scanned.status === 'over' && (
+                    <p className="text-[11.5px] text-sw-neg">
+                        These lines come to{' '}
+                        {formatMoney(subtotal + tax + scannedTip, currency)}, more
+                        than the {formatMoney(pending.total ?? 0, currency)} the
+                        receipt printed — something was probably read twice.
+                    </p>
+                )}
 
                 <div className="flex items-baseline justify-between pt-2 border-t border-sw-line">
                     <span className="text-[12.5px] text-sw-muted">

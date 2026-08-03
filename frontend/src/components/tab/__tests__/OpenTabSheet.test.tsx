@@ -87,6 +87,46 @@ describe('OpenTabSheet', () => {
         });
     });
 
+    it('offers the shortfall as tip when the receipt says more than the lines', () => {
+        // $44.00 of lines and tax against a $51.00 receipt: $7.00 unaccounted
+        // for, which on a real bill is usually a service charge.
+        open({ total: 5100 });
+
+        expect(
+            screen.getByRole('button', { name: 'Add $7.00 to the tip' })
+        ).toBeInTheDocument();
+    });
+
+    it('puts the shortfall in the tip on one tap, and stops asking', () => {
+        open({ total: 5100 });
+        fireEvent.click(screen.getByRole('button', { name: 'Add $7.00 to the tip' }));
+
+        expect(screen.getByLabelText('Tip')).toHaveValue('7.00');
+        expect(screen.queryByText(/service charge/)).not.toBeInTheDocument();
+
+        nameIt();
+        fireEvent.click(screen.getByRole('button', { name: 'Open the tab' }));
+        expect(onOpen).toHaveBeenCalledWith({
+            name: 'Bar Sol',
+            tip: 700,
+            total: 5100,
+        });
+    });
+
+    it('says nothing when the lines already match the receipt', () => {
+        open();
+        expect(screen.queryByText(/service charge/)).not.toBeInTheDocument();
+    });
+
+    it('does not treat a hand-written tip as overshooting the receipt', () => {
+        // The printed total is the pre-tip bill, so tipping past it is normal.
+        open();
+        fireEvent.click(screen.getByRole('button', { name: '20%' }));
+
+        expect(screen.queryByText(/service charge/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/read twice/)).not.toBeInTheDocument();
+    });
+
     it('will not open a tab with no name', () => {
         open();
         fireEvent.click(screen.getByRole('button', { name: 'Open the tab' }));

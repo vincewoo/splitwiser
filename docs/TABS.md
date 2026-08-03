@@ -27,6 +27,15 @@ scan receipt → open tab → share link → people join and claim → close →
    and everyone claiming from the link is shown their share *including* their
    part of the tip. There is no way to change it afterwards, so a tip added
    later would leave every figure people had already seen short.
+
+   The same sheet reconciles the scanned lines against the printed total and
+   offers any shortfall as tip. That is where a service charge lands: the
+   parser is told to keep tips and fees off the item list, but a line reading
+   "Service Fee" is a tip in all but name and no prompt can tell the two apart
+   reliably — so the host decides, and either way it belongs in the tip rather
+   than as a line one person has to claim. The reconciliation is measured
+   against the tip the *scan* found, not the live field, so writing a tip in
+   never reads as overshooting the printed total.
 2. **Claim.** Anyone with the link joins with a display name and ticks lines.
    Several people on the same line is sharing, not a conflict.
 3. **Close.** `POST /tabs/{id}/close` computes what each person owes and writes
