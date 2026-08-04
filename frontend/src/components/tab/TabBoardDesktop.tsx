@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
-import { Plus, QrCode as QrCodeIcon, Receipt, Trash } from '@phosphor-icons/react';
-import { Button, TagPill } from '../ui';
+import {
+    PencilSimple,
+    Plus,
+    QrCode as QrCodeIcon,
+    Receipt,
+    Trash,
+} from '@phosphor-icons/react';
+import { Button, Money, TagPill } from '../ui';
 import ReceiptPaper from './ReceiptPaper';
 import TabProgress from './TabProgress';
 import TabMatrix from './TabMatrix';
@@ -22,6 +28,8 @@ export interface TabBoardDesktopProps {
     onAddItem: (description: string, cents: number) => void;
     onDeleteItem: (itemId: number) => void;
     onShowQr: () => void;
+    /** Opens the tax-and-tip sheet: the scan is a starting point, not a verdict. */
+    onEditAmounts: () => void;
     onClose: () => void;
 }
 
@@ -57,6 +65,7 @@ const TabBoardDesktop: React.FC<TabBoardDesktopProps> = ({
     onAddItem,
     onDeleteItem,
     onShowQr,
+    onEditAmounts,
     onClose,
 }) => {
     const [hovered, setHovered] = useState<number | null>(null);
@@ -135,6 +144,22 @@ const TabBoardDesktop: React.FC<TabBoardDesktopProps> = ({
                         highlightItemId={hovered}
                         unclaimedItemIds={unclaimedIds}
                     />
+
+                    {open && (
+                        <button
+                            type="button"
+                            onClick={onEditAmounts}
+                            className="flex items-center gap-2 p-2.5 rounded-sw-card text-[12.5px] text-sw-muted shadow-[0_0_0_1px_var(--sw-line)] hover:text-sw-text focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
+                        >
+                            <PencilSimple size={14} className="flex-none" />
+                            Tax and tip
+                            <span className="ml-auto flex items-center gap-1.5">
+                                <Money amount={tab.tax} currency={tab.currency} tone="muted" />
+                                <span className="text-sw-dim">·</span>
+                                <Money amount={tab.tip} currency={tab.currency} tone="muted" />
+                            </span>
+                        </button>
+                    )}
 
                     <TabProgress
                         claimed={claimed}

@@ -687,6 +687,18 @@ class PublicTabOut(BaseModel):
     participants: List[TabParticipantOut] = Field(default_factory=list)
 
 
+class TabAmountsUpdate(BaseModel):
+    """
+    Owner correcting the tax or the tip on a tab that is still open.
+
+    The scan is a convenience, not an authority: it misses a tip written in
+    after the receipt printed, reads a service charge as an item, or never
+    finds the tax line at all. Either field may be omitted to leave it alone.
+    """
+    tax: Optional[int] = Field(default=None, ge=0, le=100_000_000)
+    tip: Optional[int] = Field(default=None, ge=0, le=100_000_000)
+
+
 class TabParticipantCreate(BaseModel):
     """Owner seating somebody who is at the table but not on the link."""
     display_name: str = Field(min_length=1, max_length=60)

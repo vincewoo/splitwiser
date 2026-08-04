@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Button, Money, Sheet } from '../ui';
+import TipPercentages from './TipPercentages';
 import { sanitizeAmountInput } from '../../utils/amountInput';
 import { formatMoney } from '../../utils/formatters';
 import {
@@ -37,9 +38,6 @@ export interface OpenTabSheetProps {
     /** Matches what the tab will be opened in; tabs are USD unless told otherwise. */
     currency?: string;
 }
-
-/** The percentages worth one tap. Anything else is typed. */
-const TIP_PERCENTAGES = [15, 18, 20];
 
 const centsToInput = (cents: number): string =>
     cents > 0 ? (cents / 100).toFixed(2) : '';
@@ -154,29 +152,11 @@ const OpenTabSheet: React.FC<OpenTabSheetProps> = ({
                     />
                 </div>
 
-                <div className="flex gap-2">
-                    {TIP_PERCENTAGES.map((percent) => {
-                        // Tipped on the items, as the rest of the app does —
-                        // not on the tax.
-                        const cents = Math.round((subtotal * percent) / 100);
-                        const active = tipCents > 0 && cents === tipCents;
-                        return (
-                            <button
-                                key={percent}
-                                type="button"
-                                aria-pressed={active}
-                                onClick={() => setTip(centsToInput(cents))}
-                                className={`flex-1 py-2 rounded-sw-card text-[12.5px] border min-h-[38px] ${
-                                    active
-                                        ? 'bg-sw-accent-ghost border-sw-accent text-sw-accent'
-                                        : 'bg-sw-sunk border-sw-line text-sw-muted'
-                                }`}
-                            >
-                                {percent}%
-                            </button>
-                        );
-                    })}
-                </div>
+                <TipPercentages
+                    subtotal={subtotal}
+                    tip={tipCents}
+                    onPick={(cents) => setTip(centsToInput(cents))}
+                />
 
                 <p className="text-[11.5px] text-sw-dim">
                     Split across the table in proportion to what each person
