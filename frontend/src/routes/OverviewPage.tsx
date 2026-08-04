@@ -14,6 +14,7 @@ import PageHeader from './PageHeader';
 import ExpenseFeedRow from '../components/ExpenseFeedRow';
 import ExpenseDetailModal from '../ExpenseDetailModal';
 import OpenTabsList from '../components/tab/OpenTabsList';
+import VenmoButton from '../components/VenmoButton';
 import { useAppData } from '../contexts/AppDataContext';
 import { useAuth } from '../AuthContext';
 import { useIsDesktop } from '../hooks/useMediaQuery';
@@ -25,8 +26,10 @@ import { useOpenExpense } from '../hooks/useOpenExpense';
 import { useOpenTabs } from '../hooks/useOpenTabs';
 import { useSettlement } from '../hooks/useSettlement';
 import { netForGroup } from '../utils/groupBalances';
-import { partyName, settlementTotal } from '../utils/settlement';
+import { participantKey, partyName, settlementTotal } from '../utils/settlement';
+import { buildVenmoLinks } from '../utils/venmo';
 import type { Counterparty } from '../utils/settlement';
+import type { VenmoLinks } from '../utils/venmo';
 
 /** "Friday evening" — the greeting line above the mobile home header. */
 function timeOfDayGreeting(now = new Date()): string {
@@ -77,6 +80,43 @@ const OverviewPage: React.FC = () => {
         const names = new Map(friends.map((f) => [f.id, f.full_name]));
         return (counterparty: Counterparty) =>
             partyName(directory, counterparty, names);
+    }, [friends, directory]);
+
+    /**
+     * The Venmo hand-off for a merged per-person figure, or null when there is
+     * none to offer — a guest, nobody who has published a handle, or a debt in
+     * a currency Venmo cannot send.
+     *
+     * The figure here is netted across groups, which is exactly what somebody
+     * paying wants to hand over: one transfer, not one per group. Recording it
+     * still has to happen per group, which is what Settle up is for.
+     */
+    const venmoFor = useMemo(() => {
+        const handles = new Map(
+            friends.map((friend) => [friend.id, friend.venmo_username ?? null])
+        );
+        return (counterparty: Counterparty): VenmoLinks | null => {
+            if (counterparty.isGuest) return null;
+            // Registered people key on their id alone, so a counterparty merged
+            // across groups still resolves.
+            const known = directory.get(
+                participantKey(counterparty.groupId ?? 0, counterparty.userId, false)
+            );
+            const username =
+                known?.venmo_username ?? handles.get(counterparty.userId) ?? null;
+            if (!username) return null;
+            return buildVenmoLinks({
+                username,
+                amountCents: Math.abs(counterparty.amount),
+                currency: counterparty.currency,
+                // Negative means I owe them.
+                action: counterparty.amount < 0 ? 'pay' : 'request',
+                note:
+                    counterparty.groups.length === 1
+                        ? `Settling up: ${counterparty.groups[0]}`
+                        : 'Settling up',
+            });
+        };
     }, [friends, directory]);
 
     const owedBy = useMemo(
@@ -212,6 +252,7 @@ const OverviewPage: React.FC = () => {
                 {counterparties.map((counterparty) => {
                     const theyPayYou = counterparty.amount > 0;
                     const name = nameFor(counterparty);
+                    const venmo = venmoFor(counterparty);
 
                     return (
                         <div
@@ -242,13 +283,24 @@ const OverviewPage: React.FC = () => {
                                     className="text-base font-medium"
                                 />
                             </div>
-                            <Button
-                                variant="secondary"
-                                onClick={openSettleUp}
-                                className="text-[12.5px] flex-none"
-                            >
-                                Settle
-                            </Button>
+                            <div className="flex items-center gap-1.5 flex-none">
+                                {venmo && (
+                                    <VenmoButton
+                                        links={venmo}
+                                        action={theyPayYou ? 'request' : 'pay'}
+                                        counterparty={name}
+                                        compact
+                                        className="text-[12.5px]"
+                                    />
+                                )}
+                                <Button
+                                    variant="secondary"
+                                    onClick={openSettleUp}
+                                    className="text-[12.5px]"
+                                >
+                                    Settle
+                                </Button>
+                            </div>
                         </div>
                     );
                 })}

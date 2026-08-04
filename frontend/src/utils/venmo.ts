@@ -108,6 +108,20 @@ export function buildVenmoLinks(input: VenmoLinkInput): VenmoLinks | null {
     };
 }
 
+/**
+ * Why there is no hand-off for a debt, when the reason is worth saying.
+ *
+ * Only the currency earns an explanation: it is a fact about Venmo the viewer
+ * can act on by settling another way. A counterparty who has published no
+ * handle, or who is a guest with no account at all, is not something to
+ * announce — that is their business, not a fault in the debt. Returns null
+ * when there is nothing useful to add.
+ */
+export function venmoUnavailableNote(currency: string): string | null {
+    if (currency === VENMO_CURRENCY) return null;
+    return `Venmo only sends US dollars, so there’s no shortcut for a ${currency} debt.`;
+}
+
 /** How long to wait for the app to take over before falling back, in ms. */
 export const APP_HANDOFF_TIMEOUT_MS = 1200;
 
