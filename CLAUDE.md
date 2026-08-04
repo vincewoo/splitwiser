@@ -85,6 +85,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/routes/TabClaimPage.tsx` - `/t/:shareToken`; no auth, no shell
 - `frontend/src/routes/TabPassPage.tsx` - Pass-the-phone claiming for a table with no other devices; signed in but outside the shell
 - `frontend/src/components/tab/OpenTabSheet.tsx` - Naming the venue and setting the tip, the last step before a scanned bill becomes a tab
+- `frontend/src/components/tab/WhoPaidSheet.tsx` - Who fronted the bill, including somebody with no Splitwiser account, plus the Venmo handle the claim page needs to reach them
 - `frontend/src/components/tab/TabAmountsSheet.tsx` - Correcting a live tab's tax and tip; the scan is a convenience, not the authority
 - `frontend/src/components/tab/` - Receipt paper, item × person matrix, QR, progress
 - `frontend/src/components/tab/TabBreakdown.tsx` - What each person owes and why (their items, unclaimed share, tax and tip); used on the board, the close screen, the claim page and the expense detail modal
@@ -103,7 +104,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Refresh tokens stored hashed (SHA-256) in database with server-side revocation
 - Itemized expenses use proportional tax/tip distribution
 - Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback. Offered on every surface that settles a specific debt — `/settle`, a group's Simplify Debts, a person's Settle up, the overview's "Clear it in N payments" — but only for debts the signed-in user is party to
-- Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close
+- Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close. A claimer can Venmo the host straight from the claim page — the surface where the hand-off matters most, since they often owe somebody they have no other way to pay
 - Receipt uploads (images and PDFs) stored in `data/receipts/` directory (configurable via `DATA_DIR` env var); PDFs are rasterized per-page for the LLM but the original file is preserved. Served from `/static/receipts/`, which reaches the browser as `/api/static/receipts/` — so the service worker's navigation fallback must keep its hands off `/api/` (see `navigateFallbackDenylist` in `frontend/vite.config.ts`)
 
 ## Development Commands
@@ -288,21 +289,23 @@ Owner (authenticated):
 - `POST /tabs`, `GET /tabs`, `GET /tabs/{tab_id}` - Open, list, read
 - `POST /tabs/{tab_id}/items`, `DELETE /tabs/{tab_id}/items/{item_id}` - Lines the scan missed; deleting drops the line's claims
 - `PATCH /tabs/{tab_id}/amounts` - Correct the tax or the tip while the tab is open; `total` follows, and a closed tab is refused
-- `POST /tabs/{tab_id}/participants` - Seat somebody with no phone of their own; a guest seat, same name rules as joining
+- `POST /tabs/{tab_id}/participants` - Seat somebody with no phone of their own; a guest seat, same name rules as joining. Takes an optional `venmo_username`, for a seat that is going to be owed money
+- `PATCH /tabs/{tab_id}/participants/{participant_id}` - Tick somebody off as settled, or give an account-less seat a Venmo handle; still writable after close
+- `POST /tabs/{tab_id}/payer` - Name the seat that fronted the bill while the tab is open; it need not have an account
 - `POST /tabs/{tab_id}/items/{item_id}/claim` - Claim as yourself (any signed-in participant)
 - `POST /tabs/{tab_id}/items/{item_id}/claim/{participant_id}` - Set anyone's claim (owner only)
 - `POST /tabs/{tab_id}/revoke` - Kill the link without closing
-- `POST /tabs/{tab_id}/close` - Resolve into one direct expense
+- `POST /tabs/{tab_id}/close` - Resolve into one direct expense — or, when the payer has no Splitwiser account, into a plain record with no expense at all, since everyone settles with them outside the app
 
 Public (no auth, rate-limited):
-- `GET /public/tabs/{share_token}` - Read the tab
+- `GET /public/tabs/{share_token}` - Read the tab, plus `host_name` / `host_venmo_username` so a claimer can Venmo whoever fronted the bill — the only unauthenticated audience for a handle, and the host's alone
 - `POST /public/tabs/{share_token}/join` - Join with a name; returns a claim token. Names are unique per tab, so a name already at the table is refused. Optionally authenticated: a signed-in claimer is seated as their account (and can bind it to a seat they already claimed from anonymously), so closing the tab reaches their balances instead of leaving a guest line
 - `POST /public/tabs/{share_token}/rename` - Change the name you claim under, keeping your claims; the claim token is unchanged
 - `POST /public/tabs/{share_token}/items/{item_id}/claim` - Claim or release, authenticated by `claim_token`
 
 ## Key Database Fields
 
-- User: `default_currency`, `venmo_username` (no @; friends-only, never public)
+- User: `default_currency`, `venmo_username` (no @; friends and fellow group members, plus the host's on a tab's share link — never on a group's)
 - Group: `default_currency`, `icon`, `share_link_id`, `is_public`
 - GroupMember: `managed_by_id`, `managed_by_type`
 - Expense: `exchange_rate`, `split_type`, `receipt_image_path`, `icon`, `notes`, `payer_is_guest`
@@ -311,9 +314,9 @@ Public (no auth, rate-limited):
 - RefreshToken: `token_hash`, `expires_at`, `revoked`
 - ExpenseItem: `description`, `price`, `is_tax_tip`
 - ExpenseItemAssignment: `user_id`, `is_guest`
-- Tab: `share_token`, `token_expires_at`, `revoked`, `status`, `tax`, `tip`, `total`, `expense_id`
+- Tab: `share_token`, `token_expires_at`, `revoked`, `status`, `tax`, `tip`, `total`, `expense_id`, `payer_id` (a user, set at close), `payer_participant_id` (a seat, nameable while open — how an off-app payer is recorded)
 - TabItem: `description`, `price`, `added_manually`
-- TabParticipant: `display_name` (unique per tab, case-insensitively), `user_id` (null when anonymous; unique per tab otherwise), `claim_token`
+- TabParticipant: `display_name` (unique per tab, case-insensitively), `user_id` (null when anonymous; unique per tab otherwise), `claim_token`, `venmo_username` (account-less seats only), `paid` / `paid_at`
 - TabItemClaim: `item_id`, `participant_id` (unique together)
 
 ## Detailed Documentation

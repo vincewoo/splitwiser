@@ -349,7 +349,7 @@ const AccountSettingsPage: React.FC = () => {
                             autoCapitalize="none"
                             autoCorrect="off"
                             spellCheck={false}
-                            hint="Optional. Friends settling up with you get a Venmo button with the amount already filled in. Only people you're friends with can see it."
+                            hint="Optional. Anyone settling up with you gets a Venmo button with the amount already filled in. Seen by your friends, by people you share a group with, and — when you host a tab — by whoever holds that tab's link, so they can pay you without knowing you."
                         />
 
                         {profileFeedback && (

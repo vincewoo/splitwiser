@@ -18,6 +18,7 @@ import TabBoardDesktop from '../components/tab/TabBoardDesktop';
 import TabBreakdown from '../components/tab/TabBreakdown';
 import QrCode from '../components/tab/QrCode';
 import TabAmountsSheet from '../components/tab/TabAmountsSheet';
+import WhoPaidSheet from '../components/tab/WhoPaidSheet';
 import { useAuth } from '../AuthContext';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -56,6 +57,7 @@ const TabBoardPage: React.FC = () => {
     const [qrOpen, setQrOpen] = useState(false);
     const [collectOpen, setCollectOpen] = useState(false);
     const [amountsOpen, setAmountsOpen] = useState(false);
+    const [whoPaidOpen, setWhoPaidOpen] = useState(false);
     const [savingAmounts, setSavingAmounts] = useState(false);
     const [amountsError, setAmountsError] = useState<string | null>(null);
     const [view, setView] = useState<'items' | 'people'>('items');
@@ -127,6 +129,75 @@ const TabBoardPage: React.FC = () => {
             ),
         [shareItems, tab?.participants, tab?.tax, tab?.tip]
     );
+
+    /**
+     * The seat that fronted the bill.
+     *
+     * Named while the tab is open when it is not the host — a friend with no
+     * Splitwiser account picks up the cheque and everybody owes them directly.
+     * Falls back to the host's own seat, which is the usual case and what the
+     * server assumes too.
+     */
+    const payerSeatId = useMemo(() => {
+        if (tab?.payer_participant_id != null) return tab.payer_participant_id;
+        return payerParticipantId(
+            tab?.participants ?? [],
+            tab?.payer_id ?? tab?.created_by_id ?? null
+        );
+    }, [tab]);
+
+    const payerSeat = payerSeatId != null ? participantsById.get(payerSeatId) : undefined;
+    /** True once the bill is on somebody Splitwiser has never heard of. */
+    const offAppPayer = Boolean(payerSeat && payerSeat.user_id === null);
+
+    /** What is still owed to whoever paid, by everyone not yet ticked off. */
+    const stillOwed = useMemo(
+        () =>
+            (tab?.participants ?? [])
+                .filter((p) => p.id !== payerSeatId && !p.paid)
+                .reduce((sum, p) => sum + (shares[p.id] ?? 0), 0),
+        [tab, shares, payerSeatId]
+    );
+    const settledCount = (tab?.participants ?? []).filter(
+        (p) => p.id !== payerSeatId && p.paid
+    ).length;
+    const owingCount = (tab?.participants ?? []).filter(
+        (p) => p.id !== payerSeatId
+    ).length;
+
+    const setPayer = async (participantId: number | null) => {
+        if (id === undefined) return;
+        try {
+            setTab(await tabsApi.setPayer(id, participantId));
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Could not set who paid');
+        }
+    };
+
+    const togglePaid = async (participantId: number, paid: boolean) => {
+        if (id === undefined) return;
+        try {
+            setTab(await tabsApi.updateParticipant(id, participantId, { paid }));
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Could not save that');
+        }
+    };
+
+    const setSeatVenmo = async (participantId: number, handle: string) => {
+        if (id === undefined) return;
+        try {
+            setTab(
+                await tabsApi.updateParticipant(id, participantId, {
+                    venmo_username: handle,
+                })
+            );
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Could not save that');
+        }
+    };
 
     const shareLink = tab?.share_token
         ? `${window.location.origin}/t/${tab.share_token}`
@@ -362,6 +433,22 @@ const TabBoardPage: React.FC = () => {
         />
     );
 
+    const whoPaidSheet = tab && (
+        <WhoPaidSheet
+            open={whoPaidOpen}
+            onClose={() => setWhoPaidOpen(false)}
+            participants={tab.participants}
+            payerId={payerSeatId}
+            meId={me?.id ?? null}
+            onSave={async (participantId, venmoUsername) => {
+                await setPayer(participantId);
+                if (venmoUsername !== undefined) {
+                    await setSeatVenmo(participantId, venmoUsername);
+                }
+            }}
+        />
+    );
+
     if (isDesktop) {
         return (
             <>
@@ -379,10 +466,14 @@ const TabBoardPage: React.FC = () => {
                     onShowQr={() => setQrOpen(true)}
                     onEditAmounts={() => setAmountsOpen(true)}
                     onClose={() => navigate(`/tabs/${tab.id}/close`)}
+                    payerId={payerSeatId}
+                    onEditPayer={() => setWhoPaidOpen(true)}
+                    onTogglePaid={togglePaid}
                 />
                 {collectSheet}
                 {qrSheet}
                 {amountsSheet}
+                {whoPaidSheet}
             </>
         );
     }
@@ -615,6 +706,62 @@ const TabBoardPage: React.FC = () => {
                                 spread it across everyone.
                             </p>
                         )}
+
+                        {/*
+                          * Who is owed, and how much is still out. Both matter
+                          * most in the case this was built for: somebody with
+                          * no account paid, everyone settles with them
+                          * directly, and the only record of who has is here.
+                          */}
+                        <Card radius="lg" className="px-[15px] py-3 mb-1">
+                            <div className="flex items-center gap-2">
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-[13px] truncate">
+                                        {payerSeat
+                                            ? payerSeat.id === me?.id
+                                                ? 'You paid the bill'
+                                                : `${payerSeat.display_name} paid the bill`
+                                            : 'Nobody has said who paid'}
+                                    </div>
+                                    <div className="text-[11.5px] text-sw-dim">
+                                        {owingCount === 0 ? (
+                                            'Nobody else at the table yet'
+                                        ) : stillOwed > 0 ? (
+                                            <>
+                                                <Money
+                                                    amount={stillOwed}
+                                                    currency={tab.currency}
+                                                    tone="muted"
+                                                />{' '}
+                                                still to come from{' '}
+                                                {owingCount - settledCount} of{' '}
+                                                {owingCount}
+                                            </>
+                                        ) : (
+                                            'Everyone has settled up'
+                                        )}
+                                    </div>
+                                </div>
+                                {tab.status === 'open' && (
+                                    <Button
+                                        variant="secondary"
+                                        onClick={() => setWhoPaidOpen(true)}
+                                        className="flex-none text-[12.5px]"
+                                    >
+                                        {payerSeat ? 'Change' : 'Set'}
+                                    </Button>
+                                )}
+                            </div>
+
+                            {offAppPayer && !payerSeat?.venmo_username && (
+                                <p className="text-[11.5px] text-sw-dim mt-2">
+                                    {payerSeat?.display_name} has no Splitwiser
+                                    account. Add their Venmo and the claim page can
+                                    send everyone straight to them.
+                                </p>
+                            )}
+                        </Card>
+
                         <TabBreakdown
                             items={tab.items}
                             participants={tab.participants}
@@ -622,7 +769,8 @@ const TabBoardPage: React.FC = () => {
                             tax={tab.tax}
                             tip={tab.tip}
                             meId={me?.id ?? null}
-                            payerId={payerParticipantId(tab.participants, tab.payer_id)}
+                            payerId={payerSeatId}
+                            onTogglePaid={togglePaid}
                         />
                     </>
                 )}
@@ -759,6 +907,7 @@ const TabBoardPage: React.FC = () => {
             {collectSheet}
             {qrSheet}
             {amountsSheet}
+            {whoPaidSheet}
         </>
     );
 };

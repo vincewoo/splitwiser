@@ -10,6 +10,40 @@ from utils.currency import VALID_CURRENCIES
 # separately so the two failures can say different things.
 VENMO_USERNAME_RE = re.compile(r'[A-Za-z0-9_-]+')
 
+
+def _normalize_venmo_username(v: Optional[str]) -> Optional[str]:
+    """
+    Normalise a Venmo handle: strip a leading @, keep the rest verbatim.
+
+    An empty (or whitespace-only) value returns the `''` sentinel meaning
+    "remove mine", which is distinct from `None` — omitting the field, meaning
+    "leave it alone". Callers persist `value or None`.
+
+    Deliberately permissive about the character set beyond the obvious unsafe
+    ones: Venmo owns the rules for what handles exist, they have changed
+    before, and rejecting a handle somebody actually has would be worse than
+    letting a bad one through — the link simply lands on a Venmo page that says
+    no such user.
+
+    Shared by the profile field and by a tab seat's handle, so a payer who has
+    no account is held to exactly the same rule as one who does.
+    """
+    if v is None:
+        return None
+
+    handle = v.strip().lstrip('@').strip()
+    if not handle:
+        return ''  # sentinel for "clear it"
+
+    if len(handle) > 30:
+        raise ValueError('Venmo usernames are at most 30 characters')
+    if not VENMO_USERNAME_RE.fullmatch(handle):
+        raise ValueError(
+            'Venmo usernames use letters, numbers, dashes and underscores'
+        )
+    return handle
+
+
 class UserBase(BaseModel):
     email: EmailStr
     full_name: Optional[str] = Field(None, max_length=100)
@@ -524,32 +558,7 @@ class ProfileUpdateRequest(BaseModel):
     @field_validator('venmo_username')
     @classmethod
     def validate_venmo_username(cls, v):
-        """
-        Normalise a Venmo handle: strip a leading @, keep the rest verbatim.
-
-        An empty (or whitespace-only) value means "remove mine", and is
-        distinct from omitting the field, which means "leave it alone".
-
-        Deliberately permissive about the character set beyond the obvious
-        unsafe ones: Venmo owns the rules for what handles exist, they have
-        changed before, and rejecting a handle somebody actually has would be
-        worse than letting a bad one through — the link simply lands on a
-        Venmo page that says no such user.
-        """
-        if v is None:
-            return None
-
-        handle = v.strip().lstrip('@').strip()
-        if not handle:
-            return ''  # sentinel for "clear it"
-
-        if len(handle) > 30:
-            raise ValueError('Venmo usernames are at most 30 characters')
-        if not VENMO_USERNAME_RE.fullmatch(handle):
-            raise ValueError(
-                'Venmo usernames use letters, numbers, dashes and underscores'
-            )
-        return handle
+        return _normalize_venmo_username(v)
 
 
 class VerifyEmailRequest(BaseModel):
@@ -654,6 +663,12 @@ class TabParticipantOut(BaseModel):
     display_name: str
     # Present only for participants who were signed in when they claimed.
     user_id: Optional[int] = None
+    # Ticked off by the host as people settle. Visible to the table, which is
+    # the point: it is the thing everyone keeps asking about.
+    paid: bool = False
+    # Only ever set on a seat with no account; an account's handle lives on the
+    # User row and is never copied here.
+    venmo_username: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -669,6 +684,8 @@ class TabOut(BaseModel):
     total: Optional[int]
     created_by_id: int
     payer_id: Optional[int]
+    # The seat that fronted the bill, nameable while the tab is still open.
+    payer_participant_id: Optional[int] = None
     expense_id: Optional[int]
     items: List[TabItemOut] = Field(default_factory=list)
     participants: List[TabParticipantOut] = Field(default_factory=list)
@@ -694,6 +711,16 @@ class PublicTabOut(BaseModel):
     total: Optional[int]
     items: List[TabItemOut] = Field(default_factory=list)
     participants: List[TabParticipantOut] = Field(default_factory=list)
+    # Who everyone at this table owes, and how to pay them.
+    #
+    # This is the one place a Venmo handle reaches a link-holder rather than a
+    # friend or a fellow group member, and it is deliberate: a tab is precisely
+    # where people owe somebody they may not know and have no other way to pay.
+    # Only the host's handle is ever sent — never another claimer's — and only
+    # while the link itself is live, since an expired or revoked token is
+    # refused before this is built.
+    host_name: Optional[str] = None
+    host_venmo_username: Optional[str] = None
 
 
 class TabAmountsUpdate(BaseModel):
@@ -711,6 +738,40 @@ class TabAmountsUpdate(BaseModel):
 class TabParticipantCreate(BaseModel):
     """Owner seating somebody who is at the table but not on the link."""
     display_name: str = Field(min_length=1, max_length=60)
+    # For a seat that is going to be owed money — the off-app payer.
+    venmo_username: Optional[str] = Field(None, max_length=31)
+
+    @field_validator('venmo_username')
+    @classmethod
+    def validate_venmo_username(cls, v):
+        return _normalize_venmo_username(v)
+
+
+class TabParticipantUpdate(BaseModel):
+    """
+    Owner amending a seat: whether they have settled, and how to pay them.
+
+    Both optional and independent — omitting one leaves it alone, so ticking
+    somebody off does not disturb a handle typed earlier.
+    """
+    paid: Optional[bool] = None
+    venmo_username: Optional[str] = Field(None, max_length=31)
+
+    @field_validator('venmo_username')
+    @classmethod
+    def validate_venmo_username(cls, v):
+        return _normalize_venmo_username(v)
+
+
+class TabPayerUpdate(BaseModel):
+    """
+    Who fronted the bill, named while the tab is still open.
+
+    Null hands it back to the default (the person who opened the tab). The seat
+    need not have an account: the whole point is the organiser and the payer
+    being different people.
+    """
+    participant_id: Optional[int] = None
 
 
 class TabJoinRequest(BaseModel):

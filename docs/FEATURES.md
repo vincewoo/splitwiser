@@ -222,9 +222,25 @@ Two audiences, both people you already share money with:
   could only name people from the friends list, so a group member you had not
   befriended read as "Person 7".
 
-**Not** in any public payload — `test_venmo_username.py` asserts the string
-never appears in a share-link response. A payment handle must not ride along
-with a link handed to strangers.
+- **Whoever holds a tab's link** — `GET /public/tabs/{share_token}` returns
+  `host_name` and `host_venmo_username`. This is the one unauthenticated
+  audience, and it is a deliberate carve-out rather than a loosening: a tab is
+  precisely where you owe somebody you may have just met, with no group, no
+  friendship and often no second meeting, so the link is the only channel
+  there is. Narrow in three ways — only the **host's** handle, never another
+  claimer's; only while the token is live, since a revoked or expired one is
+  refused before the payload is built; and never on a *group* share link,
+  which `test_venmo_username.py` still asserts.
+
+  "Host" means whoever fronted the bill, which is not always the person who
+  opened the tab — see *Who paid* in `docs/TABS.md`. When that person has no
+  Splitwiser account the handle comes off their seat rather than a `User` row,
+  which is the case the seat-level handle exists for: everyone at the table
+  owes somebody who is not in the app at all, and the link is the only way to
+  tell them where to send it.
+
+Group share links remain closed: a handle must not ride along with a link to a
+standing group's whole history.
 
 ### Where it appears
 
@@ -238,6 +254,7 @@ the shared `frontend/src/components/VenmoButton.tsx`:
 | `SimplifyDebtsModal.tsx` | A group's **Settle up** (header on desktop, footer on mobile) | One payment inside that group |
 | `SettleUpModal.tsx` | A person's **Settle up** | The amount being typed, to that person |
 | `routes/OverviewPage.tsx` | The "Clear it in N payments" card | One person's balance, netted across groups |
+| `routes/TabClaimPage.tsx` | A tab's share link — no account, no shell | The claimer's own share, paid to the host |
 
 Two things stay true wherever it appears. Only debts the signed-in user is
 party to get a button — `SimplifyDebtsModal` lists the whole group's payments,
@@ -246,11 +263,14 @@ And the hand-off never stands in for recording: each surface keeps its own
 "Mark as paid" or **Save** beside it.
 
 Rows that only *navigate* to a settle surface — the people list, a person's
-balance card — deliberately have no button. They lead somewhere that does.
+balance card — deliberately have no button. They lead somewhere that does. The
+tab board and the pass-the-phone screen have none either: both are the host's
+own device, and the host is the one being paid.
 
-The public tab claim page has none either, and that is a privacy decision
-rather than an oversight: a handle is shown to friends and fellow group members
-only, never to whoever holds a share link.
+The claim page carries one extra caution the others do not need. While the tab
+is open the figure is provisional — unclaimed lines spread across everyone at
+the table, so a share sent halfway through claiming is a share sent short. The
+button says so until the tab closes and the number is final.
 
 ### The link
 

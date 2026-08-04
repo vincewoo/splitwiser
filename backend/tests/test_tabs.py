@@ -18,6 +18,12 @@ def register(client, email, name):
     return {"Authorization": f"Bearer {token}"}
 
 
+def set_venmo(client, headers, handle):
+    return client.put(
+        "/users/me/profile", json={"venmo_username": handle}, headers=headers
+    )
+
+
 def make_tab(client, headers, **over):
     payload = {
         "name": "Bar Sol",
@@ -1069,7 +1075,18 @@ class TestClosing:
         response = client.post(f"/tabs/{tab['id']}/close", json={}, headers=headers)
         assert response.status_code == 409
 
-    def test_an_anonymous_participant_cannot_be_the_payer(self, client):
+    def test_an_anonymous_payer_closes_to_a_record_rather_than_an_expense(
+        self, client
+    ):
+        """
+        This used to be a 400: balances need a real account behind the payer,
+        so an anonymous one was refused outright.
+
+        Refusing was the wrong conclusion from a true premise. When the payer
+        has no account there is no debt for Splitwiser to hold — everyone
+        settles with them directly, outside the app — so the tab closes to a
+        plain record instead. See TestOffAppPayer for why that case is common.
+        """
         headers = register(client, "vince@example.com", "Vince Woo")
         tab = make_tab(client, headers)
         maya = client.post(
@@ -1082,8 +1099,13 @@ class TestClosing:
             json={"payer_participant_id": maya["participant"]["id"]},
             headers=headers,
         )
-        # Balances need a real account behind the payer.
-        assert response.status_code == 400
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "closed"
+        # No expense, and so no balance anywhere.
+        assert body["expense_id"] is None
+        assert body["payer_id"] is None
 
     def test_a_stranger_cannot_close_your_tab(self, client):
         owner = register(client, "vince@example.com", "Vince Woo")
@@ -1494,3 +1516,330 @@ class TestOwnerSetsClaims:
             headers=headers,
         )
         assert response.status_code == 409
+
+
+class TestOffAppPayer:
+    """
+    The organiser and the payer are not always the same person.
+
+    Somebody with no Splitwiser account picks up the cheque; the one person at
+    the table who has the app works out the shares. Everybody owes the payer
+    directly, outside the app entirely — so the tab has to name them, carry
+    their handle, and close without inventing a debt in the organiser's name.
+    """
+
+    def seat(self, client, headers, tab, name, venmo=None):
+        body = {"display_name": name}
+        if venmo is not None:
+            body["venmo_username"] = venmo
+        response = client.post(
+            f"/tabs/{tab['id']}/participants", json=body, headers=headers
+        )
+        assert response.status_code == 200, response.text
+        return next(
+            p for p in response.json()["participants"] if p["display_name"] == name
+        )
+
+    def test_a_seat_can_carry_a_handle_of_its_own(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana", venmo="@dana-p")
+
+        # Normalised exactly as an account's handle would be.
+        assert dana["venmo_username"] == "dana-p"
+
+    def test_naming_the_payer_points_the_link_at_them(self, client):
+        """The whole point: the table needs Dana's handle, not the host's."""
+        headers = register(client, "vince@example.com", "Vince Woo")
+        set_venmo(client, headers, "vince-woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana", venmo="dana-p")
+
+        client.post(
+            f"/tabs/{tab['id']}/payer",
+            json={"participant_id": dana["id"]},
+            headers=headers,
+        )
+
+        public = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert public["host_name"] == "Dana"
+        assert public["host_venmo_username"] == "dana-p"
+
+    def test_the_creator_is_still_the_default(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        set_venmo(client, headers, "vince-woo")
+        tab = make_tab(client, headers)
+
+        public = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert public["host_name"] == "Vince Woo"
+        assert public["host_venmo_username"] == "vince-woo"
+
+    def test_clearing_the_payer_hands_it_back_to_the_creator(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        set_venmo(client, headers, "vince-woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana", venmo="dana-p")
+        client.post(
+            f"/tabs/{tab['id']}/payer",
+            json={"participant_id": dana["id"]},
+            headers=headers,
+        )
+
+        client.post(
+            f"/tabs/{tab['id']}/payer", json={"participant_id": None}, headers=headers
+        )
+
+        public = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert public["host_venmo_username"] == "vince-woo"
+
+    def test_an_account_holders_handle_still_comes_from_their_profile(self, client):
+        """Not copied onto the seat, so editing the profile is not forked."""
+        vince = register(client, "vince@example.com", "Vince Woo")
+        maya = register(client, "maya@example.com", "Maya Chen")
+        set_venmo(client, maya, "maya-chen")
+        tab = make_tab(client, vince)
+
+        joined = client.post(
+            f"/public/tabs/{tab['share_token']}/join", json={}, headers=maya
+        ).json()
+        client.post(
+            f"/tabs/{tab['id']}/payer",
+            json={"participant_id": joined["participant"]["id"]},
+            headers=vince,
+        )
+
+        public = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert public["host_venmo_username"] == "maya-chen"
+        # And the seat itself never holds a copy.
+        seat = next(
+            p
+            for p in public["participants"]
+            if p["id"] == joined["participant"]["id"]
+        )
+        assert seat["venmo_username"] is None
+
+    def test_a_handle_is_refused_on_a_seat_that_has_an_account(self, client):
+        vince = register(client, "vince@example.com", "Vince Woo")
+        maya = register(client, "maya@example.com", "Maya Chen")
+        tab = make_tab(client, vince)
+        joined = client.post(
+            f"/public/tabs/{tab['share_token']}/join", json={}, headers=maya
+        ).json()
+
+        response = client.patch(
+            f"/tabs/{tab['id']}/participants/{joined['participant']['id']}",
+            json={"venmo_username": "not-mine"},
+            headers=vince,
+        )
+        assert response.status_code == 400
+        assert "own profile" in response.json()["detail"]
+
+    def test_closing_with_an_off_app_payer_writes_no_expense(self, client):
+        """
+        Nobody in the app is owed anything, so there is no debt to record.
+        Inventing one would put a balance in the organiser's name.
+        """
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana", venmo="dana-p")
+        client.post(
+            f"/tabs/{tab['id']}/payer",
+            json={"participant_id": dana["id"]},
+            headers=headers,
+        )
+
+        closed = client.post(f"/tabs/{tab['id']}/close", json={}, headers=headers)
+        assert closed.status_code == 200, closed.text
+        body = closed.json()
+        assert body["status"] == "closed"
+        assert body["expense_id"] is None
+        assert body["payer_id"] is None
+        assert body["payer_participant_id"] == dana["id"]
+
+        # And nothing landed in the organiser's expenses.
+        assert client.get("/expenses", headers=headers).json() == []
+
+    def test_an_off_app_payer_can_also_be_named_at_close(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana")
+
+        closed = client.post(
+            f"/tabs/{tab['id']}/close",
+            json={"payer_participant_id": dana["id"]},
+            headers=headers,
+        )
+        assert closed.status_code == 200, closed.text
+        assert closed.json()["expense_id"] is None
+
+    def test_a_registered_payer_still_produces_an_expense(self, client):
+        """The ordinary path is untouched."""
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        self.seat(client, headers, tab, "Dana")
+
+        body = client.post(f"/tabs/{tab['id']}/close", json={}, headers=headers).json()
+        assert body["expense_id"] is not None
+        assert body["payer_id"] is not None
+
+    def test_the_payer_cannot_be_changed_once_closed(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana")
+        client.post(f"/tabs/{tab['id']}/close", json={}, headers=headers)
+
+        response = client.post(
+            f"/tabs/{tab['id']}/payer",
+            json={"participant_id": dana["id"]},
+            headers=headers,
+        )
+        assert response.status_code == 409
+
+    def test_a_stranger_cannot_name_the_payer(self, client):
+        vince = register(client, "vince@example.com", "Vince Woo")
+        mallory = register(client, "mallory@example.com", "Mallory")
+        tab = make_tab(client, vince)
+        dana = self.seat(client, vince, tab, "Dana")
+
+        response = client.post(
+            f"/tabs/{tab['id']}/payer",
+            json={"participant_id": dana["id"]},
+            headers=mallory,
+        )
+        assert response.status_code in (403, 404)
+
+
+class TestMarkingPeoplePaid:
+    """
+    Who has settled, ticked off by the host.
+
+    Nothing here can verify a payment — the money moves through Venmo, cash or
+    a bank transfer, none of which report back. The host standing at the table
+    is the only witness there is.
+    """
+
+    def seat(self, client, headers, tab, name):
+        response = client.post(
+            f"/tabs/{tab['id']}/participants",
+            json={"display_name": name},
+            headers=headers,
+        )
+        return next(
+            p for p in response.json()["participants"] if p["display_name"] == name
+        )
+
+    def test_nobody_starts_paid(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        assert all(p["paid"] is False for p in tab["participants"])
+
+    def test_the_host_can_tick_somebody_off(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana")
+
+        body = client.patch(
+            f"/tabs/{tab['id']}/participants/{dana['id']}",
+            json={"paid": True},
+            headers=headers,
+        ).json()
+
+        seat = next(p for p in body["participants"] if p["id"] == dana["id"])
+        assert seat["paid"] is True
+
+    def test_a_tick_can_be_taken_back(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana")
+        client.patch(
+            f"/tabs/{tab['id']}/participants/{dana['id']}",
+            json={"paid": True},
+            headers=headers,
+        )
+
+        body = client.patch(
+            f"/tabs/{tab['id']}/participants/{dana['id']}",
+            json={"paid": False},
+            headers=headers,
+        ).json()
+
+        seat = next(p for p in body["participants"] if p["id"] == dana["id"])
+        assert seat["paid"] is False
+
+    def test_ticking_somebody_off_leaves_their_handle_alone(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        response = client.post(
+            f"/tabs/{tab['id']}/participants",
+            json={"display_name": "Dana", "venmo_username": "dana-p"},
+            headers=headers,
+        ).json()
+        dana = next(p for p in response["participants"] if p["display_name"] == "Dana")
+
+        body = client.patch(
+            f"/tabs/{tab['id']}/participants/{dana['id']}",
+            json={"paid": True},
+            headers=headers,
+        ).json()
+
+        seat = next(p for p in body["participants"] if p["id"] == dana["id"])
+        assert seat["venmo_username"] == "dana-p"
+
+    def test_the_table_can_see_who_has_settled(self, client):
+        """It is the thing everybody keeps asking, so it rides on the link."""
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana")
+        client.patch(
+            f"/tabs/{tab['id']}/participants/{dana['id']}",
+            json={"paid": True},
+            headers=headers,
+        )
+
+        public = client.get(f"/public/tabs/{tab['share_token']}").json()
+        seat = next(p for p in public["participants"] if p["id"] == dana["id"])
+        assert seat["paid"] is True
+
+    def test_people_can_still_be_ticked_off_after_the_tab_closes(self, client):
+        """They wander off owing and settle days later. That is the norm."""
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        dana = self.seat(client, headers, tab, "Dana")
+        client.post(f"/tabs/{tab['id']}/close", json={}, headers=headers)
+
+        response = client.patch(
+            f"/tabs/{tab['id']}/participants/{dana['id']}",
+            json={"paid": True},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        seat = next(
+            p for p in response.json()["participants"] if p["id"] == dana["id"]
+        )
+        assert seat["paid"] is True
+
+    def test_a_stranger_cannot_tick_anybody_off(self, client):
+        vince = register(client, "vince@example.com", "Vince Woo")
+        mallory = register(client, "mallory@example.com", "Mallory")
+        tab = make_tab(client, vince)
+        dana = self.seat(client, vince, tab, "Dana")
+
+        response = client.patch(
+            f"/tabs/{tab['id']}/participants/{dana['id']}",
+            json={"paid": True},
+            headers=mallory,
+        )
+        assert response.status_code in (403, 404)
+
+    def test_a_seat_from_another_tab_is_not_reachable(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        mine = make_tab(client, headers)
+        theirs = make_tab(client, headers, name="Other Place")
+        dana = self.seat(client, headers, theirs, "Dana")
+
+        response = client.patch(
+            f"/tabs/{mine['id']}/participants/{dana['id']}",
+            json={"paid": True},
+            headers=headers,
+        )
+        assert response.status_code == 404

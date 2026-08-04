@@ -212,8 +212,16 @@ class Tab(Base):
 
     status = Column(String, default="open", nullable=False)  # open | closed
 
-    # Who fronted the bill. Defaults to the creator at close time.
+    # Who fronted the bill, as a *user*. Set at close, and only when the payer
+    # has an account — it is what the resulting expense is paid by.
     payer_id = Column(Integer, nullable=True)
+
+    # Who fronted the bill, as a *seat*. The one the host can name while the
+    # tab is still open, and the only way to say "Dana paid" when Dana has no
+    # account: the person who does the organising is not always the person who
+    # handed over a card. Null means nobody has said, in which case the creator
+    # is assumed. Supersedes payer_id, which is derived from this at close.
+    payer_participant_id = Column(Integer, nullable=True)
 
     tax = Column(Integer, default=0, nullable=False)   # cents
     tip = Column(Integer, default=0, nullable=False)   # cents
@@ -258,6 +266,19 @@ class TabParticipant(Base):
     user_id = Column(Integer, nullable=True, index=True)
     claim_token = Column(String, unique=True, index=True, nullable=False)
     joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # A Venmo handle for a seat with no account behind it. An account already
+    # carries its own on the User row, and that one always wins; this exists so
+    # a payer who has never heard of Splitwiser can still be paid from the
+    # claim page. Owner-set, because that seat has nobody holding it.
+    venmo_username = Column(String, nullable=True)
+
+    # Whether this person has settled their share with whoever fronted the
+    # bill. Nothing here can verify a payment — it is the host ticking people
+    # off at the table, which is the only source of truth that exists when the
+    # money moves outside the app entirely.
+    paid = Column(Boolean, default=False, nullable=False)
+    paid_at = Column(DateTime, nullable=True)
 
     # A name is how everyone else at the table tells people apart, so two
     # "Maya"s on one tab are unusable however they got there — and a second

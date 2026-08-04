@@ -32,6 +32,12 @@ export interface TabBoardDesktopProps {
     /** Opens the tax-and-tip sheet: the scan is a starting point, not a verdict. */
     onEditAmounts: () => void;
     onClose: () => void;
+    /** The seat that fronted the bill — not always the host, and not always an account. */
+    payerId?: number | null;
+    /** Opens the who-paid sheet. Omitted where the payer is not editable. */
+    onEditPayer?: () => void;
+    /** Tick somebody off as settled. See TabBreakdown for why this is a callback. */
+    onTogglePaid?: (participantId: number, paid: boolean) => void;
 }
 
 /** Friday · $212.35 · link live for 5 more days */
@@ -68,6 +74,9 @@ const TabBoardDesktop: React.FC<TabBoardDesktopProps> = ({
     onShowQr,
     onEditAmounts,
     onClose,
+    payerId,
+    onEditPayer,
+    onTogglePaid,
 }) => {
     const [hovered, setHovered] = useState<number | null>(null);
     const [adding, setAdding] = useState(false);
@@ -75,6 +84,12 @@ const TabBoardDesktop: React.FC<TabBoardDesktopProps> = ({
     const [price, setPrice] = useState('');
 
     const open = tab.status === 'open';
+
+    // Whoever the caller named, else the account on the closed expense — the
+    // same fallback the phone layout and the server both use.
+    const resolvedPayerId =
+        payerId ?? payerParticipantId(tab.participants, tab.payer_id);
+    const payerSeat = tab.participants.find((p) => p.id === resolvedPayerId) ?? null;
     const unclaimedIds = new Set(
         tab.items.filter((item) => item.claimed_by.length === 0).map((item) => item.id)
     );
@@ -303,8 +318,34 @@ const TabBoardDesktop: React.FC<TabBoardDesktopProps> = ({
                       */}
                     {tab.participants.length > 0 && (
                         <div className="mt-6 max-w-[560px]">
-                            <div className="text-[11px] uppercase tracking-[0.09em] text-sw-dim mb-2">
-                                {open ? 'If you closed now' : 'What everyone owed'}
+                            <div className="flex items-baseline gap-2 mb-2">
+                                <div className="text-[11px] uppercase tracking-[0.09em] text-sw-dim">
+                                    {open ? 'If you closed now' : 'What everyone owed'}
+                                </div>
+                                {/*
+                                  * Who is owed. Worth saying out loud because
+                                  * it is not always the host: somebody with no
+                                  * account can front the bill, and then this is
+                                  * the only place the table learns who to pay.
+                                  */}
+                                <div className="ml-auto flex items-baseline gap-2 text-[11.5px] text-sw-dim">
+                                    <span className="truncate">
+                                        {payerSeat
+                                            ? payerSeat.id === meId
+                                                ? 'You paid'
+                                                : `${payerSeat.display_name} paid`
+                                            : 'Nobody has said who paid'}
+                                    </span>
+                                    {open && onEditPayer && (
+                                        <button
+                                            type="button"
+                                            onClick={onEditPayer}
+                                            className="text-sw-accent hover:text-sw-text focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2 rounded"
+                                        >
+                                            {payerSeat ? 'Change' : 'Set'}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                             <TabBreakdown
                                 items={tab.items}
@@ -313,10 +354,8 @@ const TabBoardDesktop: React.FC<TabBoardDesktopProps> = ({
                                 tax={tab.tax}
                                 tip={tab.tip}
                                 meId={meId}
-                                payerId={payerParticipantId(
-                                    tab.participants,
-                                    tab.payer_id
-                                )}
+                                payerId={resolvedPayerId}
+                                onTogglePaid={onTogglePaid}
                             />
                         </div>
                     )}

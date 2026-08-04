@@ -37,11 +37,13 @@ const TabClosePage: React.FC = () => {
             .then((data: Tab) => {
                 if (cancelled) return;
                 setTab(data);
-                // Default the payer to whoever opened the tab.
+                // Whoever was named on the board, else the person who opened
+                // the tab. Naming happens there because the claim page needs
+                // to know who to send people to long before anyone closes.
                 const opener = data.participants.find(
                     (p) => p.user_id === data.created_by_id
                 );
-                setPayerId(opener?.id ?? null);
+                setPayerId(data.payer_participant_id ?? opener?.id ?? null);
             })
             .catch(() => !cancelled && setError('Could not load this tab'))
             .finally(() => !cancelled && setLoading(false));
@@ -102,6 +104,8 @@ const TabClosePage: React.FC = () => {
     }
 
     const payer = tab.participants.find((p) => p.id === payerId) ?? null;
+    /** Nobody in the app is owed, so closing records no expense. */
+    const offAppPayer = Boolean(payer && payer.user_id === null);
 
     return (
         <>
@@ -160,26 +164,27 @@ const TabClosePage: React.FC = () => {
                         Who actually paid?
                     </div>
                     <div className="flex gap-[7px] flex-wrap">
+                        {/*
+                          * Everyone is eligible, including a seat with no
+                          * account. That used to be barred on the grounds that
+                          * only an account can carry a balance — true, but the
+                          * conclusion was wrong: when the payer is not in the
+                          * app there is no balance to carry, because everyone
+                          * settles with them directly. The tab closes to a
+                          * record instead. See the note under the picker.
+                          */}
                         {tab.participants.map((participant) => {
                             const selected = participant.id === payerId;
-                            // Only an account can carry a balance.
-                            const eligible = participant.user_id !== null;
                             return (
                                 <button
                                     key={participant.id}
                                     type="button"
-                                    disabled={!eligible}
                                     onClick={() => setPayerId(participant.id)}
-                                    title={
-                                        eligible
-                                            ? undefined
-                                            : 'Only someone with an account can be the payer'
-                                    }
                                     className={`flex items-center gap-1.5 pl-1.5 pr-3 py-[7px] rounded-full text-[13px] ${
                                         selected
                                             ? 'bg-sw-accent-ghost text-sw-accent shadow-[0_0_0_1px_var(--sw-accent)]'
                                             : 'bg-sw-surface text-sw-muted shadow-[0_0_0_1px_var(--sw-line)]'
-                                    } ${eligible ? '' : 'opacity-45 cursor-not-allowed'}`}
+                                    }`}
                                 >
                                     <Avatar
                                         name={participant.display_name}
@@ -220,11 +225,26 @@ const TabClosePage: React.FC = () => {
                     />
                 </div>
 
+                {/*
+                  * Two quite different outcomes, so say which one this is
+                  * before the button rather than after it.
+                  */}
                 <div className="flex items-start gap-2.5 px-3 py-3 rounded-sw-card shadow-[inset_0_0_0_1px_var(--sw-line)]">
                     <UsersThree size={17} className="text-sw-dim mt-0.5 flex-none" />
                     <p className="text-[12.5px] text-sw-muted leading-relaxed">
-                        These land in your normal balances. Nothing new appears under
-                        Groups.
+                        {offAppPayer ? (
+                            <>
+                                {payer?.display_name} isn&rsquo;t on Splitwiser, so
+                                everyone settles with them directly and no balances
+                                change. The tab stays as the record — keep ticking
+                                people off as they pay.
+                            </>
+                        ) : (
+                            <>
+                                These land in your normal balances. Nothing new
+                                appears under Groups.
+                            </>
+                        )}
                     </p>
                 </div>
 

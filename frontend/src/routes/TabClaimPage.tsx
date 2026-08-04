@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom';
 import { CaretDown, Check, Percent, PencilSimple } from '@phosphor-icons/react';
 import { Button, Money } from '../components/ui';
+import VenmoButton from '../components/VenmoButton';
 import { TabWorking } from '../components/tab/TabBreakdown';
 import { useAuth } from '../AuthContext';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { computeTabBreakdowns, toShareItems } from '../utils/tabShares';
 import { publicTabsApi } from '../services/api';
+import { buildVenmoLinks, venmoUnavailableNote } from '../utils/venmo';
 import type { PublicTab, TabIdentityResponse, TabJoinResponse } from '../types/tab';
 
 /**
@@ -160,6 +162,35 @@ const TabClaimPage: React.FC = () => {
     }, [tab, identity, shareItems]);
 
     const myShare = myBreakdown?.total ?? 0;
+
+    /**
+     * Pay the host, right here.
+     *
+     * This is the surface where the hand-off earns the most: the people at a
+     * tab often owe somebody they have only just met, with no shared group, no
+     * friendship and no other way to send the money. Everywhere else in the app
+     * a debt eventually resolves through balances — here the link is all there
+     * is, so an amount typed by hand is an amount typed wrong.
+     *
+     * The host is whoever fronted the bill, never another claimer.
+     */
+    const venmo = useMemo(() => {
+        if (!tab?.host_venmo_username || myShare <= 0) return null;
+        return buildVenmoLinks({
+            username: tab.host_venmo_username,
+            amountCents: myShare,
+            currency: tab.currency,
+            // The claimer always owes the host, never the other way round.
+            action: 'pay',
+            note: tab.name,
+        });
+    }, [tab, myShare]);
+
+    /** Explained only once there is a share to pay and a host to pay it to. */
+    const venmoMissing =
+        tab?.host_venmo_username && !venmo && myShare > 0
+            ? venmoUnavailableNote(tab.currency)
+            : null;
 
     /**
      * Take a name — for the first time, or instead of the one already held.
@@ -510,7 +541,36 @@ const TabClaimPage: React.FC = () => {
                     />
                 </button>
 
+                {venmo && (
+                    <VenmoButton
+                        links={venmo}
+                        action="pay"
+                        counterparty={tab.host_name ?? undefined}
+                        block
+                        variant="primary"
+                        className="min-h-[46px] mb-2.5"
+                    />
+                )}
+
                 <p className="text-[11.5px] text-sw-dim text-center">
+                    {venmo && tab.status === 'open' && (
+                        /*
+                          * Said before the reassurance below, because it is the
+                          * one thing that costs money to get wrong: a share sent
+                          * halfway through claiming is a share sent short.
+                          */
+                        <>
+                            Tap everything you had first — the amount goes over as it
+                            stands.{' '}
+                        </>
+                    )}
+                    {venmo && tab.status === 'closed' && (
+                        <>
+                            Sends {tab.host_name ?? 'the host'} your share. Splitwiser
+                            never sees the payment.{' '}
+                        </>
+                    )}
+                    {venmoMissing && <>{venmoMissing} </>}
                     {tab.status === 'open'
                         ? 'Your picks save as you tap. Come back any time before the tab closes.'
                         : "This tab has been closed — that's your final share."}
