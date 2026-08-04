@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Tab detail in the expense modal**: An expense a tab closed into shows that
   breakdown inline instead of only offering a link to the tab board.
 
+- **The receipt you actually photographed**: The scanned bill now appears
+  wherever it belongs — as a thumbnail in the expense detail modal, in the
+  desktop expense pane (which never showed it at all), and on the tab board
+  above the printed lines it was parsed into. Tapping one opens it full size,
+  and tapping again goes to actual size for reading small print. A receipt
+  PDF is still offered as a link, since a PDF cannot go in an image.
+
 - **Pass the phone**: For the table where nobody else has a device on them, the
   host's phone now goes round — a seat picker, then one person's own claim list
   at a time, with anyone who never opened the link seated by name on the spot.
@@ -28,6 +35,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Receipt links opening a blank tab**: *View receipt* opened a new tab that
+  never loaded the image. The service worker, which vite-plugin-pwa points at
+  `index.html` for every navigation by default, was answering the link with the
+  app shell instead of letting the request reach the backend. Navigations to
+  `/api/` are now the backend's alone, and the receipt renders in place anyway.
+- **A group's expenses losing their receipts**: `GET /groups/{id}/expenses`
+  never included `receipt_image_path`, so the schema default filled in null and
+  every expense in a group came back looking as though it had never been
+  photographed.
+- **Receipt PDFs blocked by our own header**: `Content-Security-Policy` fell
+  back to `default-src 'none'` for `object-src`, which is what Chrome checks
+  the embedded viewer against when a PDF is opened directly.
 - **Phantom payer on an open tab**: The first guest at the table was labelled as
   having paid the bill, because an unset payer and an account-less claimer were
   both null and matched each other.

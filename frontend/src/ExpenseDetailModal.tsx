@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    ArrowSquareOut,
     CaretRight,
     Check,
     Info,
@@ -16,6 +15,7 @@ import SplitDetailsInput from './components/expense/SplitDetailsInput';
 import IconSelector from './components/expense/IconSelector';
 import AddItemModal from './components/AddItemModal';
 import AlertDialog from './components/AlertDialog';
+import ReceiptViewer from './components/ReceiptViewer';
 import TabBreakdown from './components/tab/TabBreakdown';
 import { useItemizedExpense } from './hooks/useItemizedExpense';
 import { useSplitDetails } from './hooks/useSplitDetails';
@@ -50,7 +50,6 @@ import type { Tab } from './types/tab';
 import { expensesApi, tabsApi } from './services/api';
 import { offlineExpensesApi } from './services/offlineApi';
 import { useSync } from './contexts/SyncContext';
-import { getApiUrl } from './api';
 import { Button, Card, Money, Notice, TagPill } from './components/ui';
 import { CONTROL_CLASS } from './components/ui/controlClass';
 
@@ -1130,15 +1129,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                     {expense.receipt_image_path && (
                                         <div className="border-t border-sw-line pt-4 mb-4">
                                             <h4 className={SECTION_CLASS}>Receipt</h4>
-                                            <Button
-                                                variant="secondary"
-                                                href={getApiUrl(expense.receipt_image_path.replace(/^\//, ''))}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                icon={<ArrowSquareOut size={15} />}
-                                            >
-                                                View receipt
-                                            </Button>
+                                            <ReceiptViewer
+                                                path={expense.receipt_image_path}
+                                            />
                                         </div>
                                     )}
 

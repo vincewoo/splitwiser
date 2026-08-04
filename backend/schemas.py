@@ -667,6 +667,10 @@ class TabOut(BaseModel):
     expense_id: Optional[int]
     items: List[TabItemOut] = Field(default_factory=list)
     participants: List[TabParticipantOut] = Field(default_factory=list)
+    # The scanned bill, so the owner can check the lines against the paper.
+    # Owner-only, like the token below: a link-holder gets the parsed lines,
+    # not the photograph (which can carry a card's last four and a signature).
+    receipt_image_path: Optional[str] = None
     # Owner-only: absent from the public view.
     share_token: Optional[str] = None
     token_expires_at: Optional[datetime] = None

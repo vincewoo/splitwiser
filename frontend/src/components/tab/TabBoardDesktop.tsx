@@ -7,6 +7,7 @@ import {
     Trash,
 } from '@phosphor-icons/react';
 import { Button, Money, TagPill } from '../ui';
+import ReceiptViewer from '../ReceiptViewer';
 import ReceiptPaper from './ReceiptPaper';
 import TabProgress from './TabProgress';
 import TabMatrix from './TabMatrix';
@@ -133,6 +134,16 @@ const TabBoardDesktop: React.FC<TabBoardDesktopProps> = ({
                     <div className="text-[11px] uppercase tracking-[0.09em] text-sw-dim">
                         The receipt
                     </div>
+
+                    {/*
+                      * The paper below is printed from the tab's own lines, which
+                      * is what you need to see which are spare — but it is the
+                      * app's word for the bill. The photograph is the bill, so it
+                      * sits above it, a thumbnail away from full size.
+                      */}
+                    {tab.receipt_image_path && (
+                        <ReceiptViewer path={tab.receipt_image_path} variant="strip" />
+                    )}
 
                     <ReceiptPaper
                         title={tab.name}

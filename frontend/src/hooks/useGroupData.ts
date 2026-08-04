@@ -27,6 +27,7 @@ export interface GroupExpense {
     icon?: string | null;
     is_settlement?: boolean;
     notes?: string | null;
+    receipt_image_path?: string | null;
 }
 
 interface GroupData {

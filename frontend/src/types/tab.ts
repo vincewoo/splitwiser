@@ -29,6 +29,8 @@ export interface Tab {
     expense_id: number | null;
     items: TabItem[];
     participants: TabParticipant[];
+    /** The scanned bill. Owner view only, like the token below. */
+    receipt_image_path?: string | null;
     /** Owner view only. */
     share_token?: string | null;
     token_expires_at?: string | null;

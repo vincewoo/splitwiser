@@ -57,6 +57,12 @@ export default defineConfig(() => ({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // vite-plugin-pwa defaults navigateFallback to index.html, which makes the
+        // service worker answer EVERY navigation with the app shell — including a
+        // link opened in a new tab to a receipt under /api/static/receipts/. That
+        // served the SPA where the file should have been, so the tab came up blank.
+        // Anything under /api is the backend's to answer, never the shell's.
+        navigateFallbackDenylist: [/^\/api\//],
         // Clean up old caches from previous versions
         cleanupOutdatedCaches: true,
         // Skip waiting so new service worker activates immediately when user accepts update

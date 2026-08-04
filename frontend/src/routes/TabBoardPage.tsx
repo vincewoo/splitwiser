@@ -12,6 +12,7 @@ import {
     UsersThree,
 } from '@phosphor-icons/react';
 import { Avatar, Button, Card, Money, SegmentedControl, Sheet } from '../components/ui';
+import ReceiptViewer from '../components/ReceiptViewer';
 import ClaimerStack from '../components/tab/ClaimerStack';
 import TabBoardDesktop from '../components/tab/TabBoardDesktop';
 import TabBreakdown from '../components/tab/TabBreakdown';
@@ -718,6 +719,21 @@ const TabBoardPage: React.FC = () => {
                             <Money amount={tab.tip} currency={tab.currency} tone="muted" />
                         </span>
                     </button>
+                )}
+
+                {/*
+                  * Last, with the other "is this right?" affordances: the lines
+                  * above are what the scan read, and this is what it read them
+                  * from. Settling an argument about a price is worth a tap.
+                  */}
+                {!showPeople && tab.receipt_image_path && (
+                    <div className="flex items-center gap-3 pt-1">
+                        <ReceiptViewer path={tab.receipt_image_path} />
+                        <p className="text-[11.5px] text-sw-dim">
+                            The bill as photographed. Tap it to read the small
+                            print.
+                        </p>
+                    </div>
                 )}
             </div>
 

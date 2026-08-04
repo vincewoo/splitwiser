@@ -69,6 +69,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 
 **Feature Components:**
 - `frontend/src/ReceiptScanner.tsx` - LLM-based receipt scanning (upload → AI scan → review items)
+- `frontend/src/components/ReceiptViewer.tsx` - the scanned bill itself: a thumbnail that expands to full size in place, with a fit/actual-size toggle. Shared by the expense detail modal, the desktop expense pane and both tab boards; PDFs are offered as a link since they cannot go in an `<img>`
 - `frontend/src/components/expense/ExpenseItemList.tsx` - Itemized expense UI with per-item splits
 - `frontend/src/components/group/GroupPersonSheet.tsx` - Per-person actions in a group: claim a guest, fold a balance into a manager, remove, send a friend request
 - `frontend/src/components/AddPersonSheet.tsx` - Add a friend by email
@@ -101,7 +102,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Itemized expenses use proportional tax/tip distribution
 - Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback
 - Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close
-- Receipt uploads (images and PDFs) stored in `data/receipts/` directory (configurable via `DATA_DIR` env var); PDFs are rasterized per-page for the LLM but the original file is preserved
+- Receipt uploads (images and PDFs) stored in `data/receipts/` directory (configurable via `DATA_DIR` env var); PDFs are rasterized per-page for the LLM but the original file is preserved. Served from `/static/receipts/`, which reaches the browser as `/api/static/receipts/` — so the service worker's navigation fallback must keep its hands off `/api/` (see `navigateFallbackDenylist` in `frontend/vite.config.ts`)
 
 ## Development Commands
 

@@ -1077,6 +1077,10 @@ def get_group_expenses(
             "exchange_rate": display_exchange_rate,
             "exchange_rate_target_currency": exchange_rate_target_currency,
             "icon": expense.icon,
+            # Already on the row we loaded. Leaving it out made the schema
+            # default fill in None, so a group's expenses came back looking as
+            # though none of them had ever been photographed.
+            "receipt_image_path": expense.receipt_image_path,
             "notes": expense.notes,
             "is_settlement": expense.is_settlement,
             "has_unknown_assignments": expense.id in expenses_with_unassigned
