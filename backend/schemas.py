@@ -456,6 +456,11 @@ class ManageGuestRequest(BaseModel):
     is_guest: bool = False  # Set to True if manager is a guest
 
 
+class MergeGuestRequest(BaseModel):
+    """Fold a guest onto an account already in the group. `user_id` is that account."""
+    user_id: int
+
+
 class Balance(BaseModel):
     """Balance representing what a user owes or is owed."""
     user_id: int

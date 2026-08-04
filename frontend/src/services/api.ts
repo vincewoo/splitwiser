@@ -291,6 +291,19 @@ export const groupsApi = {
         return response;
     },
 
+    /**
+     * Fold a guest onto an account already in the group — the fix for somebody
+     * who joined as themselves instead of taking the guest's place. Claiming
+     * only ever merges onto the caller; this one names the account.
+     */
+    mergeGuest: async (groupId: number, guestId: number, userId: number) => {
+        const response = await apiFetch(`/groups/${groupId}/guests/${guestId}/merge`, {
+            method: 'POST',
+            body: JSON.stringify({ user_id: userId }),
+        });
+        return response;
+    },
+
     getBalances: async (groupId: number, convertTo?: string) => {
         const url = convertTo
             ? `/groups/${groupId}/balances?convert_to=${convertTo}`

@@ -273,6 +273,7 @@ const GroupPage: React.FC = () => {
                 members={group.members ?? []}
                 guests={group.guests ?? []}
                 currentUserId={user?.id}
+                ownerId={group.created_by_id}
                 onChanged={refreshEverything}
             />
         </>

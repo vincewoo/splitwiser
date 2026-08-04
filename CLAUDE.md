@@ -34,6 +34,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `backend/utils/validation.py` - Split validation, participant verification
 - `backend/utils/splits.py` - Split calculation logic (equal, exact, percentage, shares, itemized)
 - `backend/utils/display.py` - Display name helpers for guests and claimed users
+- `backend/utils/guest_merge.py` - Folding a guest's history onto a user id, shared by claiming and owner-driven merging; sums colliding splits so one person never ends up twice on one expense
 - `backend/utils/email.py` - Brevo API email service for transactional emails
 - `backend/utils/summary.py` - Consumption aggregation primitive
 - `backend/utils/summary_cache.py` - Bounded in-memory TTL cache for public summary
@@ -72,7 +73,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/ReceiptScanner.tsx` - LLM-based receipt scanning (upload → AI scan → review items)
 - `frontend/src/components/ReceiptViewer.tsx` - the scanned bill itself: a thumbnail that expands to full size in place, with a fit/actual-size toggle. Shared by the expense detail modal, the desktop expense pane and both tab boards; PDFs are offered as a link since they cannot go in an `<img>`
 - `frontend/src/components/expense/ExpenseItemList.tsx` - Itemized expense UI with per-item splits
-- `frontend/src/components/group/GroupPersonSheet.tsx` - Per-person actions in a group: claim a guest, fold a balance into a manager, remove, send a friend request
+- `frontend/src/components/group/GroupPersonSheet.tsx` - Per-person actions in a group: claim a guest, merge a guest into a member's account (owner only), fold a balance into a manager, remove, send a friend request
 - `frontend/src/components/AddPersonSheet.tsx` - Add a friend by email
 - `frontend/src/hooks/useOpenExpense.ts` - Opens the expense detail modal from a feed row, loading group context in the background
 - `frontend/src/components/tab/OpenTabsList.tsx` - Open tabs as re-entry rows; on the home page and Activity
@@ -97,7 +98,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Balance calculation: positive = owed to you, negative = you owe
 - Debt simplification converts all currencies to USD using cached exchange rates
 - Historical exchange rates cached at expense creation (Frankfurter API)
-- Guest users support claiming (merge history) and management (balance aggregation)
+- Guest users support claiming (merge history), owner-driven merging onto a named account, and management (balance aggregation)
 - Registered members can also be managed for balance aggregation
 - Refresh tokens stored hashed (SHA-256) in database with server-side revocation
 - Itemized expenses use proportional tax/tip distribution
@@ -251,6 +252,7 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 - `GET /groups/{group_id}/balances` - Get group balances
 - `POST /groups/{group_id}/guests` - Add guest member
 - `POST /groups/{group_id}/guests/{guest_id}/claim` - Claim guest profile
+- `POST /groups/{group_id}/guests/{guest_id}/merge` - Fold a guest onto a named account already in the group — the fix for someone who joined as themselves instead of taking the guest's seat. Group owner only, except onto your own account (which is `claim`)
 - `POST /groups/{group_id}/guests/{guest_id}/manage` - Link guest to manager
 
 ### Expenses

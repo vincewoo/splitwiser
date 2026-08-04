@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, LinkBreak, Trash, UserPlus } from '@phosphor-icons/react';
+import { ArrowsMerge, Link, LinkBreak, Trash, UserPlus } from '@phosphor-icons/react';
 import { Avatar, Button, Notice, Sheet } from '../ui';
 import { api } from '../../services/api';
 import { useAppData } from '../../contexts/AppDataContext';
@@ -18,6 +18,8 @@ export interface GroupPersonSheetProps {
     guests: GuestMember[];
     /** The viewer, so the sheet can refuse to act on them. */
     currentUserId?: number;
+    /** Who created the group. Only they may merge a guest into someone else. */
+    ownerId?: number;
     /** Refetch the group after anything changes. */
     onChanged: () => void;
 }
@@ -51,6 +53,7 @@ const GroupPersonSheet: React.FC<GroupPersonSheetProps> = ({
     members,
     guests,
     currentUserId,
+    ownerId,
     onChanged,
 }) => {
     const [feedback, setFeedback] = useState<Feedback>(null);
@@ -59,6 +62,10 @@ const GroupPersonSheet: React.FC<GroupPersonSheetProps> = ({
     // "user:12" / "guest:3" — the two id spaces overlap, so the kind travels
     // with the id.
     const [managerKey, setManagerKey] = useState('');
+    // The account a guest is about to be folded onto, and the are-you-sure
+    // step in front of it: a merge rewrites history and cannot be undone.
+    const [mergeUserId, setMergeUserId] = useState('');
+    const [confirmingMerge, setConfirmingMerge] = useState(false);
     // Read from the shell's copy rather than asking /friends/status per person:
     // the list is already loaded, and this only decides whether to show a row.
     const { friends } = useAppData();
@@ -67,6 +74,8 @@ const GroupPersonSheet: React.FC<GroupPersonSheetProps> = ({
         setFeedback(null);
         setConfirmingRemove(false);
         setManagerKey('');
+        setMergeUserId('');
+        setConfirmingMerge(false);
     }, [person]);
 
     if (!person) return null;
@@ -187,6 +196,22 @@ const GroupPersonSheet: React.FC<GroupPersonSheetProps> = ({
             'Could not claim that guest.'
         );
 
+    const merge = () => {
+        const targetId = Number(mergeUserId);
+        const target = members.find((member) => member.user_id === targetId);
+        setConfirmingMerge(false);
+        run(
+            () =>
+                api.groups.mergeGuest(
+                    groupId,
+                    (person as { guest: GuestMember }).guest.id,
+                    targetId
+                ),
+            `Merged into ${target?.full_name ?? 'their account'}.`,
+            'Could not merge that guest.'
+        );
+    };
+
     const sendRequest = () =>
         run(
             () =>
@@ -240,6 +265,100 @@ const GroupPersonSheet: React.FC<GroupPersonSheetProps> = ({
                     </span>
                 </button>
             )}
+
+            {/* --------------------------------------------------- merging */}
+            {/*
+              * The fix for a guest who signed up and joined as themselves
+              * rather than claiming their seat, leaving the group holding two
+              * of them. Only the owner sees it: everyone else can merge onto
+              * their own account, which is the claim row above.
+              */}
+            {person.kind === 'guest' &&
+                !claimed &&
+                currentUserId !== undefined &&
+                currentUserId === ownerId && (
+                    <div className="flex flex-col gap-2 px-1 pt-1">
+                        <div className="text-[11px] uppercase tracking-[0.09em] text-sw-dim">
+                            Merge into an account
+                        </div>
+
+                        {members.length === 0 ? (
+                            <p className="text-[12.5px] text-sw-dim">
+                                Nobody in this group has an account to merge into
+                                yet.
+                            </p>
+                        ) : confirmingMerge ? (
+                            <div className="flex flex-col gap-2 p-3 rounded-sw-card bg-sw-raise">
+                                <p className="text-[12.5px] text-sw-muted">
+                                    Move everything <strong>{name}</strong> was in
+                                    onto{' '}
+                                    <strong>
+                                        {members.find(
+                                            (member) =>
+                                                member.user_id === Number(mergeUserId)
+                                        )?.full_name ?? 'that account'}
+                                    </strong>
+                                    ? The guest stops appearing on their own. This
+                                    cannot be undone.
+                                </p>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="ghost"
+                                        onClick={() => setConfirmingMerge(false)}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        variant="primary"
+                                        icon={<ArrowsMerge size={15} />}
+                                        onClick={merge}
+                                        disabled={busy}
+                                    >
+                                        Merge
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <p className="text-[12.5px] text-sw-muted">
+                                    If they joined with their own account instead of
+                                    taking this seat, fold the guest's expenses and
+                                    splits onto that account.
+                                </p>
+                                <div className="flex gap-2">
+                                    <select
+                                        value={mergeUserId}
+                                        onChange={(event) =>
+                                            setMergeUserId(event.target.value)
+                                        }
+                                        aria-label={`Which account is ${name}`}
+                                        className="flex-1 min-w-0 px-3 py-2.5 rounded-sw-row bg-sw-sunk text-sw-text border border-sw-line focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
+                                    >
+                                        <option value="">Pick an account</option>
+                                        {members.map((member) => (
+                                            <option
+                                                key={member.user_id}
+                                                value={member.user_id}
+                                            >
+                                                {member.user_id === currentUserId
+                                                    ? `${member.full_name} (you)`
+                                                    : member.full_name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <Button
+                                        variant="primary"
+                                        icon={<ArrowsMerge size={15} />}
+                                        onClick={() => setConfirmingMerge(true)}
+                                        disabled={busy || !mergeUserId}
+                                    >
+                                        Merge
+                                    </Button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
 
             {/* ------------------------------------------ friend request */}
             {person.kind === 'member' && !isMe && !alreadyFriends && (
