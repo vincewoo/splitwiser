@@ -4,6 +4,7 @@ import {
     ArrowLeft,
     Check,
     DeviceMobile,
+    PencilSimple,
     Plus,
     QrCode as QrCodeIcon,
     ShareNetwork,
@@ -15,6 +16,7 @@ import ClaimerStack from '../components/tab/ClaimerStack';
 import TabBoardDesktop from '../components/tab/TabBoardDesktop';
 import TabBreakdown from '../components/tab/TabBreakdown';
 import QrCode from '../components/tab/QrCode';
+import TabAmountsSheet from '../components/tab/TabAmountsSheet';
 import { useAuth } from '../AuthContext';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -52,6 +54,9 @@ const TabBoardPage: React.FC = () => {
     const [copied, setCopied] = useState(false);
     const [qrOpen, setQrOpen] = useState(false);
     const [collectOpen, setCollectOpen] = useState(false);
+    const [amountsOpen, setAmountsOpen] = useState(false);
+    const [savingAmounts, setSavingAmounts] = useState(false);
+    const [amountsError, setAmountsError] = useState<string | null>(null);
     const [view, setView] = useState<'items' | 'people'>('items');
 
     usePageTitle(tab?.name ?? 'Tab');
@@ -199,6 +204,24 @@ const TabBoardPage: React.FC = () => {
         }
     };
 
+    /**
+     * Correct the tax or the tip. Everyone claiming from the link picks the
+     * new figures up on their next poll, so a fix mid-meal reaches the table.
+     */
+    const saveAmounts = async (amounts: { tax: number; tip: number }) => {
+        if (id === undefined) return;
+        setSavingAmounts(true);
+        setAmountsError(null);
+        try {
+            setTab(await tabsApi.updateAmounts(id, amounts));
+            setAmountsOpen(false);
+        } catch {
+            setAmountsError('Could not save the tax and tip');
+        } finally {
+            setSavingAmounts(false);
+        }
+    };
+
     const handleDeleteItem = async (itemId: number) => {
         if (id === undefined) return;
         try {
@@ -325,6 +348,19 @@ const TabBoardPage: React.FC = () => {
         </Sheet>
     );
 
+    const amountsSheet = amountsOpen && tab && (
+        <TabAmountsSheet
+            subtotal={itemsTotal}
+            tax={tab.tax}
+            tip={tab.tip}
+            currency={tab.currency}
+            onClose={() => setAmountsOpen(false)}
+            onSave={saveAmounts}
+            busy={savingAmounts}
+            error={amountsError}
+        />
+    );
+
     if (isDesktop) {
         return (
             <>
@@ -340,10 +376,12 @@ const TabBoardPage: React.FC = () => {
                     onAddItem={addItem}
                     onDeleteItem={handleDeleteItem}
                     onShowQr={() => setQrOpen(true)}
+                    onEditAmounts={() => setAmountsOpen(true)}
                     onClose={() => navigate(`/tabs/${tab.id}/close`)}
                 />
                 {collectSheet}
                 {qrSheet}
+                {amountsSheet}
             </>
         );
     }
@@ -659,6 +697,28 @@ const TabBoardPage: React.FC = () => {
                         </button>
                     )
                 )}
+
+                {/*
+                  * Tax and tip are not claimable lines, so they sit under the
+                  * items rather than among them — visible, because the scan is
+                  * a convenience and the person holding the bill can see what
+                  * it really says.
+                  */}
+                {!showPeople && tab.status === 'open' && (
+                    <button
+                        type="button"
+                        onClick={() => setAmountsOpen(true)}
+                        className="flex items-center gap-2 p-3 rounded-sw-card text-[13px] text-sw-muted shadow-[0_0_0_1px_var(--sw-line)] hover:text-sw-text focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
+                    >
+                        <PencilSimple size={14} className="flex-none" />
+                        Tax and tip
+                        <span className="ml-auto flex items-center gap-1.5 text-sw-text">
+                            <Money amount={tab.tax} currency={tab.currency} tone="muted" />
+                            <span className="text-sw-dim">·</span>
+                            <Money amount={tab.tip} currency={tab.currency} tone="muted" />
+                        </span>
+                    </button>
+                )}
             </div>
 
             {tab.status === 'open' ? (
@@ -682,6 +742,7 @@ const TabBoardPage: React.FC = () => {
 
             {collectSheet}
             {qrSheet}
+            {amountsSheet}
         </>
     );
 };

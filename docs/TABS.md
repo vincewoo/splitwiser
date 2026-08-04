@@ -22,10 +22,29 @@ scan receipt → open tab → share link → people join and claim → close →
 
 1. **Open.** `POST /tabs` with the scanned lines, tax, tip and printed total.
    The response carries a `share_token` — the only credential for the link.
+   The tip is set here, on the "Where are you?" sheet, because a receipt is
+   printed before the tip is written on it — the scan almost never finds one,
+   and everyone claiming from the link is shown their share *including* their
+   part of the tip. Setting it at the start is what keeps the figures people
+   see honest from the first claim; correcting it later (see below) is always
+   possible, but everyone who has already looked saw the old number.
+
+   The same sheet reconciles the scanned lines against the printed total and
+   offers any shortfall as tip. That is where a service charge lands: the
+   parser is told to keep tips and fees off the item list, but a line reading
+   "Service Fee" is a tip in all but name and no prompt can tell the two apart
+   reliably — so the host decides, and either way it belongs in the tip rather
+   than as a line one person has to claim. The reconciliation is measured
+   against the tip the *scan* found, not the live field, so writing a tip in
+   never reads as overshooting the printed total.
 2. **Claim.** Anyone with the link joins with a display name and ticks lines.
    Several people on the same line is sharing, not a conflict.
 3. **Close.** `POST /tabs/{id}/close` computes what each person owes and writes
    a single direct expense (`group_id = NULL`, `split_type = "ITEMIZED"`).
+
+Tax and tip stay correctable through `PATCH /tabs/{id}/amounts` for as long as
+the tab is open, from the board on either posture. Nothing about the scan is
+treated as final.
 
 ## Database Schema
 
@@ -36,7 +55,10 @@ scan receipt → open tab → share link → people join and claim → close →
 - `revoked` - kills the link without closing the tab
 - `status` - `open` | `closed`
 - `payer_id` - who fronted the bill; defaults to the creator at close
-- `tax`, `tip`, `total` - cents. `total` is what the receipt printed.
+- `tax`, `tip`, `total` - cents. `total` is what the receipt printed until the
+  host takes the numbers over — writing in a tip the scan did not find, or
+  correcting either amount later — at which point it is the bill they will
+  actually be charged (items + tax + tip).
 - `receipt_image_path`, `created_at`, `closed_at`
 - `expense_id` - set once the tab resolves into a real expense
 
@@ -226,6 +248,16 @@ before this held, and runs on every boot.
 - `POST /tabs/{tab_id}/items` - add a line the scan missed
 - `DELETE /tabs/{tab_id}/items/{item_id}` - remove a line, dropping its claims.
   The UI only offers this for hand-added lines.
+- `PATCH /tabs/{tab_id}/amounts` - correct the tax or the tip. Either field may
+  be omitted to leave it alone. The scan is a convenience, not the authority:
+  a receipt prints before the tip is written on it, a "Service Fee" line is a
+  tip in all but name, and a tax line can be missed outright — whoever is
+  holding the bill can see what it really says. `total` follows the correction
+  (items + tax + tip), since once the host takes the numbers over what matters
+  is the figure the table is being asked for. Refused with `409` on a closed
+  tab: the expense is already written, and moving the tax underneath it would
+  leave the two disagreeing with no way to tell which was meant. Claimers pick
+  the new figures up on their next poll.
 - `POST /tabs/{tab_id}/participants` - seat somebody the owner is claiming on
   behalf of. A guest seat: joining otherwise needs the link, which is no use to
   the person at the table with a flat phone. Grants nothing the owner did not

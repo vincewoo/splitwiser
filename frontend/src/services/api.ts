@@ -532,6 +532,20 @@ export const tabsApi = {
         return response.json();
     },
 
+    // Owner-only: correct what the scan read. Either field may be omitted to
+    // leave it as it stands.
+    updateAmounts: async (
+        tabId: number,
+        amounts: { tax?: number; tip?: number }
+    ) => {
+        const response = await apiFetch(`/tabs/${tabId}/amounts`, {
+            method: 'PATCH',
+            body: JSON.stringify(amounts),
+        });
+        if (!response.ok) throw new Error('Could not save the tax and tip');
+        return response.json();
+    },
+
     deleteItem: async (tabId: number, itemId: number) => {
         const response = await apiFetch(`/tabs/${tabId}/items/${itemId}`, {
             method: 'DELETE',

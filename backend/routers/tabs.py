@@ -362,6 +362,50 @@ def add_tab_item(
     return _tab_out(db, tab)
 
 
+@router.patch("/tabs/{tab_id}/amounts", response_model=schemas.TabOut)
+def update_tab_amounts(
+    tab_id: int,
+    payload: schemas.TabAmountsUpdate,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+):
+    """
+    Correct the tax or the tip on an open tab.
+
+    The scan is a convenience tool, not the authority — a receipt prints
+    before the tip is written on it, a "Service Fee" line is a tip in all but
+    name, and a tax line can be missed outright. Whoever is holding the bill
+    is in a better position to say, so they can say it at any point while the
+    tab is open.
+
+    A closed tab is refused: it has already been written out as an expense
+    with everyone's shares recorded, and moving the tax underneath that would
+    leave the two disagreeing with no way to tell which was meant.
+
+    `total` follows the correction. It is the receipt's printed total until
+    the host takes the numbers over, at which point what matters is the figure
+    the table is actually being asked for.
+    """
+    tab = _load_tab_for_owner(db, tab_id, current_user.id)
+    if tab.status != "open":
+        raise HTTPException(status_code=409, detail="This tab is already closed")
+
+    if payload.tax is not None:
+        tab.tax = payload.tax
+    if payload.tip is not None:
+        tab.tip = payload.tip
+
+    items_total = (
+        db.query(func.coalesce(func.sum(models.TabItem.price), 0))
+        .filter(models.TabItem.tab_id == tab.id)
+        .scalar()
+    )
+    tab.total = items_total + tab.tax + tab.tip
+
+    db.commit()
+    return _tab_out(db, tab)
+
+
 @router.post("/tabs/{tab_id}/participants", response_model=schemas.TabOut)
 def add_tab_participant(
     tab_id: int,

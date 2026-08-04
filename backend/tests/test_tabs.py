@@ -710,6 +710,114 @@ class TestManualItems:
         assert db_session.query(models.TabItemClaim).count() == 0
 
 
+class TestCorrectingTaxAndTip:
+    """
+    The scan is a convenience, not the authority. Whoever is holding the bill
+    can correct what it read for as long as the tab is open.
+    """
+
+    def test_the_owner_can_correct_both(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+
+        response = client.patch(
+            f"/tabs/{tab['id']}/amounts",
+            json={"tax": 750, "tip": 1700},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["tax"] == 750
+        assert response.json()["tip"] == 1700
+
+    def test_an_omitted_field_is_left_alone(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+
+        body = client.patch(
+            f"/tabs/{tab['id']}/amounts", json={"tip": 2000}, headers=headers
+        ).json()
+        assert body["tip"] == 2000
+        assert body["tax"] == 900
+
+    def test_the_total_follows_the_correction(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+
+        # Items come to 9300; the receipt printed 11200.
+        body = client.patch(
+            f"/tabs/{tab['id']}/amounts",
+            json={"tax": 0, "tip": 0},
+            headers=headers,
+        ).json()
+        assert body["total"] == 9300
+
+    def test_a_line_added_by_hand_is_counted_in_the_new_total(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        client.post(
+            f"/tabs/{tab['id']}/items",
+            json={"description": "Another round", "price": 1800},
+            headers=headers,
+        )
+
+        body = client.patch(
+            f"/tabs/{tab['id']}/amounts",
+            json={"tax": 100, "tip": 200},
+            headers=headers,
+        ).json()
+        assert body["total"] == 9300 + 1800 + 100 + 200
+
+    def test_the_correction_reaches_what_claimers_see(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+
+        client.patch(
+            f"/tabs/{tab['id']}/amounts", json={"tip": 2500}, headers=headers
+        )
+        public = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert public["tip"] == 2500
+
+    def test_a_stranger_cannot_correct_them(self, client):
+        owner = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, owner)
+        stranger = register(client, "mallory@example.com", "Mallory")
+
+        response = client.patch(
+            f"/tabs/{tab['id']}/amounts", json={"tip": 0}, headers=stranger
+        )
+        # Indistinguishable from a tab that does not exist.
+        assert response.status_code == 404
+
+    def test_a_link_holder_cannot_correct_them(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+
+        assert (
+            client.patch(f"/tabs/{tab['id']}/amounts", json={"tip": 0}).status_code
+            == 401
+        )
+
+    def test_a_closed_tab_is_refused(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+        client.post(f"/tabs/{tab['id']}/close", json={}, headers=headers)
+
+        response = client.patch(
+            f"/tabs/{tab['id']}/amounts", json={"tip": 1}, headers=headers
+        )
+        # The expense is already written; the two must not drift apart.
+        assert response.status_code == 409
+
+    def test_a_negative_amount_is_refused(self, client):
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(client, headers)
+
+        response = client.patch(
+            f"/tabs/{tab['id']}/amounts", json={"tax": -1}, headers=headers
+        )
+        assert response.status_code == 422
+
+
 class TestOwnerSeatsSomebody:
     """
     Seating a person from the owner's device — the table where somebody has no
