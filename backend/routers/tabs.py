@@ -249,6 +249,7 @@ def _tab_out(db: Session, tab: models.Tab) -> schemas.TabOut:
         expense_id=tab.expense_id,
         items=_serialize_items(db, tab.id),
         participants=_serialize_participants(db, tab.id),
+        receipt_image_path=tab.receipt_image_path,
         share_token=tab.share_token,
         token_expires_at=tab.token_expires_at,
     )

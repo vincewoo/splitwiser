@@ -62,11 +62,16 @@ async def add_security_headers(request: Request, call_next):
     # - script-src: Allow self and Swagger UI CDN
     # - style-src: Allow self, Swagger UI CDN, and unsafe-inline (needed for Swagger)
     # - img-src: Allow self, data: (base64), and fastapi CDN
+    # - object-src: Allow self so a receipt PDF opened in a browser tab renders.
+    #   Chrome builds a plugin document around the file and checks the embedded
+    #   viewer against object-src, which would otherwise fall back to
+    #   default-src 'none' and leave the tab blank.
     csp_policy = (
         "default-src 'none'; "
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "img-src 'self' data: https://fastapi.tiangolo.com; "
+        "object-src 'self'; "
         "connect-src 'self'; "
         "frame-ancestors 'none'; "
         "form-action 'self';"

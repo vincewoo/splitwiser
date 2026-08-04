@@ -1,6 +1,7 @@
 import React from 'react';
 import { PencilSimple, Trash } from '@phosphor-icons/react';
 import { Avatar, Button, IconTile, Money, TagPill } from '../ui';
+import ReceiptViewer from '../ReceiptViewer';
 import { formatDate } from '../../utils/formatters';
 import type { GroupExpense } from '../../hooks/useGroupData';
 
@@ -88,6 +89,17 @@ const OpenExpensePane: React.FC<OpenExpensePaneProps> = ({
 
         {expense.notes && (
             <p className="text-[12.5px] text-sw-muted mb-3">{expense.notes}</p>
+        )}
+
+        {/*
+          * Nothing hides behind a modal here, and that has to include the
+          * receipt — on desktop this pane is the whole of an expense, so a
+          * photograph reachable only from the editor is a photograph lost.
+          */}
+        {expense.receipt_image_path && (
+            <div className="mb-3.5">
+                <ReceiptViewer path={expense.receipt_image_path} />
+            </div>
         )}
 
         {expense.splits?.length > 0 && (

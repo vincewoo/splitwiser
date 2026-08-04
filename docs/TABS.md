@@ -59,7 +59,11 @@ treated as final.
   host takes the numbers over — writing in a tip the scan did not find, or
   correcting either amount later — at which point it is the bill they will
   actually be charged (items + tax + tip).
-- `receipt_image_path`, `created_at`, `closed_at`
+- `receipt_image_path` - the scanned bill. Returned to the owner on `TabOut`
+  and shown beside the printed lines; deliberately absent from `PublicTabOut`,
+  since a link-holder gets what the scan read and not a photograph that may
+  carry a card's last four and a signature.
+- `created_at`, `closed_at`
 - `expense_id` - set once the tab resolves into a real expense
 
 **TabItem**
@@ -299,7 +303,9 @@ before this held, and runs on every boot.
 - `TabBoardDesktop.tsx` - the two-pane board
 - `ReceiptPaper.tsx` - the bill as paper, printed from the tab's own lines
   rather than the scanned photo, since a photo cannot show which lines are
-  still nobody's. Fixed to the light palette in both themes.
+  still nobody's. Fixed to the light palette in both themes. The photo itself
+  sits above it as a thumbnail — see `components/ReceiptViewer.tsx`, shared
+  with the expense surfaces — so "did the scan get that right?" is one tap.
 - `TabMatrix.tsx` - every item against every person, with per-person totals
 - `TabBreakdown.tsx` - what each person owes and why: their lines, their share
   of anything unclaimed, their tax and tip. Rows expand; the viewer's own opens
@@ -318,7 +324,8 @@ one axis at a time, so unclaimed lines lead. A segmented control switches the
 same space to what everyone owes; the answer to "what do I owe?" used to live
 behind *Close the tab*, a button that reads like a commitment.
 
-**Desktop** shows both axes at once: the receipt on the left, the item × person
+**Desktop** shows both axes at once: the receipt on the left — the photograph
+first, the parsed lines under it — and the item × person
 grid on the right. Hovering a row in the grid rings the same line on the paper.
 The per-person footer totals are what closing *right now* would record, so they
 include each person's share of the unclaimed lines; the outstanding amount is

@@ -77,6 +77,17 @@ class TestOwnerAccess:
         # Indistinguishable from a tab that does not exist.
         assert response.status_code == 404
 
+    def test_the_owner_gets_the_scanned_receipt_back(self, client):
+        """The board shows the photograph next to the lines parsed from it."""
+        owner = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(
+            client, owner, receipt_image_path="/static/receipts/bar-sol.jpg"
+        )
+
+        assert tab["receipt_image_path"] == "/static/receipts/bar-sol.jpg"
+        fetched = client.get(f"/tabs/{tab['id']}", headers=owner).json()
+        assert fetched["receipt_image_path"] == "/static/receipts/bar-sol.jpg"
+
     def test_listing_only_returns_your_own_tabs(self, client):
         owner = register(client, "vince@example.com", "Vince Woo")
         make_tab(client, owner)
@@ -108,6 +119,16 @@ class TestPublicRead:
         assert "id" not in body
         for participant in body["participants"]:
             assert "claim_token" not in participant
+
+    def test_the_receipt_photo_stays_with_the_owner(self, client):
+        """A link-holder gets the parsed lines, not the photographed bill."""
+        headers = register(client, "vince@example.com", "Vince Woo")
+        tab = make_tab(
+            client, headers, receipt_image_path="/static/receipts/bar-sol.jpg"
+        )
+
+        body = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert "receipt_image_path" not in body
 
     def test_an_unknown_token_is_rejected(self, client):
         assert client.get("/public/tabs/not-a-real-token").status_code == 404

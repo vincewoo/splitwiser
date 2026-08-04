@@ -221,3 +221,37 @@ def test_delete_expense(client, auth_headers, db_session, test_user):
     list_resp = client.get("/expenses/", headers=auth_headers)
     ids = [e["id"] for e in list_resp.json()]
     assert expense_id not in ids
+
+
+def test_group_expense_list_keeps_the_receipt(client, auth_headers, test_user):
+    """The group's list of expenses is where the desktop pane reads from.
+
+    It used to omit the column entirely, so the schema default filled in None
+    and every expense in a group looked as though it had no receipt.
+    """
+    group_id = client.post(
+        "/groups/",
+        headers=auth_headers,
+        json={"name": "Receipt Group", "default_currency": "USD"},
+    ).json()["id"]
+
+    client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Dinner",
+            "amount": 1000,
+            "currency": "USD",
+            "date": str(date.today()),
+            "payer_id": test_user.id,
+            "group_id": group_id,
+            "split_type": "EQUAL",
+            "splits": [
+                {"user_id": test_user.id, "amount_owed": 1000, "is_guest": False}
+            ],
+            "receipt_image_path": "/static/receipts/dinner.jpg",
+        },
+    )
+
+    listed = client.get(f"/groups/{group_id}/expenses", headers=auth_headers).json()
+    assert listed[0]["receipt_image_path"] == "/static/receipts/dinner.jpg"
