@@ -254,3 +254,113 @@ class TestSettlementDirectory:
 
         response = client.get(f"/simplify_debts/{group['id']}", headers=mallory)
         assert response.status_code in (403, 404)
+
+
+class TestTabLinkHandsOverTheHost:
+    """
+    The one place a handle reaches somebody who is not a friend or a fellow
+    group member.
+
+    A tab is where people most often owe a near-stranger: no group, no
+    friendship, and frequently no second meeting. The link is the only channel
+    there is, so the host's handle rides along with it — theirs alone, and only
+    while the link is live.
+    """
+
+    def make_tab(self, client, headers, **over):
+        payload = {
+            "name": "Bar Sol",
+            "currency": "USD",
+            "items": [
+                {"description": "Pizza margherita", "price": 2800},
+                {"description": "Vinho Verde", "price": 3400},
+            ],
+            "tax": 0,
+            "tip": 0,
+        }
+        payload.update(over)
+        return client.post("/tabs", json=payload, headers=headers).json()
+
+    def test_the_link_carries_the_hosts_handle(self, client):
+        vince = register(client, "vince@example.com", "Vince Woo")
+        set_handle(client, vince, "vince-woo")
+        tab = self.make_tab(client, vince)
+
+        body = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert body["host_venmo_username"] == "vince-woo"
+        assert body["host_name"] == "Vince Woo"
+
+    def test_a_host_without_one_reads_as_null(self, client):
+        vince = register(client, "vince@example.com", "Vince Woo")
+        tab = self.make_tab(client, vince)
+
+        body = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert body["host_venmo_username"] is None
+        assert body["host_name"] == "Vince Woo"
+
+    def test_another_claimers_handle_never_rides_along(self, client):
+        """Only the person owed. Everyone else at the table keeps theirs."""
+        vince = register(client, "vince@example.com", "Vince Woo")
+        maya = register(client, "maya@example.com", "Maya Chen")
+        set_handle(client, maya, "maya-chen")
+        tab = self.make_tab(client, vince)
+
+        client.post(
+            f"/public/tabs/{tab['share_token']}/join", json={}, headers=maya
+        )
+
+        body = client.get(f"/public/tabs/{tab['share_token']}").text
+        assert "maya-chen" not in body
+
+    def test_a_revoked_link_hands_over_nothing_at_all(self, client):
+        vince = register(client, "vince@example.com", "Vince Woo")
+        set_handle(client, vince, "vince-woo")
+        tab = self.make_tab(client, vince)
+        client.post(f"/tabs/{tab['id']}/revoke", headers=vince)
+
+        response = client.get(f"/public/tabs/{tab['share_token']}")
+        assert response.status_code in (403, 404, 410)
+        assert "vince-woo" not in response.text
+
+    def test_closing_follows_the_bill_to_whoever_actually_paid(self, client):
+        """
+        The host can hand the bill to someone else at close. From then on the
+        table owes that person, so that person's handle is the useful one.
+        """
+        vince = register(client, "vince@example.com", "Vince Woo")
+        set_handle(client, vince, "vince-woo")
+        maya = register(client, "maya@example.com", "Maya Chen")
+        set_handle(client, maya, "maya-chen")
+        tab = self.make_tab(client, vince)
+
+        joined = client.post(
+            f"/public/tabs/{tab['share_token']}/join", json={}, headers=maya
+        ).json()
+        # Somebody has to have claimed something for the close to be meaningful.
+        item = tab["items"][0]["id"]
+        client.post(
+            f"/public/tabs/{tab['share_token']}/items/{item}/claim",
+            json={"claim_token": joined["claim_token"], "claimed": True},
+        )
+        client.post(
+            f"/tabs/{tab['id']}/close",
+            json={"payer_participant_id": joined["participant"]["id"]},
+            headers=vince,
+        )
+
+        body = client.get(f"/public/tabs/{tab['share_token']}").json()
+        assert body["host_venmo_username"] == "maya-chen"
+        assert body["host_name"] == "Maya Chen"
+
+    def test_a_group_share_link_still_exposes_nothing(self, client):
+        """The tab carve-out is a carve-out, not a general loosening."""
+        vince = register(client, "vince@example.com", "Vince Woo")
+        set_handle(client, vince, "vince-woo")
+
+        group = client.post(
+            "/groups", json={"name": "Tahoe", "default_currency": "USD"}, headers=vince
+        ).json()
+        share = client.post(f"/groups/{group['id']}/share", headers=vince).json()
+
+        body = client.get(f"/public/groups/{share['share_link_id']}").text
+        assert "vince-woo" not in body

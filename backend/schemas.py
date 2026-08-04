@@ -689,6 +689,16 @@ class PublicTabOut(BaseModel):
     total: Optional[int]
     items: List[TabItemOut] = Field(default_factory=list)
     participants: List[TabParticipantOut] = Field(default_factory=list)
+    # Who everyone at this table owes, and how to pay them.
+    #
+    # This is the one place a Venmo handle reaches a link-holder rather than a
+    # friend or a fellow group member, and it is deliberate: a tab is precisely
+    # where people owe somebody they may not know and have no other way to pay.
+    # Only the host's handle is ever sent — never another claimer's — and only
+    # while the link itself is live, since an expired or revoked token is
+    # refused before this is built.
+    host_name: Optional[str] = None
+    host_venmo_username: Optional[str] = None
 
 
 class TabAmountsUpdate(BaseModel):

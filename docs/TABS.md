@@ -278,7 +278,13 @@ before this held, and runs on every boot.
 - `POST /tabs/{tab_id}/close` - resolve into one expense
 
 ### Public (no auth, rate-limited)
-- `GET /public/tabs/{share_token}` - read the tab
+- `GET /public/tabs/{share_token}` - read the tab. Carries `host_name` and
+  `host_venmo_username`: who the table owes, and how to pay them. The one place
+  in the app a Venmo handle reaches somebody who is neither a friend nor a
+  fellow group member, because a tab is the one place you can owe a person you
+  have no other way to pay. The **host's** only — the payer once the tab is
+  closed, the opener before that — never another claimer's, and never on a
+  group share link. See *Venmo Hand-off on Settle Up* in `docs/FEATURES.md`.
 - `POST /public/tabs/{share_token}/join` - join with a name; returns a claim
   token. `409` if that name is already at the table. Takes an optional bearer
   token: a signed-in caller is seated as their account, and an optional

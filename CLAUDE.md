@@ -102,7 +102,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Refresh tokens stored hashed (SHA-256) in database with server-side revocation
 - Itemized expenses use proportional tax/tip distribution
 - Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback. Offered on every surface that settles a specific debt — `/settle`, a group's Simplify Debts, a person's Settle up, the overview's "Clear it in N payments" — but only for debts the signed-in user is party to
-- Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close
+- Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close. A claimer can Venmo the host straight from the claim page — the surface where the hand-off matters most, since they often owe somebody they have no other way to pay
 - Receipt uploads (images and PDFs) stored in `data/receipts/` directory (configurable via `DATA_DIR` env var); PDFs are rasterized per-page for the LLM but the original file is preserved. Served from `/static/receipts/`, which reaches the browser as `/api/static/receipts/` — so the service worker's navigation fallback must keep its hands off `/api/` (see `navigateFallbackDenylist` in `frontend/vite.config.ts`)
 
 ## Development Commands
@@ -293,14 +293,14 @@ Owner (authenticated):
 - `POST /tabs/{tab_id}/close` - Resolve into one direct expense
 
 Public (no auth, rate-limited):
-- `GET /public/tabs/{share_token}` - Read the tab
+- `GET /public/tabs/{share_token}` - Read the tab, plus `host_name` / `host_venmo_username` so a claimer can Venmo whoever fronted the bill — the only unauthenticated audience for a handle, and the host's alone
 - `POST /public/tabs/{share_token}/join` - Join with a name; returns a claim token. Names are unique per tab, so a name already at the table is refused. Optionally authenticated: a signed-in claimer is seated as their account (and can bind it to a seat they already claimed from anonymously), so closing the tab reaches their balances instead of leaving a guest line
 - `POST /public/tabs/{share_token}/rename` - Change the name you claim under, keeping your claims; the claim token is unchanged
 - `POST /public/tabs/{share_token}/items/{item_id}/claim` - Claim or release, authenticated by `claim_token`
 
 ## Key Database Fields
 
-- User: `default_currency`, `venmo_username` (no @; friends-only, never public)
+- User: `default_currency`, `venmo_username` (no @; friends and fellow group members, plus the host's on a tab's share link — never on a group's)
 - Group: `default_currency`, `icon`, `share_link_id`, `is_public`
 - GroupMember: `managed_by_id`, `managed_by_type`
 - Expense: `exchange_rate`, `split_type`, `receipt_image_path`, `icon`, `notes`, `payer_is_guest`

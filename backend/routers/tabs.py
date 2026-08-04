@@ -255,7 +255,37 @@ def _tab_out(db: Session, tab: models.Tab) -> schemas.TabOut:
     )
 
 
+def _tab_host(db: Session, tab: models.Tab) -> tuple[Optional[str], Optional[str]]:
+    """
+    Whoever the table owes: their name, and their Venmo handle if they have one.
+
+    The payer once the tab is closed, the person who opened it before that —
+    the same account in every case except a host who hands the bill to somebody
+    else at close. The name comes from their seat rather than their account, so
+    it matches what the rest of the page calls them.
+    """
+    user_id = tab.payer_id or tab.created_by_id
+    if user_id is None:
+        return None, None
+
+    host = db.query(models.User).filter(models.User.id == user_id).first()
+    if host is None:
+        return None, None
+
+    seat = (
+        db.query(models.TabParticipant)
+        .filter(
+            models.TabParticipant.tab_id == tab.id,
+            models.TabParticipant.user_id == user_id,
+        )
+        .first()
+    )
+    name = (seat.display_name if seat else None) or host.full_name
+    return name, host.venmo_username
+
+
 def _public_tab_out(db: Session, tab: models.Tab) -> schemas.PublicTabOut:
+    host_name, host_venmo_username = _tab_host(db, tab)
     return schemas.PublicTabOut(
         name=tab.name,
         currency=tab.currency,
@@ -265,6 +295,8 @@ def _public_tab_out(db: Session, tab: models.Tab) -> schemas.PublicTabOut:
         total=tab.total,
         items=_serialize_items(db, tab.id),
         participants=_serialize_participants(db, tab.id),
+        host_name=host_name,
+        host_venmo_username=host_venmo_username,
     )
 
 

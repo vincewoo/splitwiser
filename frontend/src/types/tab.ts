@@ -46,6 +46,14 @@ export interface PublicTab {
     total: number | null;
     items: TabItem[];
     participants: TabParticipant[];
+    /** Who the table owes — the payer once closed, the opener before that. */
+    host_name?: string | null;
+    /**
+     * The host's Venmo handle, when they have published one. The only place a
+     * handle reaches a link-holder, because a tab is the one place you can owe
+     * somebody you have no other way to pay. Never another claimer's.
+     */
+    host_venmo_username?: string | null;
 }
 
 export interface TabJoinResponse {
