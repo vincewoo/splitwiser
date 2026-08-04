@@ -9,6 +9,7 @@ import models
 import schemas
 from database import get_db
 from dependencies import get_current_user
+from utils.guest_merge import absorb_guest_into_user
 from utils.validation import get_group_or_404, get_user_by_email, verify_group_membership
 
 router = APIRouter(prefix="/groups/{group_id}", tags=["members"])
@@ -176,50 +177,7 @@ def claim_guest(
     if guest.claimed_by_id:
         raise HTTPException(status_code=400, detail="Guest already claimed")
 
-    # Transfer expenses where guest was payer
-    expenses_updated = db.query(models.Expense).filter(
-        models.Expense.payer_id == guest_id,
-        models.Expense.payer_is_guest == True
-    ).update({
-        "payer_id": current_user.id,
-        "payer_is_guest": False
-    })
-
-    # Transfer splits where guest was involved
-    splits_updated = db.query(models.ExpenseSplit).filter(
-        models.ExpenseSplit.user_id == guest_id,
-        models.ExpenseSplit.is_guest == True
-    ).update({
-        "user_id": current_user.id,
-        "is_guest": False
-    })
-
-    # Transfer item assignments where guest was assigned
-    db.query(models.ExpenseItemAssignment).filter(
-        models.ExpenseItemAssignment.user_id == guest_id,
-        models.ExpenseItemAssignment.is_guest == True
-    ).update({
-        "user_id": current_user.id,
-        "is_guest": False
-    })
-
-    # Update any guests that were managed by this guest to be managed by the new user
-    managed_guests_updated = db.query(models.GuestMember).filter(
-        models.GuestMember.managed_by_id == guest_id,
-        models.GuestMember.managed_by_type == 'guest'
-    ).update({
-        "managed_by_id": current_user.id,
-        "managed_by_type": 'user'
-    })
-
-    # Update any members that were managed by this guest to be managed by the new user
-    managed_members_updated = db.query(models.GroupMember).filter(
-        models.GroupMember.managed_by_id == guest_id,
-        models.GroupMember.managed_by_type == 'guest'
-    ).update({
-        "managed_by_id": current_user.id,
-        "managed_by_type": 'user'
-    })
+    counts = absorb_guest_into_user(db, guest, current_user.id)
 
     # Mark guest as claimed
     guest.claimed_by_id = current_user.id
@@ -232,10 +190,80 @@ def claim_guest(
 
     return {
         "message": "Guest claimed successfully",
-        "transferred_expenses": expenses_updated,
-        "transferred_splits": splits_updated,
-        "managed_guests_updated": managed_guests_updated,
-        "managed_members_updated": managed_members_updated
+        "transferred_expenses": counts["expenses_transferred"],
+        "transferred_splits": counts["splits_moved"] + counts["splits_merged"],
+        "managed_guests_updated": counts["managed_guests_updated"],
+        "managed_members_updated": counts["managed_members_updated"]
+    }
+
+
+@router.post("/guests/{guest_id}/merge")
+def merge_guest_into_member(
+    group_id: int,
+    guest_id: int,
+    request: schemas.MergeGuestRequest,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Fold a guest onto an account that is already in the group.
+
+    The case this exists for: somebody who was being tracked as a guest signs up
+    and joins the group as themselves rather than claiming the guest, so the
+    group now holds two of them and their history is split down the middle.
+    Claiming cannot fix it — that only ever merges onto the caller — so without
+    this the owner has to re-point every old expense by hand.
+    """
+    group = get_group_or_404(db, group_id)
+    verify_group_membership(db, group_id, current_user.id)
+
+    # Rewriting who somebody else's expenses belong to is the owner's call.
+    # Merging onto yourself is just claiming, so anyone in the group may do it.
+    if current_user.id != group.created_by_id and current_user.id != request.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the group owner can merge a guest into somebody else's account"
+        )
+
+    guest = db.query(models.GuestMember).filter(
+        models.GuestMember.id == guest_id,
+        models.GuestMember.group_id == group_id
+    ).first()
+
+    if not guest:
+        raise HTTPException(status_code=404, detail="Guest not found")
+
+    if guest.claimed_by_id:
+        raise HTTPException(status_code=400, detail="This guest has already been merged into an account")
+
+    target_membership = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == request.user_id
+    ).first()
+    if not target_membership:
+        raise HTTPException(status_code=400, detail="Pick somebody who is already in this group")
+
+    target_user = db.query(models.User).filter(models.User.id == request.user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    counts = absorb_guest_into_user(db, guest, request.user_id)
+
+    # The guest row stays as the record of who absorbed it: expense history
+    # written before this still points at guest ids in other groups' data, and
+    # display names resolve through claimed_by_id.
+    guest.claimed_by_id = request.user_id
+    # Whoever settled up for the guest no longer does; the account keeps its own
+    # arrangement. Leaving it set would double-count against the new owner.
+    guest.managed_by_id = None
+    guest.managed_by_type = None
+
+    db.commit()
+
+    return {
+        "message": f"{guest.name} merged into {target_user.full_name or target_user.email}",
+        "user_id": request.user_id,
+        **counts,
     }
 
 

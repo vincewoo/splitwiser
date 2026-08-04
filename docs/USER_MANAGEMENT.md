@@ -27,7 +27,32 @@ Non-registered users can participate in expenses and later claim their profiles.
 - Claiming user automatically added to group if not already member
 - Endpoint: `POST /groups/{group_id}/guests/{guest_id}/claim`
 
-**3. Guest Management (Balance Aggregation)**
+**3. Merging a Guest into an Account (Owner)**
+
+Claiming only ever merges onto the caller, which leaves one common mess
+unfixable: somebody who was being tracked as a guest signs up and joins the
+group as themselves instead of taking the guest's seat. The group now holds two
+of them and their history is split down the middle, and the only manual fix is
+re-pointing every old expense one at a time.
+
+- Endpoint: `POST /groups/{group_id}/guests/{guest_id}/merge`, body `{"user_id": <account>}`
+- The target must already be a member of the group
+- Only the group owner may merge a guest into somebody **else's** account.
+  Anyone in the group may merge one into their own — that is claiming, and it
+  goes through the same code
+- Everything the guest was in moves to the account: expenses they paid for,
+  splits, itemized assignments, and anyone whose balance they were settling up
+- Where the account is **already on an expense the guest was on**, the two
+  splits are summed into one rather than left as two rows for the same person —
+  same for a shared item both were assigned to. This dedupe is shared with the
+  claim path (`backend/utils/guest_merge.py`)
+- The guest's own manager link is cleared: the account keeps whatever balance
+  arrangement it already had
+- The guest row survives with `claimed_by_id` set, which is what makes it
+  disappear from the group's guest list and resolve to the account's name
+- Not reversible — the frontend asks for confirmation first
+
+**4. Guest Management (Balance Aggregation)**
 - Link a guest to a "manager" (registered user OR another guest)
 - Guest's balance aggregates with manager's balance in balance view
 - Guest still appears separately in expense details
@@ -49,7 +74,7 @@ Non-registered users can participate in expenses and later claim their profiles.
 ```
 
 ## Frontend Components
-- `components/group/GroupPersonSheet.tsx` - Linking a guest to a manager, claiming, removal
+- `components/group/GroupPersonSheet.tsx` - Linking a guest to a manager, claiming, merging into an account, removal
 - `AddGuestModal.tsx` - Simple form to add guest by name
 - Visual indicators show managed guest relationships in balance view
 
