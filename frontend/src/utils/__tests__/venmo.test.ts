@@ -4,8 +4,20 @@ import {
     centsToVenmoAmount,
     normalizeVenmoUsername,
     openVenmo,
+    venmoUnavailableNote,
     venmoUsernameError,
 } from '../venmo';
+
+describe('venmoUnavailableNote', () => {
+    it('says nothing for dollars — the hand-off is available there', () => {
+        expect(venmoUnavailableNote('USD')).toBeNull();
+    });
+
+    it('names the currency Venmo cannot send', () => {
+        expect(venmoUnavailableNote('EUR')).toContain('EUR');
+        expect(venmoUnavailableNote('JPY')).toMatch(/only sends US dollars/);
+    });
+});
 
 describe('normalizeVenmoUsername', () => {
     it('drops a leading @', () => {

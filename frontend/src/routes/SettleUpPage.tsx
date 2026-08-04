@@ -1,13 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-    ArrowLeft,
-    ArrowSquareOut,
-    CaretRight,
-    Check,
-    Lightning,
-} from '@phosphor-icons/react';
+import { ArrowLeft, CaretRight, Check, Lightning } from '@phosphor-icons/react';
 import { Avatar, Button, Card, Money } from '../components/ui';
+import VenmoButton from '../components/VenmoButton';
 import { useAuth } from '../AuthContext';
 import { useAppData } from '../contexts/AppDataContext';
 import { useIsDesktop } from '../hooks/useMediaQuery';
@@ -16,7 +11,7 @@ import { useSettlement } from '../hooks/useSettlement';
 import { api } from '../services/api';
 import { formatDateForInput } from '../utils/formatters';
 import { participantKey, partyName, settlementTotal } from '../utils/settlement';
-import { buildVenmoLinks, openVenmo, VENMO_CURRENCY } from '../utils/venmo';
+import { buildVenmoLinks, venmoUnavailableNote } from '../utils/venmo';
 import type { SettlementParty, SuggestedPayment } from '../utils/settlement';
 import type { VenmoLinks } from '../utils/venmo';
 
@@ -245,45 +240,32 @@ const SettleUpPage: React.FC = () => {
                                         </div>
                                         {(() => {
                                             const venmo = venmoFor(payment);
+                                            /*
+                                             * Only currency is worth explaining. A
+                                             * guest has no account to pay into, so
+                                             * the dollars line would be a
+                                             * non-sequitur there.
+                                             */
+                                            const missing =
+                                                !venmo && !payment.isGuest
+                                                    ? venmoUnavailableNote(
+                                                          payment.currency
+                                                      )
+                                                    : null;
                                             return (
                                                 <>
                                                     <div className="flex gap-2">
                                                         {venmo && (
-                                                            <Button
-                                                                /*
-                                                                 * A real href so it can be
-                                                                 * copied, middle-clicked and
-                                                                 * still work without JS; the
-                                                                 * handler upgrades the plain
-                                                                 * click to try the app first.
-                                                                 */
-                                                                href={venmo.web}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                onClick={(event) => {
-                                                                    if (
-                                                                        event.metaKey ||
-                                                                        event.ctrlKey ||
-                                                                        event.shiftKey ||
-                                                                        event.button !== 0
-                                                                    ) {
-                                                                        return;
-                                                                    }
-                                                                    event.preventDefault();
-                                                                    openVenmo(venmo);
-                                                                }}
-                                                                variant="secondary"
-                                                                icon={
-                                                                    <ArrowSquareOut
-                                                                        size={15}
-                                                                    />
+                                                            <VenmoButton
+                                                                links={venmo}
+                                                                action={
+                                                                    payment.iPay
+                                                                        ? 'pay'
+                                                                        : 'request'
                                                                 }
+                                                                counterparty={other}
                                                                 className="min-h-[42px] flex-1"
-                                                            >
-                                                                {payment.iPay
-                                                                    ? 'Pay with Venmo'
-                                                                    : 'Ask on Venmo'}
-                                                            </Button>
+                                                            />
                                                         )}
                                                         <Button
                                                             variant="primary"
@@ -317,17 +299,11 @@ const SettleUpPage: React.FC = () => {
                                                         </p>
                                                     )}
 
-                                                    {!venmo &&
-                                                        !payment.isGuest &&
-                                                        payment.currency !==
-                                                            VENMO_CURRENCY && (
-                                                            <p className="text-[11.5px] text-sw-dim mt-2">
-                                                                Venmo only sends US
-                                                                dollars, so there&rsquo;s
-                                                                no shortcut for a{' '}
-                                                                {payment.currency} debt.
-                                                            </p>
-                                                        )}
+                                                    {missing && (
+                                                        <p className="text-[11.5px] text-sw-dim mt-2">
+                                                            {missing}
+                                                        </p>
+                                                    )}
                                                 </>
                                             );
                                         })()}

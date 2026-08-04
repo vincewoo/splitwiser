@@ -1,22 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRight, Check, CheckCircle, X } from '@phosphor-icons/react';
+import { useAuth } from './AuthContext';
 import { api } from './services/api';
 import { formatMoney } from './utils/formatters';
 import { Avatar, Button, Card, Money, Notice } from './components/ui';
-
-interface SimplifiedTransaction {
-  from_id: number;
-  from_is_guest: boolean;
-  to_id: number;
-  to_is_guest: boolean;
-  amount: number;
-  currency: string;
-}
+import VenmoButton from './components/VenmoButton';
+import { buildVenmoLinks, venmoUnavailableNote } from './utils/venmo';
+import type { SettlementParticipant, SimplifiedTransaction } from './utils/settlement';
 
 interface SimplifyDebtsModalProps {
   isOpen: boolean;
   onClose: () => void;
   groupId: number;
+  /** Only for the Venmo memo, so the recipient knows what the payment is for. */
+  groupName?: string;
   members: Array<{ id: number; user_id: number; full_name: string }>;
   guests: Array<{ id: number; name: string }>;
   onPaymentCreated?: () => void; // Callback to refresh balances after payment
@@ -26,11 +23,14 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
   isOpen,
   onClose,
   groupId,
+  groupName,
   members,
   guests,
   onPaymentCreated,
 }) => {
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState<SimplifiedTransaction[]>([]);
+  const [participants, setParticipants] = useState<SettlementParticipant[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [processingPaymentIndex, setProcessingPaymentIndex] = useState<number | null>(null);
@@ -47,6 +47,8 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
     try {
       const response = await api.balances.simplifyDebts(groupId);
       setTransactions(response.transactions || []);
+      // Carries the Venmo handles for everyone in the group, not just friends.
+      setParticipants(response.participants || []);
     } catch (err) {
       console.error('Failed to fetch simplified debts:', err);
       setError('Failed to load simplified debts. Please try again.');
@@ -63,6 +65,50 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
       const member = members.find(m => m.user_id === userId);
       return member ? member.full_name : `User ${userId}`;
     }
+  };
+
+  /**
+   * The Venmo hand-off for a transaction, when there is one to offer.
+   *
+   * This modal lists the whole group's payments, including ones between two
+   * other people. Those are real and worth showing, but they are not this
+   * user's to make — offering to charge someone else's debt to their Venmo
+   * would be wrong, so they get nothing.
+   *
+   * `reachable` says the counterparty is an account that could in principle be
+   * paid, which is what decides whether an absent link deserves an explanation:
+   * a guest has no Venmo to reach, so "only sends US dollars" would be beside
+   * the point there.
+   */
+  const handoffFor = (transaction: SimplifiedTransaction) => {
+    const none = { links: null, action: 'pay' as const, reachable: false };
+
+    const iAmPayer = !transaction.from_is_guest && transaction.from_id === user?.id;
+    const iAmPayee = !transaction.to_is_guest && transaction.to_id === user?.id;
+    if (iAmPayer === iAmPayee) return none;
+
+    const otherId = iAmPayer ? transaction.to_id : transaction.from_id;
+    const otherIsGuest = iAmPayer ? transaction.to_is_guest : transaction.from_is_guest;
+    if (otherIsGuest) return none; // no account, nothing to pay into
+
+    // I owe them → pay. They owe me → ask.
+    const action = iAmPayer ? ('pay' as const) : ('request' as const);
+    const other = participants.find(p => p.user_id === otherId && !p.is_guest);
+    if (!other?.venmo_username) return { links: null, action, reachable: false };
+
+    return {
+      action,
+      reachable: true,
+      links: buildVenmoLinks({
+        username: other.venmo_username,
+        amountCents: Math.round(transaction.amount),
+        currency: transaction.currency,
+        action,
+        // Plain ASCII: this lands in a Venmo memo, where anything else
+        // arrives as percent-encoded noise.
+        note: groupName ? `Settling up: ${groupName}` : 'Settling up',
+      }),
+    };
   };
 
   const handleMarkAsPaid = async (transaction: SimplifiedTransaction, index: number) => {
@@ -220,23 +266,53 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Mark as Paid Button */}
-                      <div className="flex justify-end">
-                        <Button
-                          variant="primary"
-                          onClick={() => handleMarkAsPaid(transaction, index)}
-                          disabled={processingPaymentIndex === index}
-                          icon={
-                            processingPaymentIndex === index ? (
-                              <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-sw-line border-t-sw-accent" />
-                            ) : (
-                              <Check size={14} />
-                            )
-                          }
-                        >
-                          {processingPaymentIndex === index ? 'Processing…' : 'Mark as paid'}
-                        </Button>
-                      </div>
+                      {/* Hand off to Venmo, then record it — two separate acts */}
+                      {(() => {
+                        const { links, action, reachable } = handoffFor(transaction);
+                        const missing =
+                          reachable && !links
+                            ? venmoUnavailableNote(transaction.currency)
+                            : null;
+                        const counterparty = action === 'pay' ? payeeName : payerName;
+                        return (
+                          <>
+                            <div className="flex justify-end gap-2">
+                              {links && (
+                                <VenmoButton
+                                  links={links}
+                                  action={action}
+                                  counterparty={counterparty}
+                                />
+                              )}
+                              <Button
+                                variant="primary"
+                                onClick={() => handleMarkAsPaid(transaction, index)}
+                                disabled={processingPaymentIndex === index}
+                                icon={
+                                  processingPaymentIndex === index ? (
+                                    <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-sw-line border-t-sw-accent" />
+                                  ) : (
+                                    <Check size={14} />
+                                  )
+                                }
+                              >
+                                {processingPaymentIndex === index ? 'Processing…' : 'Mark as paid'}
+                              </Button>
+                            </div>
+                            {links && (
+                              <p className="text-[11.5px] text-sw-dim mt-2 text-right">
+                                Venmo opens with the amount filled in. Mark it paid
+                                once it&rsquo;s sent.
+                              </p>
+                            )}
+                            {missing && (
+                              <p className="text-[11.5px] text-sw-dim mt-2 text-right">
+                                {missing}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </Card>
                   );
                 })}

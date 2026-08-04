@@ -260,6 +260,7 @@ const GroupPage: React.FC = () => {
                 isOpen={simplifyOpen}
                 onClose={() => setSimplifyOpen(false)}
                 groupId={id!}
+                groupName={group.name}
                 members={group.members ?? []}
                 guests={group.guests ?? []}
                 onPaymentCreated={refreshEverything}

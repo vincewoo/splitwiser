@@ -226,6 +226,32 @@ Two audiences, both people you already share money with:
 never appears in a share-link response. A payment handle must not ride along
 with a link handed to strangers.
 
+### Where it appears
+
+Settling up is not one screen, so the hand-off is not one button. Every surface
+that offers to settle a specific debt offers to hand it to Venmo, rendered by
+the shared `frontend/src/components/VenmoButton.tsx`:
+
+| Surface | Reached from | Figure handed over |
+| --- | --- | --- |
+| `routes/SettleUpPage.tsx` | `/settle` — the FAB, the overview, the mobile balances card | One payment inside one group |
+| `SimplifyDebtsModal.tsx` | A group's **Settle up** (header on desktop, footer on mobile) | One payment inside that group |
+| `SettleUpModal.tsx` | A person's **Settle up** | The amount being typed, to that person |
+| `routes/OverviewPage.tsx` | The "Clear it in N payments" card | One person's balance, netted across groups |
+
+Two things stay true wherever it appears. Only debts the signed-in user is
+party to get a button — `SimplifyDebtsModal` lists the whole group's payments,
+including ones between two other people, and those are somebody else's to make.
+And the hand-off never stands in for recording: each surface keeps its own
+"Mark as paid" or **Save** beside it.
+
+Rows that only *navigate* to a settle surface — the people list, a person's
+balance card — deliberately have no button. They lead somewhere that does.
+
+The public tab claim page has none either, and that is a privacy decision
+rather than an oversight: a handle is shown to friends and fellow group members
+only, never to whoever holds a share link.
+
 ### The link
 
 Built by `frontend/src/utils/venmo.ts`:
@@ -259,12 +285,18 @@ https://venmo.com/?txn=pay&audience=private&recipients=<handle>&amount=<dollars>
 Opening Venmo is not proof of payment — there is no callback and no way to
 learn whether the transfer went through. "Mark as paid" stays a separate,
 deliberate action that records the settlement expense exactly as before. The
-row says so in as many words.
+row says so in as many words. `VenmoButton` also cancels its pending app→web
+fallback on unmount, so dismissing a modal mid-hand-off cannot navigate the
+page out from under you a second later.
 
-### Where it does not appear
+### When there is no button
 
-- Guests, who have no account and therefore no handle.
-- Friends who haven't set one — no button and no explanation, since there's
-  nothing to explain.
-- Group members who aren't friends: the settle-up screen only has the friends
-  list to look handles up in.
+- **Guests** — no account, so no handle to reach. Nothing is said, because
+  there is nothing the viewer could do about it.
+- **Somebody who hasn't set a handle** — likewise silent. Whether they publish
+  one is their business, not a fault in the debt.
+- **A debt in another currency** — this one *is* explained, by
+  `venmoUnavailableNote(currency)`: it is a fact about Venmo the viewer can act
+  on by settling another way.
+- **A payment between two other people** — real, shown, but not this user's to
+  make.

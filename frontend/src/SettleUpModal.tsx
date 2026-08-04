@@ -4,12 +4,9 @@ import { api } from './services/api';
 import { formatDateForInput } from './utils/formatters';
 import { Button } from './components/ui';
 import AlertDialog from './components/AlertDialog';
-
-interface Friend {
-    id: number;
-    full_name: string;
-    email: string;
-}
+import VenmoButton from './components/VenmoButton';
+import { buildVenmoLinks, venmoUnavailableNote } from './utils/venmo';
+import type { Friend } from './types/friend';
 
 interface SettleUpModalProps {
     isOpen: boolean;
@@ -60,6 +57,29 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({
     if (!isOpen) return null;
 
     const recipient = friends.find((f) => f.id === recipientId);
+    const cents = Math.round(parseFloat(amount) * 100);
+
+    /**
+     * The hand-off, rebuilt as the amount is typed. Null until there is a real
+     * figure to hand over — Venmo with a blank amount is worse than no link,
+     * since it invites retyping the number this modal exists to carry.
+     */
+    const venmo = recipient?.venmo_username
+        ? buildVenmoLinks({
+              username: recipient.venmo_username,
+              amountCents: cents,
+              currency,
+              // This modal only ever records money the signed-in user paid out.
+              action: 'pay',
+              note: 'Settling up',
+          })
+        : null;
+
+    /** Only worth explaining once they have named a payable recipient. */
+    const missing =
+        recipient?.venmo_username && !venmo && cents > 0
+            ? venmoUnavailableNote(currency)
+            : null;
 
     const handleSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -68,7 +88,6 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({
         // record against. Guarded here so the payload stays fully typed.
         if (!user?.id) return;
 
-        const cents = Math.round(parseFloat(amount) * 100);
         if (!Number.isFinite(cents) || cents <= 0) {
             setAlert({
                 isOpen: true,
@@ -195,10 +214,26 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({
                         <p className="text-[12.5px] text-sw-dim mb-4">
                             Records a payment from you to {recipient.full_name}, clearing
                             that much of what you owe.
+                            {venmo && (
+                                <>
+                                    {' '}
+                                    Venmo opens with the amount filled in; saving is
+                                    what records it here.
+                                </>
+                            )}
+                            {missing && <> {missing}</>}
                         </p>
                     )}
 
                     <div className="flex justify-end gap-2">
+                        {venmo && (
+                            <VenmoButton
+                                links={venmo}
+                                action="pay"
+                                counterparty={recipient?.full_name}
+                                className="mr-auto"
+                            />
+                        )}
                         <Button variant="ghost" onClick={onClose}>
                             Cancel
                         </Button>

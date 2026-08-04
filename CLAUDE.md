@@ -65,7 +65,8 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/utils/formatters.ts` - Money, date, and name formatting
 - `frontend/src/utils/expenseCalculations.ts` - Frontend split calculations
 - `frontend/src/utils/tabShares.ts` - Live preview of tab shares, plus the itemized per-person breakdown behind each total; TS port of `backend/utils/tabs.py`
-- `frontend/src/utils/venmo.ts` - Venmo deeplink builder for settle up (USD only)
+- `frontend/src/utils/venmo.ts` - Venmo deeplink builder for settle up (USD only), plus the note explaining a currency it cannot send
+- `frontend/src/components/VenmoButton.tsx` - the hand-off itself, shared by every settle-up surface: a real link that upgrades a plain click to the installed app
 
 **Feature Components:**
 - `frontend/src/ReceiptScanner.tsx` - LLM-based receipt scanning (upload → AI scan → review items)
@@ -100,7 +101,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Registered members can also be managed for balance aggregation
 - Refresh tokens stored hashed (SHA-256) in database with server-side revocation
 - Itemized expenses use proportional tax/tip distribution
-- Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback
+- Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback. Offered on every surface that settles a specific debt — `/settle`, a group's Simplify Debts, a person's Settle up, the overview's "Clear it in N payments" — but only for debts the signed-in user is party to
 - Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close
 - Receipt uploads (images and PDFs) stored in `data/receipts/` directory (configurable via `DATA_DIR` env var); PDFs are rasterized per-page for the LLM but the original file is preserved. Served from `/static/receipts/`, which reaches the browser as `/api/static/receipts/` — so the service worker's navigation fallback must keep its hands off `/api/` (see `navigateFallbackDenylist` in `frontend/vite.config.ts`)
 
