@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CaretDown, WarningCircle } from '@phosphor-icons/react';
+import { CaretDown, Check, WarningCircle } from '@phosphor-icons/react';
 import { Avatar, Card, Money } from '../ui';
 import { computeTabBreakdowns, toShareItems } from '../../utils/tabShares';
 import type { TabBreakdown as Breakdown, TabShareLine } from '../../utils/tabShares';
@@ -20,6 +20,15 @@ export interface TabBreakdownProps {
     showOnly?: number[];
     /** Rows that start expanded. Default: the viewer's own. */
     openBy?: 'me' | 'all' | 'none';
+    /**
+     * Supply this and each row that owes money gets a tick for whether they
+     * have settled. Only the host's board passes it: nothing in the app can
+     * see a payment, so this is somebody's word for it, and it should be the
+     * word of the person the money is going to.
+     *
+     * The payer never gets one — they are owed, not owing.
+     */
+    onTogglePaid?: (participantId: number, paid: boolean) => void;
     /** Off where there is a single row and nothing to collapse into. */
     collapsible?: boolean;
     className?: string;
@@ -171,6 +180,7 @@ const TabBreakdown: React.FC<TabBreakdownProps> = ({
     payerId,
     showOnly,
     openBy = 'me',
+    onTogglePaid,
     collapsible = true,
     className = '',
 }) => {
@@ -211,19 +221,26 @@ const TabBreakdown: React.FC<TabBreakdownProps> = ({
 
                 const isMe = participant.id === meId;
                 const isPayer = participant.id === payerId;
+                const settled = Boolean(participant.paid);
+                // Ties the disclosure to what it discloses. The two are no
+                // longer parent and child — the paid tick had to sit outside
+                // the button — so the relationship has to be stated.
+                const workingId = `tab-working-${participant.id}`;
                 const open =
                     !collapsible ||
                     flipped.has(participant.id) !== opensByDefault(participant.id);
 
                 const caption = isPayer
                     ? 'Paid the bill'
-                    : participant.user_id !== null
-                      ? isMe
-                          ? 'On your account'
-                          : 'Splitwiser account'
-                      : isMe
-                        ? 'Guest — no account needed'
-                        : 'Guest';
+                    : settled
+                      ? 'Settled up'
+                      : participant.user_id !== null
+                        ? isMe
+                            ? 'On your account'
+                            : 'Splitwiser account'
+                        : isMe
+                          ? 'Guest — no account needed'
+                          : 'Guest';
 
                 const heading = (
                     <>
@@ -254,7 +271,9 @@ const TabBreakdown: React.FC<TabBreakdownProps> = ({
                         <Money
                             amount={breakdown.total}
                             currency={currency}
-                            className="text-[15px] font-medium flex-none"
+                            className={`text-[15px] font-medium flex-none ${
+                                settled && !isPayer ? 'line-through opacity-45' : ''
+                            }`}
                         />
                         {collapsible && (
                             <CaretDown
@@ -273,37 +292,73 @@ const TabBreakdown: React.FC<TabBreakdownProps> = ({
                         key={participant.id}
                         className={index < rows.length - 1 ? 'border-b border-sw-line' : ''}
                     >
-                        {collapsible ? (
-                            <button
-                                type="button"
-                                aria-expanded={open}
-                                onClick={() =>
-                                    setFlipped((current) => {
-                                        const next = new Set(current);
-                                        if (!next.delete(participant.id)) {
-                                            next.add(participant.id);
-                                        }
-                                        return next;
-                                    })
-                                }
-                                className="w-full flex items-center gap-[11px] px-[15px] py-3 hover:bg-sw-raise focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-[-2px]"
-                            >
-                                {heading}
-                            </button>
-                        ) : (
-                            <div className="flex items-center gap-[11px] px-[15px] py-3">
-                                {heading}
-                            </div>
-                        )}
+                        {/*
+                          * The tick sits beside the disclosure rather than
+                          * inside it: a button cannot contain another button,
+                          * and tapping "settled" must not also fold the row
+                          * open under the host's thumb.
+                          */}
+                        <div className="flex items-stretch">
+                            {collapsible ? (
+                                <button
+                                    type="button"
+                                    aria-expanded={open}
+                                    aria-controls={workingId}
+                                    onClick={() =>
+                                        setFlipped((current) => {
+                                            const next = new Set(current);
+                                            if (!next.delete(participant.id)) {
+                                                next.add(participant.id);
+                                            }
+                                            return next;
+                                        })
+                                    }
+                                    className="flex-1 min-w-0 flex items-center gap-[11px] px-[15px] py-3 hover:bg-sw-raise focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-[-2px]"
+                                >
+                                    {heading}
+                                </button>
+                            ) : (
+                                <div className="flex-1 min-w-0 flex items-center gap-[11px] px-[15px] py-3">
+                                    {heading}
+                                </div>
+                            )}
+
+                            {onTogglePaid && !isPayer && (
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={settled}
+                                    aria-label={`${
+                                        isMe ? 'You have' : `${participant.display_name} has`
+                                    } paid`}
+                                    onClick={() =>
+                                        onTogglePaid(participant.id, !settled)
+                                    }
+                                    className="flex-none pr-[15px] pl-1 flex items-center focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-[-2px]"
+                                >
+                                    <span
+                                        className={`w-[22px] h-[22px] rounded-[7px] flex items-center justify-center ${
+                                            settled
+                                                ? 'bg-sw-pos text-sw-on-accent'
+                                                : 'shadow-[inset_0_0_0_1.5px_var(--sw-line)] hover:shadow-[inset_0_0_0_1.5px_var(--sw-pos)]'
+                                        }`}
+                                    >
+                                        {settled && <Check size={14} weight="bold" />}
+                                    </span>
+                                </button>
+                            )}
+                        </div>
 
                         {open && (
-                            <TabWorking
-                                breakdown={breakdown}
-                                currency={currency}
-                                tax={tax}
-                                tip={tip}
-                                possessive={isMe ? 'Your' : 'Their'}
-                            />
+                            <div id={workingId}>
+                                <TabWorking
+                                    breakdown={breakdown}
+                                    currency={currency}
+                                    tax={tax}
+                                    tip={tip}
+                                    possessive={isMe ? 'Your' : 'Their'}
+                                />
+                            </div>
                         )}
                     </div>
                 );

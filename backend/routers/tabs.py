@@ -229,7 +229,11 @@ def _serialize_participants(db: Session, tab_id: int) -> List[schemas.TabPartici
     # Note the absence of claim_token: it never appears in a listing.
     return [
         schemas.TabParticipantOut(
-            id=p.id, display_name=p.display_name, user_id=p.user_id
+            id=p.id,
+            display_name=p.display_name,
+            user_id=p.user_id,
+            paid=bool(p.paid),
+            venmo_username=p.venmo_username,
         )
         for p in participants
     ]
@@ -246,6 +250,7 @@ def _tab_out(db: Session, tab: models.Tab) -> schemas.TabOut:
         total=tab.total,
         created_by_id=tab.created_by_id,
         payer_id=tab.payer_id,
+        payer_participant_id=tab.payer_participant_id,
         expense_id=tab.expense_id,
         items=_serialize_items(db, tab.id),
         participants=_serialize_participants(db, tab.id),
@@ -255,33 +260,59 @@ def _tab_out(db: Session, tab: models.Tab) -> schemas.TabOut:
     )
 
 
+def _payer_seat(db: Session, tab: models.Tab) -> Optional[models.TabParticipant]:
+    """
+    The seat that fronted the bill.
+
+    Whoever the host named, falling back to the person who opened the tab —
+    which is right far more often than not, but not always: the organiser and
+    the payer are different people whenever somebody without the app picks up
+    the cheque and the table's Splitwiser user does the arithmetic.
+    """
+    if tab.payer_participant_id is not None:
+        seat = (
+            db.query(models.TabParticipant)
+            .filter(
+                models.TabParticipant.id == tab.payer_participant_id,
+                models.TabParticipant.tab_id == tab.id,
+            )
+            .first()
+        )
+        if seat:
+            return seat
+
+    return (
+        db.query(models.TabParticipant)
+        .filter(
+            models.TabParticipant.tab_id == tab.id,
+            models.TabParticipant.user_id == tab.created_by_id,
+        )
+        .first()
+    )
+
+
 def _tab_host(db: Session, tab: models.Tab) -> tuple[Optional[str], Optional[str]]:
     """
     Whoever the table owes: their name, and their Venmo handle if they have one.
 
-    The payer once the tab is closed, the person who opened it before that —
-    the same account in every case except a host who hands the bill to somebody
-    else at close. The name comes from their seat rather than their account, so
-    it matches what the rest of the page calls them.
+    The name comes from their seat rather than their account, so it matches
+    what the rest of the page calls them. The handle comes from their account
+    when they have one, and from the seat when they do not — the case this
+    exists for, since a payer who has never used Splitwiser has no User row to
+    hold a handle but is still the person everybody owes.
     """
-    user_id = tab.payer_id or tab.created_by_id
-    if user_id is None:
+    seat = _payer_seat(db, tab)
+    if seat is None:
         return None, None
 
-    host = db.query(models.User).filter(models.User.id == user_id).first()
-    if host is None:
-        return None, None
-
-    seat = (
-        db.query(models.TabParticipant)
-        .filter(
-            models.TabParticipant.tab_id == tab.id,
-            models.TabParticipant.user_id == user_id,
+    if seat.user_id is not None:
+        host = (
+            db.query(models.User).filter(models.User.id == seat.user_id).first()
         )
-        .first()
-    )
-    name = (seat.display_name if seat else None) or host.full_name
-    return name, host.venmo_username
+        if host is not None:
+            return seat.display_name or host.full_name, host.venmo_username
+
+    return seat.display_name, seat.venmo_username
 
 
 def _public_tab_out(db: Session, tab: models.Tab) -> schemas.PublicTabOut:
@@ -479,6 +510,9 @@ def add_tab_participant(
             display_name=name,
             user_id=None,
             claim_token=secrets.token_urlsafe(32),
+            # Set when this seat is the one being owed: an off-app payer needs
+            # somewhere to carry a handle, having no account to hold one.
+            venmo_username=payload.venmo_username or None,
         )
     )
     try:
@@ -488,6 +522,103 @@ def add_tab_participant(
         db.rollback()
         raise HTTPException(status_code=409, detail=NAME_TAKEN_DETAIL) from None
 
+    return _tab_out(db, tab)
+
+
+@router.patch(
+    "/tabs/{tab_id}/participants/{participant_id}", response_model=schemas.TabOut
+)
+def update_tab_participant(
+    tab_id: int,
+    participant_id: int,
+    payload: schemas.TabParticipantUpdate,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+):
+    """
+    Tick somebody off as settled, or give a seat a Venmo handle.
+
+    Marking paid is a claim about the world, not about this database: the money
+    moves through Venmo, cash or a bank transfer, and nothing here can see any
+    of it. The host at the table is the only witness there is, which is why
+    this is theirs to set and why it stays available after the tab closes —
+    people wander off owing, and settle days later.
+
+    A handle is refused on a seat that has an account. That person's handle
+    lives on their User row, is theirs to change, and copying it here would
+    fork it: edit one and the other goes stale.
+    """
+    tab = _load_tab_for_owner(db, tab_id, current_user.id)
+    seat = (
+        db.query(models.TabParticipant)
+        .filter(
+            models.TabParticipant.id == participant_id,
+            models.TabParticipant.tab_id == tab.id,
+        )
+        .first()
+    )
+    if seat is None:
+        raise HTTPException(status_code=404, detail="Nobody by that id at this tab")
+
+    if payload.venmo_username is not None:
+        if seat.user_id is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This person has an account — their Venmo handle comes "
+                    "from their own profile"
+                ),
+            )
+        seat.venmo_username = payload.venmo_username or None
+
+    if payload.paid is not None:
+        seat.paid = payload.paid
+        seat.paid_at = datetime.utcnow() if payload.paid else None
+
+    db.commit()
+    return _tab_out(db, tab)
+
+
+@router.post("/tabs/{tab_id}/payer", response_model=schemas.TabOut)
+def set_tab_payer(
+    tab_id: int,
+    payload: schemas.TabPayerUpdate,
+    current_user: Annotated[models.User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+):
+    """
+    Name whoever fronted the bill, while the tab is still open.
+
+    Until now this was decided at close and had to be someone with an account.
+    Both were wrong for the common case where the person who paid is not the
+    person doing the organising — a friend with no Splitwiser account picks up
+    the cheque, and everybody owes *them*, directly, outside the app.
+
+    Naming them early is what makes the claim page useful: it is their Venmo
+    handle the table needs, not the organiser's.
+    """
+    tab = _load_tab_for_owner(db, tab_id, current_user.id)
+    if tab.status != "open":
+        raise HTTPException(status_code=409, detail="This tab is already closed")
+
+    if payload.participant_id is None:
+        tab.payer_participant_id = None
+        db.commit()
+        return _tab_out(db, tab)
+
+    seat = (
+        db.query(models.TabParticipant)
+        .filter(
+            models.TabParticipant.id == payload.participant_id,
+            models.TabParticipant.tab_id == tab.id,
+        )
+        .first()
+    )
+    if seat is None:
+        raise HTTPException(status_code=404, detail="Nobody by that id at this tab")
+
+    tab.payer_participant_id = seat.id
+    db.commit()
     return _tab_out(db, tab)
 
 
@@ -675,11 +806,17 @@ def close_tab(
     db: Session = Depends(get_db),
 ):
     """
-    Resolve the tab into one ordinary direct expense.
+    Resolve the tab — into an expense, or into a plain record.
 
-    Everything lands on the existing group_id NULL path: registered
-    participants become expense splits, anonymous ones become expense guests.
-    Nothing about a tab appears under Groups.
+    An expense when somebody with an account fronted the bill: registered
+    participants become expense splits, anonymous ones expense guests, all on
+    the existing group_id NULL path. Nothing about a tab appears under Groups.
+
+    A plain record when the payer has no account. There is genuinely no debt
+    for Splitwiser to hold there — everyone settles with that person directly,
+    outside the app — and inventing one would put a balance in the organiser's
+    name that nobody owes them. The tab keeps the shares and the paid ticks as
+    a record of what happened, and `expense_id` stays null.
     """
     tab = _load_tab_for_owner(db, tab_id, current_user.id)
     if tab.status == "closed":
@@ -705,28 +842,18 @@ def close_tab(
     if not items:
         raise HTTPException(status_code=409, detail="This tab has no items")
 
-    # Who fronted the bill. Defaults to the tab's creator.
-    payer = None
+    # Who fronted the bill. Named at close if the caller says so, otherwise
+    # whoever was named while the tab was open, otherwise the tab's creator.
     if payload.payer_participant_id is not None:
         payer = next(
             (p for p in participants if p.id == payload.payer_participant_id), None
         )
         if not payer:
             raise HTTPException(status_code=400, detail="Unknown payer")
-        if payer.user_id is None:
-            # An expense must be paid by a real account for balances to work.
-            raise HTTPException(
-                status_code=400,
-                detail="The payer must be a registered user",
-            )
     else:
-        payer = next(
-            (p for p in participants if p.user_id == tab.created_by_id), None
-        )
-    if payer is None or payer.user_id is None:
-        raise HTTPException(
-            status_code=400, detail="This tab has no registered payer"
-        )
+        payer = _payer_seat(db, tab)
+    if payer is None:
+        raise HTTPException(status_code=400, detail="This tab has no payer")
 
     shares = compute_tab_shares(
         [(item.id, item.price) for item in items],
@@ -736,6 +863,18 @@ def close_tab(
         tip=tab.tip,
     )
     amount = sum(shares.values())
+
+    if payer.user_id is None:
+        # Nobody in this app is owed anything: the payer is not in it. Close to
+        # a record and stop — see the docstring.
+        tab.status = "closed"
+        tab.closed_at = datetime.utcnow()
+        tab.payer_participant_id = payer.id
+        tab.payer_id = None
+        tab.expense_id = None
+        db.commit()
+        db.refresh(tab)
+        return _tab_out(db, tab)
 
     expense = models.Expense(
         description=tab.name,
@@ -782,6 +921,7 @@ def close_tab(
     tab.status = "closed"
     tab.closed_at = datetime.utcnow()
     tab.payer_id = payer.user_id
+    tab.payer_participant_id = payer.id
     tab.expense_id = expense.id
     # The link is deliberately NOT revoked here. People are still holding it
     # open on their phones when the host closes, and a revoked link would show

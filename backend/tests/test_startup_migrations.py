@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 
+from migrations.add_tab_offapp_payer import run_migration as add_offapp_payer
 from migrations.add_tab_participant_name_uniqueness import migrate as migrate_tab_names
 from migrations.add_venmo_username import run_migration
 from migrations.detach_tabs_from_deleted_expenses import migrate as detach_tabs
@@ -244,4 +245,90 @@ def test_startup_runs_detach_migration():
     assert (
         'python migrations/detach_tabs_from_deleted_expenses.py'
         ' --db-path "$DATABASE_PATH"' in start_script.read_text()
+    )
+
+
+def _tabs_and_participants_db(path):
+    """A schema as it stood before off-app payers and paid tracking."""
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE tabs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR NOT NULL,
+                created_by_id INTEGER NOT NULL,
+                payer_id INTEGER
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE tab_participants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tab_id INTEGER NOT NULL,
+                display_name VARCHAR NOT NULL,
+                user_id INTEGER,
+                claim_token VARCHAR NOT NULL UNIQUE,
+                joined_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO tabs (name, created_by_id, payer_id) VALUES ('Bar Sol', 7, NULL)"
+        )
+        connection.execute(
+            "INSERT INTO tab_participants (tab_id, display_name, claim_token, joined_at)"
+            " VALUES (1, 'Dana', 'tok', '2026-01-01')"
+        )
+
+
+def _columns(db_path, table):
+    with sqlite3.connect(db_path) as connection:
+        return {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+
+
+def test_offapp_payer_migration_adds_columns_and_is_idempotent(tmp_path):
+    db_path = tmp_path / "splitwiser.sqlite3"
+    _tabs_and_participants_db(db_path)
+
+    add_offapp_payer(str(db_path))
+    add_offapp_payer(str(db_path))
+
+    assert "payer_participant_id" in _columns(db_path, "tabs")
+    assert {"venmo_username", "paid", "paid_at"} <= _columns(
+        db_path, "tab_participants"
+    )
+
+
+def test_offapp_payer_migration_leaves_existing_rows_meaning_what_they_did(tmp_path):
+    """No named payer (the creator is assumed) and nobody marked paid."""
+    db_path = tmp_path / "splitwiser.sqlite3"
+    _tabs_and_participants_db(db_path)
+
+    add_offapp_payer(str(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT payer_participant_id FROM tabs"
+        ).fetchone() == (None,)
+        assert connection.execute(
+            "SELECT paid, paid_at, venmo_username FROM tab_participants"
+        ).fetchone() == (0, None, None)
+
+
+def test_offapp_payer_migration_dry_run_writes_nothing(tmp_path):
+    db_path = tmp_path / "splitwiser.sqlite3"
+    _tabs_and_participants_db(db_path)
+
+    add_offapp_payer(str(db_path), dry_run=True)
+
+    assert "payer_participant_id" not in _columns(db_path, "tabs")
+
+
+def test_startup_runs_offapp_payer_migration():
+    start_script = Path(__file__).parents[2] / "start.sh"
+
+    assert (
+        'python migrations/add_tab_offapp_payer.py --db-path "$DATABASE_PATH"'
+        in start_script.read_text()
     )

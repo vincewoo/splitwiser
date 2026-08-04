@@ -227,11 +227,17 @@ Two audiences, both people you already share money with:
   audience, and it is a deliberate carve-out rather than a loosening: a tab is
   precisely where you owe somebody you may have just met, with no group, no
   friendship and often no second meeting, so the link is the only channel
-  there is. Narrow in three ways — only the **host's** handle (the payer once
-  closed, the opener before that), never another claimer's; only while the
-  token is live, since a revoked or expired one is refused before the payload
-  is built; and never on a *group* share link, which `test_venmo_username.py`
-  still asserts.
+  there is. Narrow in three ways — only the **host's** handle, never another
+  claimer's; only while the token is live, since a revoked or expired one is
+  refused before the payload is built; and never on a *group* share link,
+  which `test_venmo_username.py` still asserts.
+
+  "Host" means whoever fronted the bill, which is not always the person who
+  opened the tab — see *Who paid* in `docs/TABS.md`. When that person has no
+  Splitwiser account the handle comes off their seat rather than a `User` row,
+  which is the case the seat-level handle exists for: everyone at the table
+  owes somebody who is not in the app at all, and the link is the only way to
+  tell them where to send it.
 
 Group share links remain closed: a handle must not ride along with a link to a
 standing group's whole history.

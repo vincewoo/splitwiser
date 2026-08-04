@@ -569,11 +569,18 @@ export const tabsApi = {
     },
 
     // Seat somebody who is at the table but not on the link — the flat-phone
-    // case. A guest seat; the owner already speaks for it.
-    addParticipant: async (tabId: number, displayName: string) => {
+    // case, and the off-app payer, who needs a handle to be paid on.
+    addParticipant: async (
+        tabId: number,
+        displayName: string,
+        venmoUsername?: string | null
+    ) => {
         const response = await apiFetch(`/tabs/${tabId}/participants`, {
             method: 'POST',
-            body: JSON.stringify({ display_name: displayName }),
+            body: JSON.stringify({
+                display_name: displayName,
+                ...(venmoUsername ? { venmo_username: venmoUsername } : {}),
+            }),
         });
         if (!response.ok) {
             const body = await response.json().catch(() => ({}));
@@ -581,6 +588,46 @@ export const tabsApi = {
                 typeof body.detail === 'string'
                     ? body.detail
                     : 'Could not add that person'
+            );
+        }
+        return response.json();
+    },
+
+    // Owner-only: tick somebody off as settled, or give a seat with no account
+    // the handle it needs to be paid on. Either may be omitted.
+    updateParticipant: async (
+        tabId: number,
+        participantId: number,
+        changes: { paid?: boolean; venmo_username?: string | null }
+    ) => {
+        const response = await apiFetch(
+            `/tabs/${tabId}/participants/${participantId}`,
+            { method: 'PATCH', body: JSON.stringify(changes) }
+        );
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(
+                typeof body.detail === 'string'
+                    ? body.detail
+                    : 'Could not save that'
+            );
+        }
+        return response.json();
+    },
+
+    // Owner-only: say who fronted the bill, while the tab is still open. Null
+    // hands it back to whoever opened the tab.
+    setPayer: async (tabId: number, participantId: number | null) => {
+        const response = await apiFetch(`/tabs/${tabId}/payer`, {
+            method: 'POST',
+            body: JSON.stringify({ participant_id: participantId }),
+        });
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(
+                typeof body.detail === 'string'
+                    ? body.detail
+                    : 'Could not set who paid'
             );
         }
         return response.json();

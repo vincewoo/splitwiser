@@ -54,7 +54,11 @@ treated as final.
 - `token_expires_at` - 7 days from creation (`TAB_LINK_LIFETIME`)
 - `revoked` - kills the link without closing the tab
 - `status` - `open` | `closed`
-- `payer_id` - who fronted the bill; defaults to the creator at close
+- `payer_id` - who fronted the bill, as a *user*. Set at close, and only when
+  that person has an account: it is what the resulting expense is paid by.
+- `payer_participant_id` - who fronted the bill, as a *seat*. Nameable while
+  the tab is open, and the only way to say "Dana paid" when Dana has no
+  account. See *Who paid*.
 - `tax`, `tip`, `total` - cents. `total` is what the receipt printed until the
   host takes the numbers over — writing in a tip the scan did not find, or
   correcting either amount later — at which point it is the bill they will
@@ -80,6 +84,11 @@ treated as final.
 - `user_id` - set when a signed-in user claims; `NULL` for anonymous claimers
 - `claim_token` - the anonymous claimer's only handle on their own claims.
   Returned exactly once, at join. Never included in any listing.
+- `venmo_username` - only ever set on a seat with no account; someone with one
+  carries theirs on their `User` row and that always wins. Exists so an off-app
+  payer can still be paid from the claim page.
+- `paid`, `paid_at` - ticked off by the host as people settle. See
+  *Who has settled*.
 
 Participants are created the moment somebody claims, not by invitation.
 
@@ -203,10 +212,31 @@ nullable and mean unrelated things: an open tab has no payer, and an anonymous
 claimer has no account. Comparing them directly labels the first guest at every
 open tab as having paid the bill.
 
+## Who paid
+
+Not always the person who opened the tab. The one Splitwiser user at a table
+often does the arithmetic while somebody who has never heard of the app hands
+over a card — and then everybody owes *that* person, directly.
+
+`Tab.payer_participant_id` names the seat that fronted the bill, settable while
+the tab is open via `POST /tabs/{id}/payer`. It supersedes `Tab.payer_id`,
+which is a *user* id and is derived from it at close. Null means nobody has
+said, in which case the creator is assumed — the old behaviour, unchanged.
+
+Naming them early is what makes the claim page correct: `_tab_host` resolves
+through this seat, so the Venmo hand-off points at whoever is actually owed. A
+seat with an account uses that account's handle; a seat without one uses
+`TabParticipant.venmo_username`, which exists precisely because an off-app
+payer has no `User` row to hold one. The handle is refused on a seat that has
+an account — theirs lives on their profile, and copying it would fork it.
+
 ## Closing
 
-Closing writes one ordinary direct expense on the existing `group_id IS NULL`
-path:
+Closing resolves the tab one of two ways, depending on whether the payer is in
+the app at all.
+
+**A payer with an account** writes one ordinary direct expense on the existing
+`group_id IS NULL` path:
 
 - Registered participants become `ExpenseSplit` rows, so the bill shows up in
   their balances and on the payer's person page as an ordinary shared expense.
@@ -215,9 +245,33 @@ path:
 - The expense gets `split_type = "ITEMIZED"`, icon `🧾`, and a note naming the
   venue. `Tab.expense_id` points at it.
 
+**A payer with no account** writes nothing. There is genuinely no debt for
+Splitwiser to hold: everyone settles with that person directly, outside the
+app. Inventing an expense would put a balance in the organiser's name that
+nobody owes them. The tab goes to `closed` with `expense_id` and `payer_id`
+both null, keeping the shares and the paid ticks as the record of what
+happened.
+
+This case used to be a `400` — "the payer must be a registered user" — which
+was the wrong conclusion from a true premise. Balances do need an account; the
+answer is not to record a balance.
+
 Refused with `409` if the tab is already closed, has no items, or nobody has
-joined. Refused with `400` if the chosen payer is anonymous — an expense must
-be paid by a real account for balances to work.
+joined.
+
+### Who has settled
+
+`TabParticipant.paid` (with `paid_at`), set by the host through
+`PATCH /tabs/{id}/participants/{participant_id}`.
+
+Nothing in the app can verify a payment — the money moves through Venmo, cash
+or a bank transfer, none of which report back — so this is the host's word for
+it, which is the only source of truth that exists when the payer is not in the
+app. It rides on `PublicTabOut` too: who has paid is the thing everyone at the
+table keeps asking.
+
+Deliberately still writable after the tab closes. People wander off owing and
+settle days later; a closed tab is exactly when the ticking-off happens.
 
 ### Getting back to a closed tab
 
@@ -274,8 +328,16 @@ before this held, and runs on every boot.
   claim. Owner only. Somebody at the table always leaves early or never opens
   the link; without this the desktop grid would be read-only. Grants nothing the
   owner did not already have — they can close the tab and decide who paid.
+- `PATCH /tabs/{tab_id}/participants/{participant_id}` - tick somebody off as
+  settled, or give a seat with no account the Venmo handle it needs. Either
+  field may be omitted. Stays available after the tab closes, because that is
+  when most of the ticking-off happens.
+- `POST /tabs/{tab_id}/payer` - name the seat that fronted the bill, while the
+  tab is open. Null hands it back to the creator. The seat need not have an
+  account — see *Who paid*.
 - `POST /tabs/{tab_id}/revoke` - kill the link without closing
-- `POST /tabs/{tab_id}/close` - resolve into one expense
+- `POST /tabs/{tab_id}/close` - resolve into one expense, or into a plain
+  record when the payer has no account
 
 ### Public (no auth, rate-limited)
 - `GET /public/tabs/{share_token}` - read the tab. Carries `host_name` and

@@ -12,6 +12,7 @@ python migrations/add_google_oauth.py --db-path "$DATABASE_PATH"
 python migrations/add_venmo_username.py --db-path "$DATABASE_PATH"
 python migrations/add_tab_participant_name_uniqueness.py --db-path "$DATABASE_PATH"
 python migrations/detach_tabs_from_deleted_expenses.py --db-path "$DATABASE_PATH"
+python migrations/add_tab_offapp_payer.py --db-path "$DATABASE_PATH"
 
 # Start supervisor
 echo "Starting Supervisor..."

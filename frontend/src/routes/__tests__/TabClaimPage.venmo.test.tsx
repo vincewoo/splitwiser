@@ -140,3 +140,30 @@ describe('TabClaimPage Venmo hand-off', () => {
         expect(screen.queryByRole('link')).toBeNull();
     });
 });
+
+describe('TabClaimPage with an off-app payer', () => {
+    it('sends the table to whoever actually paid, not to the organiser', async () => {
+        // Vince opened the tab and did the arithmetic; Dana handed over a card
+        // and is not on Splitwiser at all. The server resolves the host, so
+        // the page only has to render what it is told — but getting this wrong
+        // sends six people's money to the wrong person, so it is asserted.
+        await join({ host_name: 'Dana', host_venmo_username: 'dana-p' });
+
+        const link = await screen.findByRole('link', {
+            name: 'Pay Dana with Venmo',
+        });
+        expect(
+            new URL(link.getAttribute('href')!).searchParams.get('recipients')
+        ).toBe('dana-p');
+    });
+
+    it('names the payer in the closed-tab caption', async () => {
+        await join({
+            status: 'closed',
+            host_name: 'Dana',
+            host_venmo_username: 'dana-p',
+        });
+
+        await screen.findByText(/Sends Dana your share/);
+    });
+});
