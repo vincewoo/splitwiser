@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import DesktopRail from './DesktopRail';
 import MobileTabBar from './MobileTabBar';
 import FabSheet from './FabSheet';
@@ -26,14 +26,27 @@ import type { ShellActions } from './shellActions';
 const AppShell: React.FC = () => {
     const isDesktop = useIsDesktop();
     const navigate = useNavigate();
+    const { pathname } = useLocation();
     const { friends, groups, balances, pendingRequests, refreshAll } = useAppData();
+
+    /**
+     * The group you are looking at, if any. Adding an expense from the FAB
+     * while a group is on screen should land in that group rather than making
+     * you pick it again; the id is read from the route because the shell
+     * mounts the modal above the routed screen and never sees its state.
+     */
+    const activeGroupId = useMemo(() => {
+        const match = /^\/groups\/(\d+)(?:\/|$)/.exec(pathname);
+        return match ? Number(match[1]) : null;
+    }, [pathname]);
 
     const [fabOpen, setFabOpen] = useState(false);
     const [profileOpen, setProfileOpen] = useState(false);
     const [expenseModal, setExpenseModal] = useState<{
         open: boolean;
         scanner: boolean;
-    }>({ open: false, scanner: false });
+        groupId: number | null;
+    }>({ open: false, scanner: false, groupId: null });
 
     // "Split a bill at the table": scan the receipt, name the place, open a tab.
     const [tabScannerOpen, setTabScannerOpen] = useState(false);
@@ -126,8 +139,8 @@ const AppShell: React.FC = () => {
     );
 
     const openAddExpense = useCallback(
-        () => setExpenseModal({ open: true, scanner: false }),
-        []
+        () => setExpenseModal({ open: true, scanner: false, groupId: activeGroupId }),
+        [activeGroupId]
     );
     const openSettleUp = useCallback(() => navigate('/settle'), [navigate]);
     const openProfile = useCallback(() => setProfileOpen(true), []);
@@ -172,7 +185,10 @@ const AppShell: React.FC = () => {
             <AddExpenseModal
                 isOpen={expenseModal.open}
                 openScanner={expenseModal.scanner}
-                onClose={() => setExpenseModal({ open: false, scanner: false })}
+                preselectedGroupId={expenseModal.groupId}
+                onClose={() =>
+                    setExpenseModal({ open: false, scanner: false, groupId: null })
+                }
                 onExpenseAdded={refreshAll}
                 friends={friends}
                 groups={groups}

@@ -21,9 +21,12 @@ primary_region = 'sjc'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  # Keep one machine up at all times: SQLite on a mounted volume means a
+  # cold start is a real wait, and the PWA's background sync expects the API
+  # to answer without one.
+  auto_stop_machines = 'off'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[http_service.checks]]
