@@ -51,7 +51,7 @@ import { expensesApi, tabsApi } from './services/api';
 import { offlineExpensesApi } from './services/offlineApi';
 import { useSync } from './contexts/SyncContext';
 import { Button, Card, Money, Notice, TagPill } from './components/ui';
-import { CONTROL_CLASS } from './components/ui/controlClass';
+import { CONTROL_CLASS, CONTROL_CLASS_UNSIZED } from './components/ui/controlClass';
 
 /** The label above each field in the edit form. */
 const LABEL_CLASS = 'block text-[12.5px] text-sw-muted mb-1.5';
@@ -686,7 +686,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                 aria-label="Currency"
                                                 value={currency}
                                                 onChange={(e) => setCurrency(e.target.value)}
-                                                className={`${CONTROL_CLASS} w-auto flex-none`}
+                                                className={`${CONTROL_CLASS_UNSIZED} w-auto max-w-[6.5rem] flex-none`}
                                             >
                                                 {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
                                             </select>
@@ -695,7 +695,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                 type="text"
                                                 inputMode="decimal"
                                                 placeholder="0.00"
-                                                className={`${CONTROL_CLASS} sw-num text-lg`}
+                                                className={`${CONTROL_CLASS} sw-num text-lg min-w-0`}
                                                 value={splitType === 'ITEMIZED' ? calculateItemizedTotal(itemizedExpense.itemizedItems, itemizedExpense.taxAmount, itemizedExpense.tipAmount) : amount}
                                                 onChange={e => setAmount(e.target.value)}
                                                 disabled={splitType === 'ITEMIZED'}
