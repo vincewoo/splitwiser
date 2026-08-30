@@ -58,7 +58,7 @@ The export makes all four steps legible in the order they happen.
 
 ## CSV Structure
 
-Nine sections, each preceded by a blank line and a `# SECTION: <name>` comment line,
+Eleven sections, each preceded by a blank line and a `# SECTION: <name>` comment line,
 then its own header row. A leading `section` column on every data row keeps the file
 machine-filterable despite being sectioned.
 
@@ -91,18 +91,26 @@ The core section, ordered by expense date then id. Each expense emits:
 - a `RECONCILIATION` row **only** when `Σ ITEM_SHARE` for a person ≠ that person's
   stored `SPLIT`.
 
+Columns are elided below for width; the real header carries the full identity
+triple (`person`, `person_id`, `person_type`) described under
+[Guests and identity](#guests-and-identity), plus `payer_type` alongside `payer`.
+
 ```
 # SECTION: EXPENSES
-section,expense_id,expense_description,date,payer,item_id,item_description,is_tax_tip,person,split_type,currency,amount_cents,amount,exchange_rate,converted_cents,converted_amount,note
-EXPENSE,118,Dinner at Nopa,2026-07-04,Vince,,,,,ITEMIZED,USD,14200,142.00,1.0,14200,142.00,
-ITEM,118,Dinner at Nopa,2026-07-04,Vince,501,Roast chicken,false,,EQUAL,USD,3800,38.00,,,,shared by 2
-ITEM_SHARE,118,Dinner at Nopa,2026-07-04,Vince,501,Roast chicken,false,Vince,,USD,1900,19.00,,,,
-ITEM_SHARE,118,Dinner at Nopa,2026-07-04,Vince,501,Roast chicken,false,Priya,,USD,1900,19.00,,,,
-ITEM,118,Dinner at Nopa,2026-07-04,Vince,507,Tax + tip,true,,,USD,2200,22.00,,,,spread proportionally
-ITEM_SHARE,118,Dinner at Nopa,2026-07-04,Vince,507,Tax + tip,true,Priya,,USD,1046,10.46,,,,47.5% of subtotal
-SPLIT,118,Dinner at Nopa,2026-07-04,Vince,,,,Priya,,USD,7146,71.46,1.0,7146,71.46,stored
-RECONCILIATION,118,Dinner at Nopa,2026-07-04,Vince,,,,Priya,,USD,1,0.01,,,,stored split exceeds item shares by 0.01
+section,expense_id,expense_description,date,payer,payer_type,item_id,item_description,is_tax_tip,person,person_id,person_type,split_type,currency,amount_cents,amount,exchange_rate,converted_cents,converted_amount,note
+EXPENSE,118,Dinner at Nopa,2026-07-04,Vince,user,,,,,,,ITEMIZED,USD,14200,142.00,1.0,14200,142.00,
+ITEM,118,Dinner at Nopa,2026-07-04,Vince,user,501,Roast chicken,false,,,,EQUAL,USD,3800,38.00,,,,shared by 2
+ITEM_SHARE,118,Dinner at Nopa,2026-07-04,Vince,user,501,Roast chicken,false,Vince,7,user,,USD,1900,19.00,,,,
+ITEM_SHARE,118,Dinner at Nopa,2026-07-04,Vince,user,501,Roast chicken,false,Dave,7,group_guest,,USD,1900,19.00,,,,
+ITEM,118,Dinner at Nopa,2026-07-04,Vince,user,507,Tax + tip,true,,,,,USD,2200,22.00,,,,spread proportionally
+ITEM_SHARE,118,Dinner at Nopa,2026-07-04,Vince,user,507,Tax + tip,true,Dave,7,group_guest,,USD,1046,10.46,,,,47.5% of subtotal
+SPLIT,118,Dinner at Nopa,2026-07-04,Vince,user,,,,Dave,7,group_guest,,USD,7146,71.46,1.0,7146,71.46,stored
+RECONCILIATION,118,Dinner at Nopa,2026-07-04,Vince,user,,,,Dave,7,group_guest,,USD,1,0.01,,,,stored split exceeds item shares by 0.01
 ```
+
+The `Vince,7,user` / `Dave,7,group_guest` pair in that example is not contrived —
+`ExpenseSplit.user_id` means "user id" or "guest id" depending on `is_guest`, so the
+two namespaces overlap freely.
 
 Non-itemized expenses skip `ITEM`/`ITEM_SHARE` entirely and carry their split-type
 inputs (`percentage`, `shares`) in the `note` column of the `SPLIT` row — e.g.
@@ -160,11 +168,119 @@ A short block of named invariants and their pass/fail, computed at export time:
 | `net_balances_sum_to_zero` | `Σ NET_BALANCE.net == 0` |
 | `splits_match_expense_totals` | per expense, `Σ split.amount_owed == expense.amount` |
 | `item_shares_match_splits` | no `RECONCILIATION` rows emitted |
+| `no_claimed_and_managed_guests` | no guest has both `claimed_by_id` and `managed_by_id` (the fold skips these) |
+| `no_managed_cycles` | `_detect_managed_cycles` returned empty |
+| `expense_guests_found_on_group_expense` | count of `ExpenseGuest` / per-item guest rows attached to a group expense; expected 0 |
 | `simplified_matches_net` | per person, `Σ SIMPLIFIED == net` |
 
 A failing check is not an error response — the file still downloads, with the failure
 stated. An export that refuses to render bad data is useless precisely when it's most
 needed.
+
+## Guests and identity
+
+"Guest" means four different things in this codebase, and they do not behave alike in
+the sheet. Getting this wrong is how the export ends up attributing money to the wrong
+person, which would be worse than the confusion it is meant to fix.
+
+### Identity columns
+
+Every person-bearing row carries three columns, not one:
+
+| column | values |
+| --- | --- |
+| `person` | display name, resolved via `get_participant_display_name` |
+| `person_id` | the raw id from the split row |
+| `person_type` | `user` \| `group_guest` |
+
+Two reasons a name column alone is insufficient, both live in production data:
+
+- **Ids overlap.** `ExpenseSplit.user_id` holds a `User.id` when `is_guest` is false and
+  a `GuestMember.id` when it's true. User 7 and guest 7 are different people who can sit
+  on the same expense.
+- **Guest names are not unique.** `routers/members.py::add_guest` does no collision
+  check (unlike tab participants, which `TabParticipant.display_name` constrains
+  case-insensitively per tab). A group can hold two guests both named "Dave", and today
+  nothing distinguishes them anywhere in the UI either.
+
+`person_type` also drives a `PEOPLE` roster section listing every participant once with
+their type, claim state and manager — so a reader can resolve any row without scanning
+the whole file.
+
+### 1. Group guest (`GuestMember`) — a full participant
+
+Unclaimed, unmanaged group guests are first-class throughout the sheet. They hold
+`ExpenseSplit` rows (`is_guest=True`), they appear in `ITEM_SHARE` allocations via
+`ExpenseItemAssignment.is_guest`, and they **can be the payer**
+(`Expense.payer_is_guest`), so they can carry a positive net balance and appear in
+`SIMPLIFIED` as someone who gets paid. They therefore need rows in `CONSUMPTION`,
+`PAID`, `NET_BALANCE` and `SIMPLIFIED` exactly like a registered member. Nothing
+special is required beyond the identity columns above — the point is that nothing is
+*omitted* for them.
+
+### 2. Claimed guest (`claimed_by_id` set) — renamed mid-history
+
+This is the one most likely to generate the confusion the feature exists to fix.
+`_managed_key_for_guest` accrues a claimed guest's balance under
+`(claimed_by_id, False)`, and `get_guest_display_name` returns the claiming *user's*
+name. So an expense that was split with "Dave the guest" in March displays under
+"Dave Chen, member" today — the receipt and the app disagree, with no visible reason.
+
+The sheet resolves this by printing both:
+
+- historical `SPLIT` / `ITEM_SHARE` rows keep `person_type=group_guest`, `person_id` =
+  the guest id, and `person` = **the original guest name**, because that is what the
+  row actually recorded;
+- an `IDENTITY` section states the reattribution once per claimed guest:
+  `guest_id, guest_name, claimed_by_user_id, claimed_by_name, claimed_at_unknown`;
+- from `CONSUMPTION` onward the amounts appear under the user, matching
+  `calculate_net_balances`.
+
+That ordering — original names in the ledger, reattribution declared, totals under the
+account — is the whole "show me the math" story for claiming in three sections.
+
+### 3. Managed guest (`managed_by_id` set) — folded, and shown folding
+
+Covered by the `MANAGEMENT` section: source person, manager, amount moved, reason.
+Managed *members* (registered users with `GroupMember.managed_by_id`) fold identically
+and share the section, as do guest-managed-by-guest chains. A chain that
+`_detect_managed_cycles` refuses to fold gets its row with `note=cycle detected, not
+folded`, which currently only surfaces in a `logger.warning`.
+
+Note the defensive case already handled in `utils/balances.py`: a guest with **both**
+`claimed_by_id` and `managed_by_id` set is a data-integrity violation that the fold
+skips to avoid double-counting. The sheet must apply the same skip and say so in
+`CHECKS`, rather than quietly producing a different total than the Balances screen.
+
+### 4. Merged guest (`absorb_guest_into_user`) — invisible by design, with one caveat
+
+Merging physically rewrites rows: splits, items and payer references move to the user
+id, and colliding splits are **summed into one row**. So a merged guest leaves nothing
+for the export to show at expense level, which is correct — the data genuinely is the
+user's now.
+
+The caveat worth writing down: where `splits_merged` fired, a single stored `SPLIT` row
+now represents what were two people's original shares, and its `ITEM_SHARE` rows will
+sum to the same total by a different route. The sheet cannot decompose that, and should
+not pretend to. It's a known, accepted limitation rather than a reconciliation failure,
+and it will not trip `CHECKS`.
+
+### 5. Expense guest (`ExpenseGuest`) — out of scope, but checked
+
+Ad-hoc expense guests live in their own table with their own `amount_owed` and never
+appear in `ExpenseSplit`. `routers/expenses.py:78` rejects them on group expenses with
+a 400, so for a *group* balance sheet they should not exist. The export does not
+traverse them (matching `utils/summary.py`'s existing scope-out), but if legacy data
+has any attached to a group expense, `CHECKS` reports
+`expense_guests_found_on_group_expense` with the count — visible rather than silently
+dropped. Same for `ExpenseItemAssignment.expense_guest_id`.
+
+### 6. Tab participants — not in this sheet at all
+
+Tab seats are neither users nor group guests. A tab closes into a **direct** expense
+with `group_id` NULL, so it never enters a group balance sheet; an account-less seat
+resolves to a plain record with no expense. Nothing to handle here, but worth stating
+so the omission doesn't read as a bug.
 
 ## Backend Design
 
@@ -290,6 +406,13 @@ Backend:
   and remainder cents; multi-currency conversion; folding; a deliberately mismatched
   `ExpenseSplit` producing exactly one `RECONCILIATION` row; a managed cycle producing
   the not-folded note.
+- `tests/test_balance_sheet_guests.py` — the identity cases, which are the ones most
+  likely to silently misattribute money: a user and a group guest sharing the same
+  numeric id on one expense; two same-named guests in one group; a guest as expense
+  payer carrying a positive net balance into `SIMPLIFIED`; a claimed guest whose
+  historical rows keep the guest name while totals land on the user; a guest with both
+  `claimed_by_id` and `managed_by_id` set, asserting the sheet skips the fold and fails
+  the matching check rather than diverging from `/groups/{id}/balances`.
 - `tests/test_utils_csv_export.py` — section framing, BOM, 2dp formatting for JPY,
   injection guard on each dangerous prefix.
 - `tests/test_exports.py` — integration through `TestClient`: 401 unauthenticated,
