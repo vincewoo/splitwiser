@@ -173,6 +173,16 @@ class CheckRow:
     check: str
     passed: bool
     detail: str
+    # A real finding that is not a problem. Derived rather than stored
+    # alongside a separate severity string, so the two cannot contradict
+    # each other: a row that did not pass is a failure, full stop.
+    notice: bool = False
+
+    @property
+    def severity(self) -> str:
+        if not self.passed:
+            return "fail"
+        return "notice" if self.notice else "pass"
 
 
 @dataclass
@@ -259,6 +269,27 @@ class _Names:
         if guest.claimed_by_id:
             return self.user_name(guest.claimed_by_id)
         return guest.name
+
+
+def _reconciliation_note(delta: int, rounding_only: bool, has_claimed_guests: bool) -> str:
+    """Explain one reconciliation row in terms of what actually happened."""
+    direction = (
+        "stored split exceeds the sum of item shares by this much"
+        if delta > 0
+        else "stored split falls short of the sum of item shares by this much"
+    )
+    if not rounding_only:
+        return direction
+
+    note = (
+        "rounding only — the expense still totals the same, but leftover cents "
+        "sit with a different person than when it was saved"
+    )
+    if has_claimed_guests:
+        # Naming the cause saves the reader from having to work out that
+        # allocation keys sort differently once a guest becomes an account.
+        note += "; participants have been re-identified since (see IDENTITY)"
+    return note
 
 
 def _to_cents(amount: float) -> int:
@@ -358,6 +389,11 @@ def build_balance_sheet(
     ).all()
     cyclic_keys = _detect_managed_cycles(managed_guests, managed_members)
 
+    # Claiming or merging a guest rewrites its rows onto an account, which
+    # changes the allocation keys and therefore who absorbs the remainder cents.
+    # Knowing that lets a reconciliation row name its own cause.
+    has_claimed_guests = any(g.claimed_by_id for g in names.guests.values())
+
     # --------------------------------------------------------------- the ledger
     ledger: List[LedgerRow] = []
     consumption: Dict[Tuple[Key, str], int] = {}   # native cents
@@ -370,7 +406,8 @@ def build_balance_sheet(
     paid_conv: Dict[Tuple[Key, str], float] = {}
     currencies_used: Dict[str, Dict[str, object]] = {}
     expense_guest_assignments = 0
-    reconciliation_rows = 0
+    real_mismatches: List[str] = []
+    rounding_reassignments: List[str] = []
     split_total_mismatches: List[str] = []
 
     for expense in expenses:
@@ -531,6 +568,50 @@ def build_balance_sheet(
                         note=allocation.note,
                     ))
 
+        # -- how the recomputed item shares differ from the stored splits
+        #
+        # Two very different things produce a difference, and conflating them
+        # makes the check useless. If an expense's deltas sum to zero and are
+        # within the rounding bound, the same total was simply allocated to
+        # different people: `allocate_items` hands leftover cents to the last
+        # participant key in sorted order, and those keys change when somebody
+        # claims a guest (guest_59 becomes user_28, which sorts elsewhere), so
+        # a recomputation lands the remainder on a different person than the
+        # write did. Nobody owes a different amount. A non-zero sum, or a
+        # difference too large to be remainder cents, means money was actually
+        # invented or lost — that is the real failure.
+        deltas: Dict[Key, int] = {}
+        if items:
+            for split in expense_splits:
+                key = (split.user_id, bool(split.is_guest))
+                if key in allocations_by_key:
+                    delta = split.amount_owed - allocations_by_key[key]
+                    if delta:
+                        deltas[key] = delta
+
+        # At most one remainder cent per line, plus one for the pooled tax/tip.
+        rounding_bound = len(items) + 1
+        rounding_only = bool(deltas) and sum(deltas.values()) == 0 and max(
+            abs(d) for d in deltas.values()
+        ) <= rounding_bound
+
+        if deltas:
+            label = f"expense {expense.id} ({expense.description or 'untitled'})"
+            if rounding_only:
+                # Everything nets off, so the interesting number is how much
+                # changed hands between people.
+                moved = sum(d for d in deltas.values() if d > 0)
+                rounding_reassignments.append(
+                    f"{label}: {moved} cent(s) across {len(deltas)} people"
+                )
+            else:
+                residual = sum(deltas.values())
+                largest = max(abs(d) for d in deltas.values())
+                real_mismatches.append(
+                    f"{label}: differs for {len(deltas)} people, "
+                    f"largest {largest} cent(s), residual {residual} cent(s)"
+                )
+
         # -- the stored splits, which are what balances are actually built from
         for split in expense_splits:
             split_key = (split.user_id, bool(split.is_guest))
@@ -581,34 +662,28 @@ def build_balance_sheet(
             )
 
             # -- reconciliation: recomputed item shares vs the stored split
-            if items and split_key in allocations_by_key:
-                delta = split.amount_owed - allocations_by_key[split_key]
-                if delta:
-                    reconciliation_rows += 1
-                    ledger.append(LedgerRow(
-                        row_type="RECONCILIATION",
-                        expense_id=expense.id,
-                        expense_description=expense.description or "",
-                        date=expense.date or "",
-                        payer_name=names.ledger_name(payer_key),
-                        payer_type=_person_type(payer_key[1]),
-                        item_id=None,
-                        item_description="",
-                        is_tax_tip=None,
-                        person_name=names.ledger_name(split_key),
-                        person_id=split_key[0],
-                        person_type=_person_type(split_key[1]),
-                        split_type=expense.split_type or "EQUAL",
-                        currency=expense_currency,
-                        amount_cents=delta,
-                        exchange_rate="",
-                        converted_cents=None,
-                        note=(
-                            "stored split exceeds the sum of item shares by this much"
-                            if delta > 0
-                            else "stored split falls short of the sum of item shares by this much"
-                        ),
-                    ))
+            if split_key in deltas:
+                delta = deltas[split_key]
+                ledger.append(LedgerRow(
+                    row_type="RECONCILIATION",
+                    expense_id=expense.id,
+                    expense_description=expense.description or "",
+                    date=expense.date or "",
+                    payer_name=names.ledger_name(payer_key),
+                    payer_type=_person_type(payer_key[1]),
+                    item_id=None,
+                    item_description="",
+                    is_tax_tip=None,
+                    person_name=names.ledger_name(split_key),
+                    person_id=split_key[0],
+                    person_type=_person_type(split_key[1]),
+                    split_type=expense.split_type or "EQUAL",
+                    currency=expense_currency,
+                    amount_cents=delta,
+                    exchange_rate="",
+                    converted_cents=None,
+                    note=_reconciliation_note(delta, rounding_only, has_claimed_guests),
+                ))
 
     # ------------------------------------------------- consumption / paid rows
     consumption_rows = [
@@ -834,13 +909,32 @@ def build_balance_sheet(
 
     checks.append(CheckRow(
         check="item_shares_match_splits",
-        passed=reconciliation_rows == 0,
+        passed=not real_mismatches,
         detail=(
-            f"{reconciliation_rows} reconciliation row(s)"
-            if reconciliation_rows
+            "; ".join(real_mismatches[:5])
+            if real_mismatches
             else "recomputed item shares match the stored splits"
         ),
     ))
+
+    if rounding_reassignments:
+        # Deliberately not a failure: the totals agree and no balance moves.
+        # Reporting it as one would train the reader to ignore this block.
+        checks.append(CheckRow(
+            check="item_share_rounding_reassigned",
+            passed=True,
+            notice=True,
+            detail=(
+                "; ".join(rounding_reassignments[:5])
+                + ". Leftover cents sit with a different person than at write "
+                "time; totals and balances are unaffected"
+                + (
+                    ", and participants have been re-identified since (see IDENTITY)"
+                    if has_claimed_guests
+                    else ""
+                )
+            ),
+        ))
 
     per_person_simplified: Dict[Key, float] = {}
     for t in transactions:

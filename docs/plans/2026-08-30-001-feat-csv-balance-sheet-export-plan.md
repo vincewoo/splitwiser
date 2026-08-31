@@ -167,7 +167,8 @@ A short block of named invariants and their pass/fail, computed at export time:
 | --- | --- |
 | `net_balances_sum_to_zero` | `Σ NET_BALANCE.net == 0` |
 | `splits_match_expense_totals` | per expense, `Σ split.amount_owed == expense.amount` |
-| `item_shares_match_splits` | no `RECONCILIATION` rows emitted |
+| `item_shares_match_splits` | no `RECONCILIATION` row represents a real discrepancy |
+| `item_share_rounding_reassigned` | *notice, not a failure.* An expense's deltas net to zero and are within the rounding bound (one cent per line, plus one for the pooled tax/tip) — the same total, with leftover cents on a different person. `allocate_items` gives the remainder to the last participant key in sorted order, and claiming a guest changes those keys (`guest_59` becomes `user_28`, which sorts elsewhere), so any recomputation after a claim lands it differently. Nobody owes a different amount. Found in real data on first use; reporting it as a failure would train people to ignore this block |
 | `no_claimed_and_managed_guests` | no guest has both `claimed_by_id` and `managed_by_id` (the fold skips these) |
 | `no_managed_cycles` | `_detect_managed_cycles` returned empty |
 | `expense_guests_found_on_group_expense` | count of `ExpenseGuest` / per-item guest rows attached to a group expense; expected 0 |
