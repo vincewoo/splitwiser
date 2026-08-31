@@ -11,6 +11,53 @@ from utils.currency import convert_currency, convert_to_usd
 logger = logging.getLogger(__name__)
 
 
+def convert_split_to_currency(
+    amount: float,
+    expense: "models.Expense",
+    target_currency: str,
+) -> float:
+    """Convert one split amount from its expense's currency to ``target_currency``.
+
+    Two legs, and they are not symmetrical:
+
+    1. Expense currency -> USD at ``Expense.exchange_rate``, the rate captured
+       when the expense was created. Falls back to today's static table when
+       that is missing or unparseable, which is why two same-currency expenses
+       can convert differently.
+    2. USD -> target at current rates.
+
+    Returns the amount unrounded; callers truncate at their own boundary.
+    """
+    if expense.exchange_rate:
+        try:
+            # exchange_rate is USD per 1 unit of the expense currency
+            # (e.g. 1 EUR = 1.0945 USD, so rate = 1.0945).
+            amount_usd = amount * float(expense.exchange_rate)
+        except ValueError:
+            amount_usd = convert_to_usd(amount, expense.currency)
+    else:
+        amount_usd = convert_to_usd(amount, expense.currency)
+
+    return convert_currency(amount_usd, "USD", target_currency)
+
+
+def used_synthesized_rate(expense: "models.Expense") -> bool:
+    """True when leg 1 of the conversion had to fall back to current rates.
+
+    A USD expense with no stored rate is a no-op, not a synthesis — matching
+    ``utils.summary``'s ``has_synthesized_historical_rate``.
+    """
+    if expense.currency == "USD":
+        return False
+    if not expense.exchange_rate:
+        return True
+    try:
+        float(expense.exchange_rate)
+    except ValueError:
+        return True
+    return False
+
+
 def _managed_key_for_guest(guest: "models.GuestMember") -> Tuple[int, bool]:
     """Resolve the ``(id, is_guest)`` key that a managed guest's balance lives under.
 
@@ -182,6 +229,175 @@ def _fold_managed_relationships(
             del totals[member_key]
 
 
+def simplify(
+    net_balances: Dict[Tuple[int, bool], float],
+    currency: str,
+) -> List[Dict[str, object]]:
+    """Reduce net balances to a minimal-ish set of payments.
+
+    Greedy: repeatedly match the largest debtor against the largest creditor.
+    Not provably minimal (that problem is NP-hard), but stable and easy to
+    explain — which matters, because this is the step that produces payments
+    between two people who never shared an expense, and is the single most
+    common "the maths is wrong" report.
+
+    Amounts below one cent are dropped: they are conversion dust, not debts.
+
+    Args:
+        net_balances: ``(id, is_guest) -> amount`` in a single currency.
+            Positive means the participant is owed money.
+        currency: Currency code stamped on each returned transaction.
+
+    Returns:
+        List of ``{from_id, from_is_guest, to_id, to_is_guest, amount, currency}``.
+    """
+    transactions: List[Dict[str, object]] = []
+    debtors = []
+    creditors = []
+
+    for (uid, is_guest), amount in net_balances.items():
+        if amount < -0.01:
+            debtors.append({'id': uid, 'is_guest': is_guest, 'amount': amount})
+        elif amount > 0.01:
+            creditors.append({'id': uid, 'is_guest': is_guest, 'amount': amount})
+
+    debtors.sort(key=lambda x: x['amount'])
+    creditors.sort(key=lambda x: x['amount'], reverse=True)
+
+    i = 0
+    j = 0
+
+    while i < len(debtors) and j < len(creditors):
+        debtor = debtors[i]
+        creditor = creditors[j]
+
+        amount = min(abs(debtor['amount']), creditor['amount'])
+
+        # Only add transaction if amount is significant (at least 1 cent)
+        if amount >= 1.0:
+            transactions.append({
+                "from_id": debtor['id'],
+                "from_is_guest": debtor['is_guest'],
+                "to_id": creditor['id'],
+                "to_is_guest": creditor['is_guest'],
+                "amount": amount,
+                "currency": currency,
+            })
+
+        debtor['amount'] += amount
+        creditor['amount'] -= amount
+
+        if abs(debtor['amount']) < 0.01:
+            i += 1
+        if creditor['amount'] < 0.01:
+            j += 1
+
+    return transactions
+
+
+@overload
+def calculate_raw_balances(
+    db: Session,
+    group_id: int,
+    target_currency: None = None,
+) -> Dict[Tuple[int, bool], Dict[str, float]]: ...
+
+
+@overload
+def calculate_raw_balances(
+    db: Session,
+    group_id: int,
+    target_currency: str,
+) -> Dict[Tuple[int, bool], float]: ...
+
+
+def calculate_raw_balances(
+    db: Session,
+    group_id: int,
+    target_currency: Optional[str] = None,
+) -> Union[Dict[Tuple[int, bool], float], Dict[Tuple[int, bool], Dict[str, float]]]:
+    """
+    Calculate per-participant balances BEFORE management folding.
+
+    This is the raw ledger: every participant keyed as they appear on the split
+    rows themselves, with no managed guest or managed member rolled into their
+    manager. :func:`calculate_net_balances` is this plus the fold.
+
+    Callers that need to *show* the fold — the group balances breakdown, and the
+    balance-sheet export — need both halves, and previously recomputed this one
+    inline. Two copies of the ledger loop is one more than the app can keep
+    honest, so it lives here.
+
+    Args:
+        db: Database session
+        group_id: ID of the group
+        target_currency: Optional currency to convert all balances to. If None,
+            returns balances per currency.
+
+    Returns:
+        Dictionary mapping (user_id, is_guest) tuples to amounts, or to
+        {currency: amount} dicts when ``target_currency`` is None.
+    """
+    expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
+
+    if not expenses:
+        return {}
+
+    # Optimization: Batch fetch all splits for these expenses to avoid N+1 queries
+    expense_ids = [e.id for e in expenses]
+    all_splits = db.query(models.ExpenseSplit).filter(
+        models.ExpenseSplit.expense_id.in_(expense_ids)
+    ).all()
+
+    splits_by_expense = {}
+    for split in all_splits:
+        if split.expense_id not in splits_by_expense:
+            splits_by_expense[split.expense_id] = []
+        splits_by_expense[split.expense_id].append(split)
+
+    if target_currency:
+        # Single currency mode - convert everything to target currency
+        balances = {}  # (user_id, is_guest) -> amount
+
+        for expense in expenses:
+            for split in splits_by_expense.get(expense.id, []):
+                amount_in_target = convert_split_to_currency(
+                    split.amount_owed, expense, target_currency
+                )
+
+                # Debtor decreases balance
+                debtor_key = (split.user_id, split.is_guest)
+                balances[debtor_key] = balances.get(debtor_key, 0) - amount_in_target
+
+                # Creditor (Payer) increases balance
+                payer_key = (expense.payer_id, expense.payer_is_guest)
+                balances[payer_key] = balances.get(payer_key, 0) + amount_in_target
+    else:
+        # Multi-currency mode - keep balances per currency
+        balances = {}  # (user_id, is_guest) -> {currency -> amount}
+
+        for expense in expenses:
+            for split in splits_by_expense.get(expense.id, []):
+                key = (split.user_id, split.is_guest)
+                if key not in balances:
+                    balances[key] = {}
+                if expense.currency not in balances[key]:
+                    balances[key][expense.currency] = 0
+
+                # Debtor decreases balance
+                balances[key][expense.currency] -= split.amount_owed
+
+                # Creditor (payer) increases balance
+                payer_key = (expense.payer_id, expense.payer_is_guest)
+                if payer_key not in balances:
+                    balances[payer_key] = {}
+                if expense.currency not in balances[payer_key]:
+                    balances[payer_key][expense.currency] = 0
+                balances[payer_key][expense.currency] += split.amount_owed
+
+    return balances
+
+
 @overload
 def calculate_net_balances(
     db: Session,
@@ -216,81 +432,10 @@ def calculate_net_balances(
         If target_currency is specified, all balances are converted to that currency.
         If target_currency is None, returns dict mapping to dict of {currency: amount}.
     """
-    # Get all expenses in group
-    expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
+    net_balances = calculate_raw_balances(db, group_id, target_currency)
 
-    if not expenses:
+    if not net_balances:
         return {}
-
-    # Optimization: Batch fetch all splits for these expenses to avoid N+1 queries
-    expense_ids = [e.id for e in expenses]
-    all_splits = db.query(models.ExpenseSplit).filter(
-        models.ExpenseSplit.expense_id.in_(expense_ids)
-    ).all()
-
-    # Group splits by expense_id
-    splits_by_expense = {}
-    for split in all_splits:
-        if split.expense_id not in splits_by_expense:
-            splits_by_expense[split.expense_id] = []
-        splits_by_expense[split.expense_id].append(split)
-
-    # Calculate raw net balances per participant
-    if target_currency:
-        # Single currency mode - convert everything to target currency
-        net_balances = {}  # (user_id, is_guest) -> amount
-
-        for expense in expenses:
-            splits = splits_by_expense.get(expense.id, [])
-
-            for split in splits:
-                # First convert to USD using historical rate, then to target currency
-                if expense.exchange_rate:
-                    try:
-                        rate = float(expense.exchange_rate)
-                        # exchange_rate represents: how many USD you get for 1 unit of expense currency
-                        # (e.g., 1 EUR = 1.0945 USD, so rate = 1.0945)
-                        # So to convert from expense currency to USD: multiply by rate
-                        amount_usd = split.amount_owed * rate
-                    except ValueError:
-                        amount_usd = convert_to_usd(split.amount_owed, expense.currency)
-                else:
-                    amount_usd = convert_to_usd(split.amount_owed, expense.currency)
-
-                # Convert from USD to target currency
-                amount_in_target = convert_currency(amount_usd, "USD", target_currency)
-
-                # Debtor decreases balance
-                debtor_key = (split.user_id, split.is_guest)
-                net_balances[debtor_key] = net_balances.get(debtor_key, 0) - amount_in_target
-
-                # Creditor (Payer) increases balance
-                payer_key = (expense.payer_id, expense.payer_is_guest)
-                net_balances[payer_key] = net_balances.get(payer_key, 0) + amount_in_target
-    else:
-        # Multi-currency mode - keep balances per currency
-        net_balances = {}  # (user_id, is_guest) -> {currency -> amount}
-
-        for expense in expenses:
-            splits = splits_by_expense.get(expense.id, [])
-
-            for split in splits:
-                key = (split.user_id, split.is_guest)
-                if key not in net_balances:
-                    net_balances[key] = {}
-                if expense.currency not in net_balances[key]:
-                    net_balances[key][expense.currency] = 0
-
-                # Debtor decreases balance
-                net_balances[key][expense.currency] -= split.amount_owed
-
-                # Creditor (payer) increases balance
-                payer_key = (expense.payer_id, expense.payer_is_guest)
-                if payer_key not in net_balances:
-                    net_balances[payer_key] = {}
-                if expense.currency not in net_balances[payer_key]:
-                    net_balances[payer_key][expense.currency] = 0
-                net_balances[payer_key][expense.currency] += split.amount_owed
 
     if target_currency:
         # Single-currency (scalar) mode — delegate folding to the shared helper

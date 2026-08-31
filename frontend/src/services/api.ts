@@ -88,6 +88,18 @@ const apiFetch = async (
     return response;
 };
 
+/**
+ * Pull the filename out of a Content-Disposition header.
+ *
+ * Returns null when the header is absent or unparseable — some proxies drop
+ * it — so callers keep a fallback name.
+ */
+export const filenameFromDisposition = (header: string | null): string | null => {
+    if (!header) return null;
+    const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+    return match ? decodeURIComponent(match[1]) : null;
+};
+
 // ============================================================================
 // Authentication API
 // ============================================================================
@@ -479,6 +491,32 @@ export const balancesApi = {
         const response = await apiFetch(`/simplify_debts/${groupId}`);
         if (!response.ok) throw new Error('Failed to simplify debts');
         return response.json();
+    },
+
+    /**
+     * Download the group's balance sheet as a CSV blob.
+     *
+     * Goes through apiFetch rather than a plain <a href> because the endpoint
+     * is authenticated: making it linkable would mean putting an access token
+     * in a query string, where it lands in browser history and server logs.
+     *
+     * Returns the blob and the server's filename so the caller can hand the
+     * pair to a download without re-deriving the name.
+     */
+    downloadBalanceSheet: async (
+        groupId: number
+    ): Promise<{ blob: Blob; filename: string }> => {
+        const response = await apiFetch(`/groups/${groupId}/balance_sheet.csv`, {
+            headers: { Accept: 'text/csv' },
+        });
+        if (!response.ok) throw new Error('Failed to export balance sheet');
+
+        return {
+            blob: await response.blob(),
+            filename:
+                filenameFromDisposition(response.headers.get('Content-Disposition')) ??
+                `balance-sheet-${groupId}.csv`,
+        };
     },
 
 };

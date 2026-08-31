@@ -27,6 +27,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `backend/routers/friends.py` - Friend management, friend request emails
 - `backend/routers/ocr.py` - LLM-based receipt scanning endpoint
 - `backend/routers/summary.py` - Summary endpoint
+- `backend/routers/exports.py` - CSV balance sheet export (members only)
 - `backend/routers/tabs.py` - Tabs: owner surface plus the public claim surface
 
 **Utilities:**
@@ -37,6 +38,8 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `backend/utils/guest_merge.py` - Folding a guest's history onto a user id, shared by claiming and owner-driven merging; sums colliding splits so one person never ends up twice on one expense
 - `backend/utils/email.py` - Brevo API email service for transactional emails
 - `backend/utils/summary.py` - Consumption aggregation primitive
+- `backend/utils/balance_sheet.py` - The settlement calculation as an auditable chain: item allocation, conversion, management folding, netting, simplification, plus self-checks that pin it against `/groups/{id}/balances`
+- `backend/utils/csv_export.py` - Sectioned CSV rendering, with the spreadsheet-formula guard and cents/decimal columns
 - `backend/utils/summary_cache.py` - Bounded in-memory TTL cache for public summary
 - `backend/utils/tabs.py` - Tab share computation (orphan spreading, proportional tax/tip)
 
@@ -75,6 +78,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/components/expense/ExpenseItemList.tsx` - Itemized expense UI with per-item splits
 - `frontend/src/components/group/GroupPersonSheet.tsx` - Per-person actions in a group: claim a guest, merge a guest into a member's account (owner only), fold a balance into a manager, remove, send a friend request
 - `frontend/src/components/AddPersonSheet.tsx` - Add a friend by email
+- `frontend/src/hooks/useBalanceSheetExport.ts` - Downloads the balance sheet CSV; owns the blob URL lifecycle and refuses while offline, since the sheet is server-computed and a cached one would be stale
 - `frontend/src/hooks/useOpenExpense.ts` - Opens the expense detail modal from a feed row, loading group context in the background
 - `frontend/src/components/tab/OpenTabsList.tsx` - Open tabs as re-entry rows; on the home page and Activity
 - `frontend/src/hooks/useItemizedExpense.ts` - Itemized expense state management
@@ -102,7 +106,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Guest users support claiming (merge history), owner-driven merging onto a named account, and management (balance aggregation)
 - Registered members can also be managed for balance aggregation
 - Refresh tokens stored hashed (SHA-256) in database with server-side revocation
-- Itemized expenses use proportional tax/tip distribution
+- Itemized expenses use proportional tax/tip distribution. `utils/splits.py::allocate_items` is the single implementation: the write path collapses it to one total per person, the balance sheet keeps the per-line detail including which person absorbed the remainder cents
 - Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback. Offered on every surface that settles a specific debt — `/settle`, a group's Simplify Debts, a person's Settle up, the overview's "Clear it in N payments" — but only for debts the signed-in user is party to
 - Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close. A claimer can Venmo the host straight from the claim page — the surface where the hand-off matters most, since they often owe somebody they have no other way to pay
 - Receipt uploads (images and PDFs) stored in `data/receipts/` directory (configurable via `DATA_DIR` env var); PDFs are rasterized per-page for the LLM but the original file is preserved. Served from `/static/receipts/`, which reaches the browser as `/api/static/receipts/` — so the service worker's navigation fallback must keep its hands off `/api/` (see `navigateFallbackDenylist` in `frontend/vite.config.ts`)
@@ -277,6 +281,9 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 
 ### OCR
 - `POST /ocr/scan-receipt` - Upload a receipt image (JPEG/PNG/WebP) or PDF (up to 10 pages, treated as one receipt), get LLM-extracted items with prices
+
+### Exports
+- `GET /groups/{group_id}/balance_sheet.csv` - The group's settlement maths as a sectioned CSV: expenses with itemized lines nested under their parent, the stored splits they reconcile against, currency conversion, management folding, net balances, the simplified transactions, and a CHECKS block stating whether it all reconciles. Members only — no public share-link variant, since the sheet states everyone's full position
 
 ### Summary
 - `GET /groups/{group_id}/summary` - Per-member consumption totals, group total, time-bucketed series (authenticated members)

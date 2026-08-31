@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
     ArrowLeft,
     DotsThree,
+    DownloadSimple,
     Handshake,
     Lightning,
     Plus,
@@ -37,6 +38,7 @@ import { useGroupData } from '../hooks/useGroupData';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { api } from '../services/api';
+import { useBalanceSheetExport } from '../hooks/useBalanceSheetExport';
 import { netForGroup } from '../utils/groupBalances';
 import type { GroupExpense } from '../hooks/useGroupData';
 
@@ -93,6 +95,11 @@ const GroupPage: React.FC = () => {
     const [openPerson, setOpenPerson] = useState<GroupPerson | null>(null);
     const [groupView, setGroupView] = useState<GroupView>('balances');
     const [simplifyOpen, setSimplifyOpen] = useState(false);
+    const {
+        exportCsv,
+        isExporting,
+        error: exportError,
+    } = useBalanceSheetExport(id ?? null);
 
     const refreshEverything = useCallback(async () => {
         await Promise.all([reload(), refreshAll()]);
@@ -402,6 +409,26 @@ const GroupPage: React.FC = () => {
                     >
                         Simplify debts
                     </Button>
+                    {/* Right beside the number people query, since "how was
+                        this worked out" is asked about this screen. */}
+                    <Button
+                        variant="ghost"
+                        block
+                        icon={<DownloadSimple size={15} />}
+                        onClick={exportCsv}
+                        disabled={isExporting}
+                        className="mt-2"
+                    >
+                        {isExporting ? 'Preparing CSV…' : 'Export balance sheet (CSV)'}
+                    </Button>
+                    {exportError && (
+                        <div
+                            role="alert"
+                            className="mt-2 text-xs text-sw-negative text-center"
+                        >
+                            {exportError}
+                        </div>
+                    )}
                 </>
             ) : (
                 <SummarySection groupId={id} currentUserId={user?.id ?? null} />
