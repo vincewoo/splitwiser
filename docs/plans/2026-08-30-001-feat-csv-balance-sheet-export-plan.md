@@ -1,7 +1,7 @@
 ---
 title: CSV balance sheet export for a group
 type: feat
-status: draft
+status: implemented
 date: 2026-08-30
 origin: conversation (design request)
 ---
@@ -218,26 +218,26 @@ Unclaimed, unmanaged group guests are first-class throughout the sheet. They hol
 special is required beyond the identity columns above — the point is that nothing is
 *omitted* for them.
 
-### 2. Claimed guest (`claimed_by_id` set) — renamed mid-history
+### 2. Claimed guest (`claimed_by_id` set) — the account absorbed the history
 
-This is the one most likely to generate the confusion the feature exists to fix.
-`_managed_key_for_guest` accrues a claimed guest's balance under
-`(claimed_by_id, False)`, and `get_guest_display_name` returns the claiming *user's*
-name. So an expense that was split with "Dave the guest" in March displays under
-"Dave Chen, member" today — the receipt and the app disagree, with no visible reason.
+**Corrected during implementation.** The first draft of this plan assumed a
+claimed guest's rows stay keyed to the guest. They do not: `claim_guest` calls
+`absorb_guest_into_user`, which physically rewrites every split, item and payer
+reference onto the user id and clears `managed_by`. The guest row survives only
+as a record of who absorbed it.
 
-The sheet resolves this by printing both:
+So for data created through the current endpoint, the ledger legitimately shows
+the account's name — the rows *are* the account's now. What the sheet adds is
+the `IDENTITY` section, declaring that guest "Dave" is now "Dave Chen", which is
+what explains why an expense somebody remembers splitting with a guest reads as
+a member today.
 
-- historical `SPLIT` / `ITEM_SHARE` rows keep `person_type=group_guest`, `person_id` =
-  the guest id, and `person` = **the original guest name**, because that is what the
-  row actually recorded;
-- an `IDENTITY` section states the reattribution once per claimed guest:
-  `guest_id, guest_name, claimed_by_user_id, claimed_by_name, claimed_at_unknown`;
-- from `CONSUMPTION` onward the amounts appear under the user, matching
-  `calculate_net_balances`.
-
-That ordering — original names in the ledger, reattribution declared, totals under the
-account — is the whole "show me the math" story for claiming in three sections.
+The pre-`absorb` shape still exists in older data: splits keyed to a guest that
+also carries `claimed_by_id`. `_managed_key_for_guest` still handles it, and so
+does the sheet — those ledger rows keep the **original guest name**, because
+that is what the row recorded, while `IDENTITY` reports how many such rows
+remain (`ledger_rows_still_under_the_guest`) and the totals land on the account.
+Both shapes are covered in `tests/test_balance_sheet_guests.py`.
 
 ### 3. Managed guest (`managed_by_id` set) — folded, and shown folding
 
