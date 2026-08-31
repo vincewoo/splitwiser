@@ -9,7 +9,7 @@ import models
 import schemas
 from database import get_db
 from dependencies import get_current_user
-from utils.balances import calculate_net_balances
+from utils.balances import calculate_net_balances, calculate_raw_balances, simplify
 from utils.currency import convert_currency, convert_to_usd, format_currency, get_current_exchange_rates
 from utils.display import get_participant_display_name
 from utils.validation import get_group_or_404, verify_group_membership
@@ -46,39 +46,8 @@ def get_group_balances(
     # We need to recalculate raw balances for breakdown display
     manager_guest_breakdown = {}
 
-    # Get all expenses to recalculate raw balances for breakdown
-    expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
-
-    # Optimization: Batch fetch splits for all expenses
-    expense_ids = [e.id for e in expenses]
-    splits_by_expense = {}
-    if expense_ids:
-        all_splits = db.query(models.ExpenseSplit).filter(
-            models.ExpenseSplit.expense_id.in_(expense_ids)
-        ).all()
-        for split in all_splits:
-            if split.expense_id not in splits_by_expense:
-                splits_by_expense[split.expense_id] = []
-            splits_by_expense[split.expense_id].append(split)
-
-    raw_balances = {}  # (user_id, is_guest) -> {currency -> amount}
-
-    for expense in expenses:
-        splits = splits_by_expense.get(expense.id, [])
-        for split in splits:
-            key = (split.user_id, split.is_guest)
-            if key not in raw_balances:
-                raw_balances[key] = {}
-            if expense.currency not in raw_balances[key]:
-                raw_balances[key][expense.currency] = 0
-            raw_balances[key][expense.currency] -= split.amount_owed
-
-            payer_key = (expense.payer_id, expense.payer_is_guest)
-            if payer_key not in raw_balances:
-                raw_balances[payer_key] = {}
-            if expense.currency not in raw_balances[payer_key]:
-                raw_balances[payer_key][expense.currency] = 0
-            raw_balances[payer_key][expense.currency] += split.amount_owed
+    # Raw (pre-fold) balances, so the response can show what was folded into whom.
+    raw_balances = calculate_raw_balances(db, group_id)
 
     # Batch fetch users and guests to avoid N+1 queries during display name resolution
     user_ids_to_fetch = set()
@@ -477,47 +446,7 @@ def simplify_debts(
     # Calculate net balances with management relationships aggregated
     net_balances = calculate_net_balances(db, group_id, target_currency)
 
-    # Simplify in target currency
-    transactions = []
-    debtors = []
-    creditors = []
-
-    for (uid, is_guest), amount in net_balances.items():
-        if amount < -0.01:
-            debtors.append({'id': uid, 'is_guest': is_guest, 'amount': amount})
-        elif amount > 0.01:
-            creditors.append({'id': uid, 'is_guest': is_guest, 'amount': amount})
-
-    debtors.sort(key=lambda x: x['amount'])
-    creditors.sort(key=lambda x: x['amount'], reverse=True)
-
-    i = 0
-    j = 0
-
-    while i < len(debtors) and j < len(creditors):
-        debtor = debtors[i]
-        creditor = creditors[j]
-
-        amount = min(abs(debtor['amount']), creditor['amount'])
-
-        # Only add transaction if amount is significant (at least 1 cent)
-        if amount >= 1.0:
-            transactions.append({
-                "from_id": debtor['id'],
-                "from_is_guest": debtor['is_guest'],
-                "to_id": creditor['id'],
-                "to_is_guest": creditor['is_guest'],
-                "amount": amount,
-                "currency": target_currency
-            })
-
-        debtor['amount'] += amount
-        creditor['amount'] -= amount
-
-        if abs(debtor['amount']) < 0.01:
-            i += 1
-        if creditor['amount'] < 0.01:
-            j += 1
+    transactions = simplify(net_balances, target_currency)
 
     # Who the ids in those transactions refer to.
     #
