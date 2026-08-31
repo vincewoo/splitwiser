@@ -108,6 +108,20 @@ class TestRenderCsv:
         assert rows[0][2] == "FAIL"
         assert rows[0][3] == "residual 3 cents"
 
+    def test_a_notice_renders_as_notice_not_as_a_failure(self):
+        sheet = _sheet(checks=[
+            CheckRow(
+                check="item_share_rounding_reassigned",
+                passed=True,
+                notice=True,
+                detail="expense 264: 4 cent(s) across 2 people",
+            ),
+        ])
+        rows = [r for r in csv.reader(io.StringIO(render_csv(sheet))) if r and r[0] == "CHECKS"]
+        assert rows[0][2] == "notice"
+        # Only a genuine failure shouts, so it stays the thing the eye catches.
+        assert "FAIL" not in render_csv(sheet)
+
     def test_conversion_section_omitted_for_a_single_currency_group(self):
         assert "# SECTION: CONVERSION" not in render_csv(_sheet())
 

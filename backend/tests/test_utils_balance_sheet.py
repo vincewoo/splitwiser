@@ -106,6 +106,36 @@ def _item(db_session, expense, description, price, assignees, is_tax_tip=False):
     return item
 
 
+def _recomputed_totals(db_session, expense):
+    """What allocate_items produces for an expense as it stands right now."""
+    from utils.splits import AllocationInput, allocate_items
+
+    inputs = []
+    items = db_session.query(ExpenseItem).filter(
+        ExpenseItem.expense_id == expense.id
+    ).order_by(ExpenseItem.id).all()
+    for item in items:
+        assignments = db_session.query(ExpenseItemAssignment).filter(
+            ExpenseItemAssignment.expense_item_id == item.id
+        ).order_by(ExpenseItemAssignment.id).all()
+        inputs.append(AllocationInput(
+            price=item.price,
+            keys=[
+                f"{'guest' if a.is_guest else 'user'}_{a.user_id}" for a in assignments
+            ],
+            item_id=item.id,
+            is_tax_tip=bool(item.is_tax_tip),
+            split_type=item.split_type or "EQUAL",
+        ))
+
+    totals = {}
+    for allocation in allocate_items(inputs):
+        prefix, _, raw_id = allocation.key.rpartition("_")
+        key = (int(raw_id), prefix == "guest")
+        totals[key] = totals.get(key, 0) + allocation.total_cents
+    return totals
+
+
 def _rows(sheet, row_type):
     return [r for r in sheet.ledger if r.row_type == row_type]
 
@@ -243,6 +273,128 @@ class TestItemizedAllocation:
         assert _check(sheet, "matches_balances_endpoint").passed
         net = {r.display_name: r.net_cents for r in sheet.net}
         assert net["Bob"] == -1500
+
+
+class TestRoundingReassignment:
+    """A claim changes who absorbs the remainder cents, but not what is owed.
+
+    ``allocate_items`` gives leftover cents to the last participant key in
+    sorted order. Claiming a guest rewrites its rows onto an account, so
+    ``guest_59`` becomes ``user_28`` and sorts somewhere else — a later
+    recomputation lands the remainder on a different person than the write
+    did. Reported as a notice, because reporting it as a failure would train
+    people to ignore the CHECKS block.
+    """
+
+    def test_a_claim_moves_the_remainder_and_is_reported_as_a_notice(
+        self, db_session, group
+    ):
+        alice = _user(db_session, "alice@example.com", "Alice")
+        bob = _user(db_session, "bob@example.com", "Bob")
+        _member(db_session, group, alice)
+        _member(db_session, group, bob)
+        guest = _guest(db_session, group, "Tina")
+        claimer = _user(db_session, "tina@example.com", "Tina Sung")
+        _member(db_session, group, claimer)
+
+        expense = _expense(
+            db_session, group, payer_id=alice.id, amount=10000, split_type="ITEMIZED",
+        )
+        # Post-claim state: absorb_guest_into_user rewrote the item assignments
+        # onto the account, so nothing here still points at the guest.
+        _item(
+            db_session, expense, "Pizza", 9000,
+            [(alice.id, False), (bob.id, False), (claimer.id, False)],
+        )
+        _item(db_session, expense, "Tip", 1000, [], is_tax_tip=True)
+        guest.claimed_by_id = claimer.id
+        db_session.commit()
+
+        # The splits are the ones saved *before* the claim, when the third
+        # participant keyed as guest_N and a different person therefore sorted
+        # last. Reproduce that by moving the leftover cent off whoever the
+        # recomputation now picks.
+        recomputed = _recomputed_totals(db_session, expense)
+        holder = max(recomputed, key=lambda k: (recomputed[k], k))
+        other = min(recomputed, key=lambda k: (recomputed[k], k))
+        for key, amount in recomputed.items():
+            adjustment = -1 if key == holder else (1 if key == other else 0)
+            _split(db_session, expense, key[0], amount + adjustment, is_guest=key[1])
+
+        sheet = build_balance_sheet(db_session, group.id)
+
+        reconciliations = _rows(sheet, "RECONCILIATION")
+        assert reconciliations, "the difference must still be visible in the ledger"
+        assert sum(r.amount_cents for r in reconciliations) == 0
+        assert all("rounding only" in r.note for r in reconciliations)
+        assert all("re-identified" in r.note for r in reconciliations)
+
+        # Not a failure — the totals agree and no balance moves.
+        assert _check(sheet, "item_shares_match_splits").passed
+        notice = _check(sheet, "item_share_rounding_reassigned")
+        assert notice.passed
+        assert notice.severity == "notice"
+        assert "unaffected" in notice.detail
+        assert _check(sheet, "matches_balances_endpoint").passed
+        assert _check(sheet, "splits_match_expense_totals").passed
+
+    def test_a_difference_too_large_to_be_rounding_is_still_a_failure(
+        self, db_session, group
+    ):
+        """Equal and opposite, but far beyond a remainder cent per line."""
+        alice = _user(db_session, "alice@example.com", "Alice")
+        bob = _user(db_session, "bob@example.com", "Bob")
+        _member(db_session, group, alice)
+        _member(db_session, group, bob)
+
+        expense = _expense(
+            db_session, group, payer_id=alice.id, amount=4000, split_type="ITEMIZED",
+        )
+        _item(db_session, expense, "Chicken", 4000, [(alice.id, False), (bob.id, False)])
+        _split(db_session, expense, alice.id, 2500)
+        _split(db_session, expense, bob.id, 1500)
+
+        sheet = build_balance_sheet(db_session, group.id)
+        assert not _check(sheet, "item_shares_match_splits").passed
+        assert not any(
+            c.check == "item_share_rounding_reassigned" for c in sheet.checks
+        )
+
+    def test_a_difference_that_does_not_net_to_zero_is_a_failure(
+        self, db_session, group
+    ):
+        """One cent, but conjured from nowhere — money, not attribution."""
+        alice = _user(db_session, "alice@example.com", "Alice")
+        bob = _user(db_session, "bob@example.com", "Bob")
+        _member(db_session, group, alice)
+        _member(db_session, group, bob)
+
+        expense = _expense(
+            db_session, group, payer_id=alice.id, amount=4001, split_type="ITEMIZED",
+        )
+        _item(db_session, expense, "Chicken", 4000, [(alice.id, False), (bob.id, False)])
+        _split(db_session, expense, alice.id, 2001)
+        _split(db_session, expense, bob.id, 2000)
+
+        sheet = build_balance_sheet(db_session, group.id)
+        check = _check(sheet, "item_shares_match_splits")
+        assert not check.passed
+        assert "1 cent" in check.detail
+
+    def test_no_notice_when_nothing_drifted(self, db_session, group):
+        alice = _user(db_session, "alice@example.com", "Alice")
+        _member(db_session, group, alice)
+        expense = _expense(
+            db_session, group, payer_id=alice.id, amount=4000, split_type="ITEMIZED",
+        )
+        _item(db_session, expense, "Chicken", 4000, [(alice.id, False)])
+        _split(db_session, expense, alice.id, 4000)
+
+        sheet = build_balance_sheet(db_session, group.id)
+        assert not any(
+            c.check == "item_share_rounding_reassigned" for c in sheet.checks
+        )
+        assert all(c.severity == "pass" for c in sheet.checks)
 
 
 class TestChecks:

@@ -245,7 +245,10 @@ def iter_csv(sheet: BalanceSheet) -> Iterator[str]:
 
     w.section("CHECKS", ["section", "check", "result", "detail"])
     for row in sheet.checks:
-        w.row(["CHECKS", row.check, "pass" if row.passed else "FAIL", row.detail])
+        # Uppercase FAIL only, so a real failure is the thing the eye catches
+        # when scanning this block.
+        result = "FAIL" if row.severity == "fail" else row.severity
+        w.row(["CHECKS", row.check, result, row.detail])
     yield w.drain()
 
 
