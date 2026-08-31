@@ -18,7 +18,14 @@ def convert_split_to_currency(
 ) -> float:
     """Convert one split amount from its expense's currency to ``target_currency``.
 
-    Two legs, and they are not symmetrical:
+    An expense already denominated in ``target_currency`` is returned as-is.
+    The round trip through USD is not the identity — leg 1 uses the rate stored
+    on the expense and leg 2 the static table — so converting, say, a EUR
+    expense to EUR would quietly move the balance, and a settlement recorded in
+    the group's own currency would cancel slightly more or less of the debt it
+    was meant to clear.
+
+    Otherwise, two legs, and they are not symmetrical:
 
     1. Expense currency -> USD at ``Expense.exchange_rate``, the rate captured
        when the expense was created. Falls back to today's static table when
@@ -28,6 +35,9 @@ def convert_split_to_currency(
 
     Returns the amount unrounded; callers truncate at their own boundary.
     """
+    if expense.currency == target_currency:
+        return amount
+
     if expense.exchange_rate:
         try:
             # exchange_rate is USD per 1 unit of the expense currency
@@ -146,6 +156,9 @@ def _fold_managed_relationships(
     db: Session,
     group_id: int,
     totals: Dict[Tuple[int, bool], float],
+    *,
+    managed_guests: Optional[List["models.GuestMember"]] = None,
+    managed_members: Optional[List["models.GroupMember"]] = None,
 ) -> None:
     """
     Fold managed guests and managed members into their managers in-place.
@@ -165,18 +178,25 @@ def _fold_managed_relationships(
             Mutated in place — folded entries are deleted, manager entries are
             incremented (and created if missing when iterating in an order that
             produces them).
+        managed_guests: Already-fetched managed ``GuestMember`` rows for the
+            group, when the caller has them. Fetched here otherwise.
+        managed_members: The same for managed ``GroupMember`` rows. Callers
+            folding two ledgers for one group pass both, so the rows are read
+            once rather than once per fold.
     """
     # Aggregate managed guests with their managers
-    managed_guests = db.query(models.GuestMember).filter(
-        models.GuestMember.group_id == group_id,
-        models.GuestMember.managed_by_id != None
-    ).all()
+    if managed_guests is None:
+        managed_guests = db.query(models.GuestMember).filter(
+            models.GuestMember.group_id == group_id,
+            models.GuestMember.managed_by_id != None
+        ).all()
 
     # Aggregate managed members with their managers
-    managed_members = db.query(models.GroupMember).filter(
-        models.GroupMember.group_id == group_id,
-        models.GroupMember.managed_by_id != None
-    ).all()
+    if managed_members is None:
+        managed_members = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id == group_id,
+            models.GroupMember.managed_by_id != None
+        ).all()
 
     # Detect managed_by cycles (e.g. guest A managed_by user 20, user 20
     # managed_by guest A). Folding cyclic entries would silently drop
@@ -232,21 +252,46 @@ def _fold_managed_relationships(
 def simplify(
     net_balances: Dict[Tuple[int, bool], float],
     currency: str,
+    anchors: Optional[Dict[Tuple[int, bool], float]] = None,
 ) -> List[Dict[str, object]]:
     """Reduce net balances to a minimal-ish set of payments.
 
-    Greedy: repeatedly match the largest debtor against the largest creditor.
-    Not provably minimal (that problem is NP-hard), but stable and easy to
-    explain — which matters, because this is the step that produces payments
-    between two people who never shared an expense, and is the single most
-    common "the maths is wrong" report.
+    Greedy: lay the debtors out along a line, lay the creditors out along the
+    same line, and pay across wherever the two overlap. Sorting both sides
+    largest-first is what makes it greedy — the biggest debtor is matched
+    against the biggest creditor. Not provably minimal (that problem is
+    NP-hard), but stable and easy to explain — which matters, because this is
+    the step that produces payments between two people who never shared an
+    expense, and is the single most common "the maths is wrong" report.
 
-    Amounts below one cent are dropped: they are conversion dust, not debts.
+    **Why the order is a parameter.** Sorting by the *current* balance makes
+    the plan rewrite itself as it is carried out: recording one of its own
+    payments changes the remaining balances, which changes the sort, which
+    re-pairs everybody else. A group told "Ana pays Dev $12, Ben pays Eve $8"
+    would find Ben's instructions silently changed the moment Ana paid. So
+    callers pass ``anchors`` — a balance snapshot that does *not* move when a
+    payment is recorded (in practice, the ledger with settlements left out) —
+    and it decides position only. The amounts always come from
+    ``net_balances``, so the plan is never stale, just consistently ordered.
+
+    With the order fixed, paying a planned transaction — in full or in part —
+    provably leaves every other transaction untouched: both endpoints shrink by
+    the same amount at the same point on the line, so every other overlap keeps
+    its length. Paying *off* plan, or adding a real expense, does re-plan, as
+    it must.
+
+    Amounts are whole cents: the plan gets quoted to people and recorded as an
+    expense in whole cents, so a fraction of one here would come back as dust
+    that never cancels. Amounts below one cent are dropped entirely — they are
+    conversion dust, not debts.
 
     Args:
         net_balances: ``(id, is_guest) -> amount`` in a single currency.
             Positive means the participant is owed money.
         currency: Currency code stamped on each returned transaction.
+        anchors: Optional ``(id, is_guest) -> amount`` used only for ordering.
+            Participants missing from it fall back to their own balance, so
+            omitting it entirely reproduces plain largest-first greedy.
 
     Returns:
         List of ``{from_id, from_is_guest, to_id, to_is_guest, amount, currency}``.
@@ -255,14 +300,27 @@ def simplify(
     debtors = []
     creditors = []
 
-    for (uid, is_guest), amount in net_balances.items():
+    for (uid, is_guest), raw_amount in net_balances.items():
+        amount = float(round(raw_amount))
+        anchor = raw_amount if anchors is None else anchors.get((uid, is_guest), raw_amount)
+        # The id breaks ties, so two people owed the same amount always sort
+        # the same way rather than in whatever order the ledger happened to
+        # produce them.
+        party = {
+            'id': uid,
+            'is_guest': is_guest,
+            'amount': amount,
+            'order': (float(round(anchor)), uid, is_guest),
+        }
         if amount < -0.01:
-            debtors.append({'id': uid, 'is_guest': is_guest, 'amount': amount})
+            debtors.append(party)
         elif amount > 0.01:
-            creditors.append({'id': uid, 'is_guest': is_guest, 'amount': amount})
+            creditors.append(party)
 
-    debtors.sort(key=lambda x: x['amount'])
-    creditors.sort(key=lambda x: x['amount'], reverse=True)
+    # Biggest debt and biggest credit first, by the anchor rather than by the
+    # live amount.
+    debtors.sort(key=lambda x: x['order'])
+    creditors.sort(key=lambda x: (-x['order'][0], x['order'][1], x['order'][2]))
 
     i = 0
     j = 0
@@ -295,65 +353,91 @@ def simplify(
     return transactions
 
 
-@overload
-def calculate_raw_balances(
+def plan_group_settlement(
     db: Session,
     group_id: int,
-    target_currency: None = None,
-) -> Dict[Tuple[int, bool], Dict[str, float]]: ...
+    currency: str,
+) -> Tuple[Dict[Tuple[int, bool], float], List[Dict[str, object]]]:
+    """The payments that settle a group, in an order that survives being paid.
 
+    Two ledgers: the real one, which decides the amounts, and the same ledger
+    with settlement payments left out, which decides only who is matched
+    against whom. Recording a payment cannot move the second one, so the
+    payments a group has already been told about stay put as they are made —
+    see :func:`simplify` for why that needs a second ledger at all.
 
-@overload
-def calculate_raw_balances(
-    db: Session,
-    group_id: int,
-    target_currency: str,
-) -> Dict[Tuple[int, bool], float]: ...
+    Returns the net balances alongside the plan, since callers that show the
+    plan generally need to name the people in it.
 
-
-def calculate_raw_balances(
-    db: Session,
-    group_id: int,
-    target_currency: Optional[str] = None,
-) -> Union[Dict[Tuple[int, bool], float], Dict[Tuple[int, bool], Dict[str, float]]]:
+    Costs the same four queries as ``calculate_net_balances`` alone: the
+    expenses are read once and run through the ledger twice.
     """
-    Calculate per-participant balances BEFORE management folding.
+    expenses, splits_by_expense = _load_group_ledger(db, group_id)
+    if not expenses:
+        return {}, []
 
-    This is the raw ledger: every participant keyed as they appear on the split
-    rows themselves, with no managed guest or managed member rolled into their
-    manager. :func:`calculate_net_balances` is this plus the fold.
+    net_balances = _accumulate_balances(expenses, splits_by_expense, currency)
+    anchors = _accumulate_balances(
+        [e for e in expenses if not e.is_settlement], splits_by_expense, currency
+    )
 
-    Callers that need to *show* the fold — the group balances breakdown, and the
-    balance-sheet export — need both halves, and previously recomputed this one
-    inline. Two copies of the ledger loop is one more than the app can keep
-    honest, so it lives here.
+    # One read of the management rows for both folds.
+    managed_guests = db.query(models.GuestMember).filter(
+        models.GuestMember.group_id == group_id,
+        models.GuestMember.managed_by_id != None
+    ).all()
+    managed_members = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.managed_by_id != None
+    ).all()
+    for totals in (net_balances, anchors):
+        _fold_managed_relationships(
+            db,
+            group_id,
+            totals,
+            managed_guests=managed_guests,
+            managed_members=managed_members,
+        )
 
-    Args:
-        db: Database session
-        group_id: ID of the group
-        target_currency: Optional currency to convert all balances to. If None,
-            returns balances per currency.
+    return net_balances, simplify(net_balances, currency, anchors=anchors)
 
-    Returns:
-        Dictionary mapping (user_id, is_guest) tuples to amounts, or to
-        {currency: amount} dicts when ``target_currency`` is None.
-    """
+
+def _load_group_ledger(
+    db: Session,
+    group_id: int,
+) -> Tuple[List["models.Expense"], Dict[int, List["models.ExpenseSplit"]]]:
+    """Every expense in a group and its splits, in two queries."""
     expenses = db.query(models.Expense).filter(models.Expense.group_id == group_id).all()
 
     if not expenses:
-        return {}
+        return [], {}
 
     # Optimization: Batch fetch all splits for these expenses to avoid N+1 queries
-    expense_ids = [e.id for e in expenses]
     all_splits = db.query(models.ExpenseSplit).filter(
-        models.ExpenseSplit.expense_id.in_(expense_ids)
+        models.ExpenseSplit.expense_id.in_([e.id for e in expenses])
     ).all()
 
-    splits_by_expense = {}
+    splits_by_expense: Dict[int, List["models.ExpenseSplit"]] = {}
     for split in all_splits:
         if split.expense_id not in splits_by_expense:
             splits_by_expense[split.expense_id] = []
         splits_by_expense[split.expense_id].append(split)
+
+    return expenses, splits_by_expense
+
+
+def _accumulate_balances(
+    expenses: List["models.Expense"],
+    splits_by_expense: Dict[int, List["models.ExpenseSplit"]],
+    target_currency: Optional[str] = None,
+) -> Union[Dict[Tuple[int, bool], float], Dict[Tuple[int, bool], Dict[str, float]]]:
+    """Walk the splits and net each participant off against each payer.
+
+    Pure: takes the rows rather than reading them, so one fetch can be run
+    through it more than once (the settlement-aware plan does exactly that).
+    """
+    if not expenses:
+        return {}
 
     if target_currency:
         # Single currency mode - convert everything to target currency
@@ -399,10 +483,73 @@ def calculate_raw_balances(
 
 
 @overload
+def calculate_raw_balances(
+    db: Session,
+    group_id: int,
+    target_currency: None = None,
+    *,
+    include_settlements: bool = True,
+) -> Dict[Tuple[int, bool], Dict[str, float]]: ...
+
+
+@overload
+def calculate_raw_balances(
+    db: Session,
+    group_id: int,
+    target_currency: str,
+    *,
+    include_settlements: bool = True,
+) -> Dict[Tuple[int, bool], float]: ...
+
+
+def calculate_raw_balances(
+    db: Session,
+    group_id: int,
+    target_currency: Optional[str] = None,
+    *,
+    include_settlements: bool = True,
+) -> Union[Dict[Tuple[int, bool], float], Dict[Tuple[int, bool], Dict[str, float]]]:
+    """
+    Calculate per-participant balances BEFORE management folding.
+
+    This is the raw ledger: every participant keyed as they appear on the split
+    rows themselves, with no managed guest or managed member rolled into their
+    manager. :func:`calculate_net_balances` is this plus the fold.
+
+    Callers that need to *show* the fold — the group balances breakdown, and the
+    balance-sheet export — need both halves, and previously recomputed this one
+    inline. Two copies of the ledger loop is one more than the app can keep
+    honest, so it lives here.
+
+    Args:
+        db: Database session
+        group_id: ID of the group
+        target_currency: Optional currency to convert all balances to. If None,
+            returns balances per currency.
+        include_settlements: When False, payments recorded to settle up
+            (``Expense.is_settlement``) are left out, giving the ledger as it
+            stood before anyone paid anything. Only ``simplify``'s ordering
+            wants this — every balance shown to a user includes them.
+
+    Returns:
+        Dictionary mapping (user_id, is_guest) tuples to amounts, or to
+        {currency: amount} dicts when ``target_currency`` is None.
+    """
+    expenses, splits_by_expense = _load_group_ledger(db, group_id)
+
+    if not include_settlements:
+        expenses = [e for e in expenses if not e.is_settlement]
+
+    return _accumulate_balances(expenses, splits_by_expense, target_currency)
+
+
+@overload
 def calculate_net_balances(
     db: Session,
     group_id: int,
     target_currency: None = None,
+    *,
+    include_settlements: bool = True,
 ) -> Dict[Tuple[int, bool], Dict[str, float]]: ...
 
 
@@ -411,6 +558,8 @@ def calculate_net_balances(
     db: Session,
     group_id: int,
     target_currency: str,
+    *,
+    include_settlements: bool = True,
 ) -> Dict[Tuple[int, bool], float]: ...
 
 
@@ -418,6 +567,8 @@ def calculate_net_balances(
     db: Session,
     group_id: int,
     target_currency: Optional[str] = None,
+    *,
+    include_settlements: bool = True,
 ) -> Union[Dict[Tuple[int, bool], float], Dict[Tuple[int, bool], Dict[str, float]]]:
     """
     Calculate net balances for all participants in a group, aggregating managed relationships.
@@ -426,13 +577,17 @@ def calculate_net_balances(
         db: Database session
         group_id: ID of the group
         target_currency: Optional currency to convert all balances to. If None, returns balances per currency.
+        include_settlements: When False, settle-up payments are left out — see
+            :func:`calculate_raw_balances`.
 
     Returns:
         Dictionary mapping (user_id, is_guest) tuples to net balance amounts.
         If target_currency is specified, all balances are converted to that currency.
         If target_currency is None, returns dict mapping to dict of {currency: amount}.
     """
-    net_balances = calculate_raw_balances(db, group_id, target_currency)
+    net_balances = calculate_raw_balances(
+        db, group_id, target_currency, include_settlements=include_settlements
+    )
 
     if not net_balances:
         return {}

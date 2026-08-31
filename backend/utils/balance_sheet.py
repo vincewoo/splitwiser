@@ -400,6 +400,10 @@ def build_balance_sheet(
     paid: Dict[Tuple[Key, str], int] = {}
     consumption_target: Dict[Key, float] = {}      # converted, unrounded
     paid_target: Dict[Key, float] = {}
+    # The same net figure with settle-up payments left out. Not printed —
+    # ``simplify`` uses it to order the plan, so that the payments in this
+    # sheet are the ones the app is showing the group. See ``utils.balances``.
+    presettlement: Dict[Key, float] = {}
     # Converted totals per native currency. Each expense converts at its own
     # stored rate, so a currency's total cannot be re-derived from one rate.
     consumption_conv: Dict[Tuple[Key, str], float] = {}
@@ -654,6 +658,9 @@ def build_balance_sheet(
             )
             consumption_target[split_key] = consumption_target.get(split_key, 0) + converted
             paid_target[payer_key] = paid_target.get(payer_key, 0) + converted
+            if not expense.is_settlement:
+                presettlement[split_key] = presettlement.get(split_key, 0) - converted
+                presettlement[payer_key] = presettlement.get(payer_key, 0) + converted
             consumption_conv[(split_key, expense_currency)] = (
                 consumption_conv.get((split_key, expense_currency), 0) + converted
             )
@@ -719,8 +726,15 @@ def build_balance_sheet(
     raw_scalar = calculate_raw_balances(db, group_id, currency)
     folded_consumption = dict(consumption_target)
     folded_paid = dict(paid_target)
-    _fold_managed_relationships(db, group_id, folded_consumption)
-    _fold_managed_relationships(db, group_id, folded_paid)
+    folded_presettlement = dict(presettlement)
+    for totals in (folded_consumption, folded_paid, folded_presettlement):
+        _fold_managed_relationships(
+            db,
+            group_id,
+            totals,
+            managed_guests=managed_guests,
+            managed_members=managed_members,
+        )
 
     management_rows: List[ManagementRow] = []
     for guest in sorted(managed_guests, key=lambda g: g.id):
@@ -821,7 +835,10 @@ def build_balance_sheet(
         ))
 
     # ---------------------------------------------------------- simplification
-    transactions = simplify(net_scalar, currency)
+    # Anchored on the ledger with settlements left out, exactly as
+    # ``/simplify_debts`` does — otherwise the sheet would print a different
+    # (equally valid) set of payments than the app is showing the group.
+    transactions = simplify(net_scalar, currency, anchors=folded_presettlement)
     simplified_rows = [
         TransactionRow(
             from_name=names.display_name((t["from_id"], t["from_is_guest"])),

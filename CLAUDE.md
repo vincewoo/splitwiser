@@ -101,7 +101,8 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 ### Key Patterns
 - Money stored in cents (integer) to avoid floating-point issues
 - Balance calculation: positive = owed to you, negative = you owe
-- Debt simplification converts all currencies to USD using cached exchange rates
+- Debt simplification converts all currencies to USD using cached exchange rates, except an expense already in the target currency, which is left alone — the two conversion legs use different rates, so the round trip is not the identity
+- The simplified plan is *stable under being paid*: `utils/balances.py::simplify` takes the amounts from the live balances but its ordering from an anchor ledger (the same group with settlements left out, via `plan_group_settlement`). Sorting by the live balance instead would re-pair everyone the moment one person recorded a payment, changing amounts a group had already been told
 - Historical exchange rates cached at expense creation (Frankfurter API)
 - Guest users support claiming (merge history), owner-driven merging onto a named account, and management (balance aggregation)
 - Registered members can also be managed for balance aggregation
@@ -276,7 +277,7 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 
 ### Balances & Currency
 - `GET /balances` - User balance summary across all groups
-- `GET /simplify_debts/{group_id}` - Debt simplification, plus a `participants` directory (display name + Venmo handle) for the ids in it
+- `GET /simplify_debts/{group_id}` - Debt simplification, plus a `participants` directory (display name + Venmo handle) for the ids in it. Paying one of the returned transactions leaves the others untouched
 - `GET /exchange_rates` - Current exchange rates
 
 ### OCR
