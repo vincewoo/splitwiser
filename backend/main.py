@@ -23,6 +23,7 @@ from routers import (
     auth,
     balances,
     expenses,
+    exports,
     friends,
     groups,
     members,
@@ -113,6 +114,7 @@ app.include_router(members.router)
 app.include_router(expenses.router)
 app.include_router(balances.router)
 app.include_router(summary.router)
+app.include_router(exports.router)
 app.include_router(friends.router)
 app.include_router(ocr.router)
 app.include_router(tabs.router)
