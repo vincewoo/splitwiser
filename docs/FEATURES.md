@@ -138,6 +138,48 @@ Fetch current rates
 Display with today's conversion rates
 ```
 
+## Simplified Debts That Stay Put
+
+The Simplify Debts screen answers "who pays whom", and people act on that
+answer offline — it gets read out at the table, pasted into a group chat, and
+then paid over the next few days. So the plan has to survive being carried
+out: recording one of its payments must not change anybody else's.
+
+That is not free. The plan comes from a greedy matching — biggest debtor
+against biggest creditor, repeatedly — and recording a payment changes the
+balances it sorts by. Ana paying her $12.00 could turn "Ben pays Eve $8.00,
+Ben pays Fay $7.00" into "Ben pays Eve $11.00, Ben pays Fay $4.00": the same
+total, correct either way, and completely wrong to a group that has already
+agreed who is sending what.
+
+The fix separates the two things the balances were doing at once:
+
+- **Amounts** come from the live ledger, so the plan is never stale.
+- **Order** comes from an *anchor* ledger — the same group with settle-up
+  payments left out. Recording a payment cannot move it.
+
+`utils/balances.py::plan_group_settlement` computes both from one read of the
+expenses and hands them to `simplify`. With the order fixed, the matching is
+just two lists laid along a line, paying across wherever they overlap — and
+settling a transaction shrinks both of its endpoints by the same amount at the
+same point on that line, so every other overlap keeps its length. Paying part
+of one is equally safe: that transaction shrinks and nothing else moves.
+
+What legitimately does re-plan: a new expense, an edited one, or a payment to
+somebody the plan never named. Those change the underlying problem, and the
+group needs the new answer.
+
+Two supporting details make the guarantee hold in practice:
+
+- Plan amounts are whole cents. They are quoted to people and recorded as an
+  expense in whole cents, so a fraction of one would come back as dust that
+  never cancels.
+- An expense already denominated in the group's currency is not converted at
+  all (`convert_split_to_currency`). The round trip through USD uses the rate
+  stored on the expense going out and the static table coming back, so it is
+  not the identity — a €100.00 payment recorded against a €100.00 debt used to
+  clear slightly more or less than the debt itself, and leave a stub behind.
+
 ## Dark Mode
 
 System-wide dark theme with user preference persistence.

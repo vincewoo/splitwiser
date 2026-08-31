@@ -9,7 +9,7 @@ import models
 import schemas
 from database import get_db
 from dependencies import get_current_user
-from utils.balances import calculate_net_balances, calculate_raw_balances, simplify
+from utils.balances import calculate_net_balances, calculate_raw_balances, plan_group_settlement
 from utils.currency import convert_currency, convert_to_usd, format_currency, get_current_exchange_rates
 from utils.display import get_participant_display_name
 from utils.validation import get_group_or_404, verify_group_membership
@@ -443,10 +443,11 @@ def simplify_debts(
 
     target_currency = group.default_currency or "USD"
 
-    # Calculate net balances with management relationships aggregated
-    net_balances = calculate_net_balances(db, group_id, target_currency)
-
-    transactions = simplify(net_balances, target_currency)
+    # Net balances with management relationships aggregated, and the payments
+    # that clear them. The plan is anchored so that recording one of these
+    # payments does not rewrite the others — a group that has been told the
+    # amounts should not watch them move as people pay.
+    net_balances, transactions = plan_group_settlement(db, group_id, target_currency)
 
     # Who the ids in those transactions refer to.
     #
