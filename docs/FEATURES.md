@@ -180,6 +180,106 @@ Two supporting details make the guarantee hold in practice:
   not the identity — a €100.00 payment recorded against a €100.00 debt used to
   clear slightly more or less than the debt itself, and leave a stub behind.
 
+## Settling for a Different Amount
+
+The plan says "Sam pays you $54.35". What arrives is often $50 (they rounded),
+$40 (they paid part of it) or $60 (they rounded the other way). The ledger should
+hold what happened, not what was suggested — so every surface that records a
+plan payment can record it for a different figure.
+
+There is no settlement endpoint to change. A settlement is an ordinary
+`POST /expenses` with `is_settlement: true`, the debtor as payer and the
+creditor carrying the whole amount, and the backend has never cared whether
+that amount matches anything. The plan-stability guarantee above is what makes
+a partial payment *safe* rather than merely possible: it shrinks its own
+transaction and moves nothing else
+(`test_partial_payment_end_to_end_shrinks_only_its_own_transaction`).
+
+### The sheet
+
+`frontend/src/components/SettleAmountSheet.tsx`, opened by **Different
+amount…** under a row's *Mark as paid* on both `routes/SettleUpPage.tsx` and
+`SimplifyDebtsModal.tsx`. *Mark as paid* itself stays a single tap for the
+suggested figure, since that is still the common case.
+
+- The field starts from the suggested figure, so the usual correction is a
+  couple of digits. Typing goes through `sanitizeAmountInput`, the same rules
+  as the add-expense field.
+- The currency is a fixed label. A debt is quoted in the group's currency
+  because that is the only currency a payment cancels it in exactly (see the
+  `convert_split_to_currency` note above); offering a picker here would invite
+  a stub.
+- The line under the field says what the figure would leave behind — *Leaves
+  $14.35 outstanding* or *Clears what you owe Sam* — with the wording in
+  `utils/settleAmount.ts` so the direction is unit-tested. Getting "Sam will
+  then owe you" backwards would be worse than saying nothing.
+- The Venmo hand-off inside the sheet follows the typed figure, so "pay $40
+  with Venmo" and "record $40" agree.
+
+### Overpaying is allowed
+
+Somebody who rounded $54.35 up to $60 really did send $60. Refusing it would
+leave the ledger wrong by $5.65 and the person with nothing honest to record,
+so the sheet lets it through — with a firmer notice than a partial gets,
+because the payer comes out owed money and the group will see that.
+
+The notice is careful about what that means. Balances are per person, not
+per pair: the excess raises the payer's balance by $5.65 and lowers the
+payee's by the same, and whom the plan then has pay it depends on the rest of
+the group — if the payer also owed somebody else, it nets against that first.
+So the copy says "you'll be owed $5.65 instead", not "Sam will owe you $5.65",
+which would be wrong exactly when the netting kicks in
+(`test_overpayment_end_to_end_moves_the_excess_to_the_payer`).
+
+### What gets recorded
+
+The same expense as a full payment, at the typed amount, with the note
+extended so the feed row explains why the balance did not go to zero — each
+surface keeps its own prefix: `Recorded from Settle up · $40.00 against $54.35
+suggested` from `/settle`, `Created by Simplify Debts · …` from the modal.
+
+On `SettleUpPage` a partially paid row stays on screen and comes back smaller
+when the plan reloads; a full payment or an overpayment takes it off, since
+either way that pair is no longer in the plan. Paid
+rows are hidden by key, and this is why `paymentsForUser` keys a payment by
+its pair (`paymentKey`) rather than its position: the same transaction has to
+be recognisable after a reload, and a positional key would hide the wrong row
+once the list shifted. The Simplify Debts modal has no reload — it shrinks the
+row in place, trusting the stability guarantee.
+
+### Paying somebody the plan did not name
+
+The plan is the *fewest* transfers that clear the group, not the only ones
+that can. Maya was told to pay Sam, owed Dev a favour, and paid Dev instead —
+a real payment the ledger should hold, and one the row-bound sheet cannot
+express since it fixes the counterparty. `OffPlanPaymentSheet.tsx` covers it:
+**Record a payment to someone else…** under the list on `/settle`, and
+**Someone else…** in the Simplify Debts modal's footer (offered even when the
+plan is empty, since being square today does not stop somebody paying ahead).
+
+- **Both sides are pickable**, not just "who you paid". The modal already
+  lets a member record a payment between two other people, and one sheet
+  serving both surfaces beats two that drift. The payer defaults to you.
+- **The roster is the group's own** (`GET /groups/{id}` on `/settle`, the
+  `members`/`guests` props in the modal), not the plan's directory: somebody
+  with no balance is not in the plan but can still be paid. The endpoint
+  returns only unclaimed guests — a claimed one is already the member who
+  claimed it. Venmo handles still come from the plan's directory, which is
+  where they live.
+- **`/settle` adds a group picker** when there is more than one group, since
+  a settlement is an expense and an expense belongs to a group; the currency
+  follows the group. A roster is tagged with the group it was loaded for and
+  only ever read against that group, because ids repeat across groups.
+- Venmo is offered only when you are the payer — it is your Venmo that opens.
+- The note reads `… · not one of the suggested payments`, and both surfaces
+  **re-fetch the plan** afterwards rather than patching the list: this is the
+  one case that legitimately re-plans (see *What legitimately does re-plan*
+  above, and `test_off_plan_payment_still_reconciles`).
+
+`utils/settleAmount.ts::settlementExpense` builds the expense for every path
+that records a settlement from these screens, so the four of them cannot
+disagree about what a settlement looks like.
+
 ## Dark Mode
 
 System-wide dark theme with user preference persistence.
@@ -295,6 +395,8 @@ the shared `frontend/src/components/VenmoButton.tsx`:
 | `routes/SettleUpPage.tsx` | `/settle` — the FAB, the overview, the mobile balances card | One payment inside one group |
 | `SimplifyDebtsModal.tsx` | A group's **Settle up** (header on desktop, footer on mobile) | One payment inside that group |
 | `SettleUpModal.tsx` | A person's **Settle up** | The amount being typed, to that person |
+| `components/SettleAmountSheet.tsx` | **Different amount…** under a plan row | The figure being typed against that row's debt |
+| `components/OffPlanPaymentSheet.tsx` | **Record a payment to someone else…** / **Someone else…** | The figure being typed, only when you are the payer |
 | `routes/OverviewPage.tsx` | The "Clear it in N payments" card | One person's balance, netted across groups |
 | `routes/TabClaimPage.tsx` | A tab's share link — no account, no shell | The claimer's own share, paid to the host |
 

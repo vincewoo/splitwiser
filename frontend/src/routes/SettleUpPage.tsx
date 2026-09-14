@@ -1,7 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CaretRight, Check, Lightning } from '@phosphor-icons/react';
+import {
+    ArrowLeft,
+    CaretRight,
+    Check,
+    Lightning,
+    PencilSimple,
+    UserPlus,
+} from '@phosphor-icons/react';
 import { Avatar, Button, Card, Money } from '../components/ui';
+import OffPlanPaymentSheet from '../components/OffPlanPaymentSheet';
+import SettleAmountSheet from '../components/SettleAmountSheet';
 import VenmoButton from '../components/VenmoButton';
 import { useAuth } from '../AuthContext';
 import { useAppData } from '../contexts/AppDataContext';
@@ -10,8 +19,15 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useSettlement } from '../hooks/useSettlement';
 import { api } from '../services/api';
 import { formatDateForInput } from '../utils/formatters';
+import {
+    classifySettleCents,
+    partialPaymentNote,
+    settlementExpense,
+} from '../utils/settleAmount';
 import { participantKey, partyName, settlementTotal } from '../utils/settlement';
 import { buildVenmoLinks, venmoUnavailableNote } from '../utils/venmo';
+import type { OffPlanPayment, PaymentPerson } from '../components/OffPlanPaymentSheet';
+import type { GroupMember, GuestMember } from '../types/group';
 import type { SettlementParty, SuggestedPayment } from '../utils/settlement';
 import type { VenmoLinks } from '../utils/venmo';
 
@@ -27,12 +43,28 @@ const SettleUpPage: React.FC = () => {
     const navigate = useNavigate();
     const isDesktop = useIsDesktop();
     const { user } = useAuth();
-    const { friends, refreshAll } = useAppData();
+    const { friends, groups, refreshAll } = useAppData();
     const { counterparties, payments, directory, loading, reload } = useSettlement();
 
     const [recording, setRecording] = useState<string | null>(null);
-    const [done, setDone] = useState<Set<string>>(new Set());
+    /**
+     * Rows paid since the plan last loaded, hidden for instant feedback
+     * before the reload lands. Scoped to the plan they were marked against:
+     * once `payments` is a fresh array the set is stale, and a pair the
+     * re-plan legitimately brings back must not stay hidden behind it.
+     */
+    const [done, setDone] = useState<{ plan: SuggestedPayment[]; keys: Set<string> }>({
+        plan: [],
+        keys: new Set(),
+    });
     const [error, setError] = useState<string | null>(null);
+    /** The payment whose amount is being edited, when the sheet is open. */
+    const [editing, setEditing] = useState<SuggestedPayment | null>(null);
+    const [editError, setEditError] = useState<string | null>(null);
+    /** The sheet for a payment the plan never suggested. */
+    const [offPlan, setOffPlan] = useState(false);
+    const [offPlanBusy, setOffPlanBusy] = useState(false);
+    const [offPlanError, setOffPlanError] = useState<string | null>(null);
 
     /**
      * Names come from the directory the debt simplification returns, which
@@ -45,23 +77,30 @@ const SettleUpPage: React.FC = () => {
     }, [friends, directory]);
 
     /**
-     * The Venmo hand-off for a payment, or null when we cannot offer one:
-     * the other party is a guest with no account, has published no handle, or
-     * the debt is not in dollars.
+     * The other party's Venmo handle, or null when there is nobody to reach:
+     * a guest with no account, or somebody who has published no handle.
+     * Fellow group members count, whether or not you have befriended them.
      */
-    const venmoFor = useMemo(() => {
+    const venmoUsernameFor = useMemo(() => {
         const handles = new Map(
             friends.map((friend) => [friend.id, friend.venmo_username ?? null])
         );
-        return (payment: SuggestedPayment): VenmoLinks | null => {
+        return (payment: SuggestedPayment): string | null => {
             if (payment.isGuest) return null;
-            // Fellow group members are offered the hand-off too, whether or
-            // not you have befriended them.
             const known = directory.get(
                 participantKey(payment.groupId, payment.userId, false)
             );
-            const username =
-                known?.venmo_username ?? handles.get(payment.userId) ?? null;
+            return known?.venmo_username ?? handles.get(payment.userId) ?? null;
+        };
+    }, [friends, directory]);
+
+    /**
+     * The Venmo hand-off for a payment, or null when we cannot offer one:
+     * nobody to reach, or the debt is not in dollars.
+     */
+    const venmoFor = useMemo(() => {
+        return (payment: SuggestedPayment): VenmoLinks | null => {
+            const username = venmoUsernameFor(payment);
             if (!username) return null;
             return buildVenmoLinks({
                 username,
@@ -74,70 +113,176 @@ const SettleUpPage: React.FC = () => {
                 note: `Settling up: ${payment.groupName}`,
             });
         };
-    }, [friends, directory]);
+    }, [venmoUsernameFor]);
 
-    const outstanding = payments.filter((p) => !done.has(p.key));
+    const hidden = done.plan === payments ? done.keys : new Set<string>();
+    const outstanding = payments.filter((p) => !hidden.has(p.key));
     const total = useMemo(() => settlementTotal(counterparties), [counterparties]);
 
     /**
      * Record a settlement the same way Simplify Debts does — an expense flagged
-     * is_settlement, paid by the payer, with the payee carrying the full amount
-     * so it cancels the existing debt.
+     * is_settlement, paid by the payer, with the payee carrying the whole
+     * amount so it cancels that much of the existing debt.
+     *
+     * `cents` defaults to the suggested figure. Anything else is what actually
+     * changed hands — a rounded or partial payment — and is recorded as such,
+     * with a note saying what it was measured against. Returns whether the
+     * payment was recorded; the caller owns the error, since the row and the
+     * amount sheet each show theirs in a different place.
      */
-    const markPaid = async (payment: SuggestedPayment) => {
+    const record = async (
+        payment: SuggestedPayment,
+        cents: number = Math.round(payment.amount)
+    ): Promise<boolean> => {
         // One side of every settlement is the signed-in user, so without an id
         // there is nothing to record. Guarded here so the payload stays fully
         // typed rather than smuggling an undefined into payer_id.
-        if (!user?.id) return;
+        if (!user?.id) return false;
 
         setRecording(payment.key);
-        setError(null);
 
-        const payerId = payment.iPay ? user.id : payment.userId;
-        const payerIsGuest = payment.iPay ? false : payment.isGuest;
-        const payeeId = payment.iPay ? payment.userId : user.id;
-        const payeeIsGuest = payment.iPay ? payment.isGuest : false;
+        const me = { userId: user.id, isGuest: false };
+        const them = { userId: payment.userId, isGuest: payment.isGuest };
+        // The description is a shared record every member sees, so it names
+        // people rather than saying "You".
+        const myName = user.full_name || 'You';
         const other = nameFor(payment);
 
+        const status = classifySettleCents(cents, payment.amount);
+        const against = partialPaymentNote(status, payment.amount, payment.currency);
+
         try {
-            const response = await api.expenses.create({
-                description: payment.iPay
-                    ? `Payment (You → ${other})`
-                    : `Payment (${other} → You)`,
-                amount: Math.round(payment.amount),
-                currency: payment.currency,
-                date: formatDateForInput(new Date()),
-                group_id: payment.groupId,
-                payer_id: payerId,
-                payer_is_guest: payerIsGuest,
-                split_type: 'EQUAL',
-                icon: '🏦',
-                notes: 'Recorded from Settle up',
-                is_settlement: true,
-                splits: [
-                    {
-                        user_id: payeeId,
-                        is_guest: payeeIsGuest,
-                        amount_owed: Math.round(payment.amount),
-                    },
-                ],
-            });
+            const response = await api.expenses.create(
+                settlementExpense({
+                    description: payment.iPay
+                        ? `Payment (${myName} → ${other})`
+                        : `Payment (${other} → ${myName})`,
+                    notes: against
+                        ? `Recorded from Settle up · ${against}`
+                        : 'Recorded from Settle up',
+                    cents,
+                    currency: payment.currency,
+                    groupId: payment.groupId,
+                    payer: payment.iPay ? me : them,
+                    payee: payment.iPay ? them : me,
+                    date: formatDateForInput(new Date()),
+                })
+            );
 
-            if (!response.ok) {
-                setError('Could not record that payment. Please try again.');
-                return;
+            if (!response.ok) return false;
+
+            // A partial payment leaves the row standing: the reload brings it
+            // back smaller under the same key. Anything else clears the pair.
+            if (status.kind !== 'partial') {
+                setDone((prev) => ({
+                    plan: payments,
+                    keys: new Set(prev.plan === payments ? prev.keys : []).add(payment.key),
+                }));
             }
-
-            setDone((prev) => new Set(prev).add(payment.key));
             await refreshAll();
             reload();
+            return true;
         } catch (err) {
             console.error('Failed to record settlement:', err);
-            setError('Could not record that payment. Please try again.');
+            return false;
         } finally {
             setRecording(null);
         }
     };
+
+    /** The row's one tap: the suggested figure in full. */
+    const markPaid = async (payment: SuggestedPayment) => {
+        setError(null);
+        if (!(await record(payment))) {
+            setError('Could not record that payment. Please try again.');
+        }
+    };
+
+    /** The sheet's path, keeping its error in the sheet. */
+    const recordCustom = async (cents: number) => {
+        if (!editing) return;
+        setEditError(null);
+        const ok = await record(editing, cents);
+        if (ok) setEditing(null);
+        else setEditError('Could not record that payment. Please try again.');
+    };
+
+    /**
+     * Everyone in a group, for the off-plan sheet's pickers. The roster comes
+     * from the group itself rather than the plan, since somebody with no
+     * balance is not in the plan but can still be paid. Handles come from the
+     * plan's directory, falling back to the friends list.
+     */
+    const loadPeople = useCallback(
+        async (groupId: number): Promise<PaymentPerson[]> => {
+            const group = (await api.groups.getById(groupId)) as {
+                members?: GroupMember[];
+                guests?: GuestMember[];
+            };
+            const handles = new Map(
+                friends.map((friend) => [friend.id, friend.venmo_username ?? null])
+            );
+            const members = (group.members ?? []).map((m) => ({
+                userId: m.user_id,
+                isGuest: false,
+                name: m.full_name,
+                venmoUsername:
+                    directory.get(participantKey(groupId, m.user_id, false))
+                        ?.venmo_username ??
+                    handles.get(m.user_id) ??
+                    null,
+            }));
+            // The endpoint returns only unclaimed guests; a claimed one is
+            // already listed as the member who claimed it.
+            const guests = (group.guests ?? []).map((g) => ({
+                userId: g.id,
+                isGuest: true,
+                name: g.name,
+            }));
+            return [...members, ...guests];
+        },
+        [friends, directory]
+    );
+
+    /** A payment the plan never suggested — recorded, then everything reloads. */
+    const recordOffPlan = async (payment: OffPlanPayment) => {
+        if (!user?.id) return;
+        setOffPlanBusy(true);
+        setOffPlanError(null);
+        try {
+            const response = await api.expenses.create(
+                settlementExpense({
+                    // Real names: the description is a shared record.
+                    description: `Payment (${payment.payer.name} → ${payment.payee.name})`,
+                    notes: 'Recorded from Settle up · not one of the suggested payments',
+                    cents: payment.cents,
+                    currency: payment.currency,
+                    groupId: payment.groupId,
+                    payer: payment.payer,
+                    payee: payment.payee,
+                    date: formatDateForInput(new Date()),
+                })
+            );
+            if (!response.ok) {
+                setOffPlanError('Could not record that payment. Please try again.');
+                return;
+            }
+            setOffPlan(false);
+            await refreshAll();
+            reload();
+        } catch (err) {
+            console.error('Failed to record settlement:', err);
+            setOffPlanError('Could not record that payment. Please try again.');
+        } finally {
+            setOffPlanBusy(false);
+        }
+    };
+
+    const offPlanGroups = useMemo(
+        () =>
+            groups.map((g) => ({ id: g.id, name: g.name, currency: g.default_currency })),
+        [groups]
+    );
 
     return (
         <>
@@ -286,6 +431,26 @@ const SettleUpPage: React.FC = () => {
                                                     </div>
 
                                                     {/*
+                                                      * The figure is a suggestion.
+                                                      * What was actually paid may be
+                                                      * rounded, or part of it.
+                                                      */}
+                                                    <Button
+                                                        variant="ghost"
+                                                        icon={<PencilSimple size={14} />}
+                                                        disabled={
+                                                            recording === payment.key
+                                                        }
+                                                        onClick={() => {
+                                                            setEditError(null);
+                                                            setEditing(payment);
+                                                        }}
+                                                        className="mt-2 text-[12.5px]"
+                                                    >
+                                                        Different amount…
+                                                    </Button>
+
+                                                    {/*
                                                       * Venmo opening is not proof of
                                                       * payment — we never learn whether
                                                       * it went through, so recording
@@ -312,6 +477,53 @@ const SettleUpPage: React.FC = () => {
                             })}
                         </div>
                     </>
+                )}
+
+                {/*
+                  * The plan is the fewest transfers, not the only ones. Somebody
+                  * who paid a person the plan did not name still needs it
+                  * recorded, and this is where they will look.
+                  */}
+                {!loading && groups.length > 0 && (
+                    <Button
+                        variant="ghost"
+                        icon={<UserPlus size={15} />}
+                        onClick={() => {
+                            setOffPlanError(null);
+                            setOffPlan(true);
+                        }}
+                        className="self-start text-[12.5px]"
+                    >
+                        Record a payment to someone else…
+                    </Button>
+                )}
+
+                {offPlan && user?.id && (
+                    <OffPlanPaymentSheet
+                        groups={offPlanGroups}
+                        loadPeople={loadPeople}
+                        youId={user.id}
+                        onClose={() => setOffPlan(false)}
+                        onRecord={recordOffPlan}
+                        busy={offPlanBusy}
+                        error={offPlanError}
+                    />
+                )}
+
+                {editing && (
+                    <SettleAmountSheet
+                        outstanding={editing.amount}
+                        currency={editing.currency}
+                        payer={editing.iPay ? 'You' : nameFor(editing)}
+                        payee={editing.iPay ? nameFor(editing) : 'You'}
+                        you={editing.iPay ? 'payer' : 'payee'}
+                        groupName={editing.groupName}
+                        venmoUsername={venmoUsernameFor(editing)}
+                        onClose={() => setEditing(null)}
+                        onRecord={recordCustom}
+                        busy={recording === editing.key}
+                        error={editError}
+                    />
                 )}
 
                 {counterparties.length > 0 && (

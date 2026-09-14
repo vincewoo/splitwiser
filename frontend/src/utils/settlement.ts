@@ -190,6 +190,26 @@ export interface SuggestedPayment {
 }
 
 /**
+ * One payment's identity within a plan: the group and the two parties.
+ *
+ * Keyed by the pair rather than the position, because the key has to survive
+ * a reload. After a partial payment the same transaction comes back smaller
+ * at the same slot; after a full one the rows below it move up a slot. A
+ * positional key would hide the wrong row in both cases. A pair appears at
+ * most once in a plan, so this is unique.
+ */
+export function paymentKey(
+    groupId: number,
+    tx: Pick<SimplifiedTransaction, 'from_id' | 'from_is_guest' | 'to_id' | 'to_is_guest'>
+): string {
+    const party = (id: number, isGuest: boolean) => `${isGuest ? 'g' : 'u'}${id}`;
+    return `${groupId}:${party(tx.from_id, tx.from_is_guest)}>${party(
+        tx.to_id,
+        tx.to_is_guest
+    )}`;
+}
+
+/**
  * The individual payments the current user is party to, kept per group rather
  * than merged.
  *
@@ -205,13 +225,13 @@ export function paymentsForUser(
     const payments: SuggestedPayment[] = [];
 
     for (const { groupId, groupName, transactions } of groups) {
-        transactions.forEach((tx, index) => {
+        for (const tx of transactions) {
             const iAmPayer = !tx.from_is_guest && tx.from_id === currentUserId;
             const iAmPayee = !tx.to_is_guest && tx.to_id === currentUserId;
-            if (iAmPayer === iAmPayee) return;
+            if (iAmPayer === iAmPayee) continue;
 
             payments.push({
-                key: `${groupId}-${index}`,
+                key: paymentKey(groupId, tx),
                 userId: iAmPayer ? tx.to_id : tx.from_id,
                 isGuest: iAmPayer ? tx.to_is_guest : tx.from_is_guest,
                 iPay: iAmPayer,
@@ -220,7 +240,7 @@ export function paymentsForUser(
                 groupId,
                 groupName,
             });
-        });
+        }
     }
 
     return payments.sort((a, b) => b.amount - a.amount);

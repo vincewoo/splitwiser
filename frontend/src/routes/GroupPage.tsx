@@ -268,6 +268,7 @@ const GroupPage: React.FC = () => {
                 onClose={() => setSimplifyOpen(false)}
                 groupId={id!}
                 groupName={group.name}
+                groupCurrency={group.default_currency}
                 members={group.members ?? []}
                 guests={group.guests ?? []}
                 onPaymentCreated={refreshEverything}

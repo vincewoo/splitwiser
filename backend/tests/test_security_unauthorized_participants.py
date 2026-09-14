@@ -105,3 +105,45 @@ def test_create_group_expense_with_non_member(client: TestClient, db_session: Se
     # If vulnerability exists, this will return 200.
     assert response.status_code == 400, "Should not allow adding non-member to group expense"
     assert "not a member of the group" in response.json()["detail"]
+
+
+def test_create_expense_in_group_you_are_not_in(client: TestClient, db_session: Session):
+    """A settlement between two members is a valid expense in every other
+    respect — the payer and the split both belong to the group — so the only
+    thing standing between an outsider and the group's ledger is a check on
+    who is asking."""
+    owner = create_user(db_session, "owner@example.com", "Owner")
+    member = create_user(db_session, "member@example.com", "Member")
+    outsider = create_user(db_session, "outsider@example.com", "Outsider")
+
+    group_id = client.post(
+        "/groups", headers=create_auth_headers(owner), json={"name": "Private", "default_currency": "USD"}
+    ).json()["id"]
+    client.post(
+        f"/groups/{group_id}/members",
+        headers=create_auth_headers(owner),
+        json={"email": member.email},
+    )
+
+    payload = {
+        "description": "Payment (Member → Owner)",
+        "amount": 5000,
+        "currency": "USD",
+        "date": "2023-01-01",
+        "group_id": group_id,
+        "payer_id": member.id,
+        "payer_is_guest": False,
+        "split_type": "EQUAL",
+        "is_settlement": True,
+        "splits": [{"user_id": owner.id, "amount_owed": 5000, "is_guest": False}],
+    }
+
+    refused = client.post("/expenses", json=payload, headers=create_auth_headers(outsider))
+    assert refused.status_code == 403
+    assert "not a member" in refused.json()["detail"]
+
+    # The same request from a member is fine — including one who is neither
+    # the payer nor the payee, since the group's plan lets a member record a
+    # payment between two other people.
+    allowed = client.post("/expenses", json=payload, headers=create_auth_headers(owner))
+    assert allowed.status_code == 200
