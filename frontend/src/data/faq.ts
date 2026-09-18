@@ -452,6 +452,28 @@ export const FAQ_SECTIONS: FAQSection[] = [
           '',
           'This records a payment (zero-split expense) that adjusts balances without splitting costs.'
         ]
+      },
+      {
+        question: 'Someone paid me a different amount than the app suggested. What do I record?',
+        answer: [
+          'Record what actually happened. Under any suggested payment on Settle up (or a group\'s Simplified debts), tap "Different amount…" and type the figure that changed hands.',
+          '',
+          '• Less than suggested: the rest stays outstanding, and the same payment comes back smaller',
+          '• More than suggested: whoever overpaid is owed the extra back, and the group\'s plan works out who pays it',
+          '',
+          '"Mark as paid" still records the full suggested figure in one tap. The currency stays the group\'s, since that is the only currency a payment cancels the debt in exactly.'
+        ]
+      },
+      {
+        question: 'I paid someone the plan didn\'t tell me to pay. Can I record that?',
+        answer: [
+          'Yes. The suggested payments are the fewest transfers that clear the group, but any payment between two people in it counts.',
+          '',
+          '• On Settle up, tap "Record a payment to someone else…" under the list',
+          '• In a group\'s Simplified debts, tap "Someone else…" in the footer',
+          '',
+          'Pick who paid whom (guests included) and the amount. Balances move by exactly that much, and the suggested payments are worked out again around it.'
+        ]
       }
     ]
   },

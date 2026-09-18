@@ -81,6 +81,13 @@ def create_expense(
             detail="Expense guests can only be added to expenses outside of a group"
         )
 
+    # Only a member may write into a group's ledger. The participant checks
+    # below confirm the payer and splits belong to the group, but say nothing
+    # about who is asking — and a settlement between two members is a valid
+    # expense that anyone with a group id could otherwise post.
+    if expense.group_id is not None:
+        verify_group_membership(db, expense.group_id, current_user.id)
+
     # Clamp the date to a reasonable window before any downstream work —
     # an unbounded date blows up the Summary endpoint's bucket series.
     validate_date_range(expense.date)

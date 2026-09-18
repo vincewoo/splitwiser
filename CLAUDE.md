@@ -71,6 +71,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/utils/tabShares.ts` - Live preview of tab shares, plus the itemized per-person breakdown behind each total; TS port of `backend/utils/tabs.py`
 - `frontend/src/utils/venmo.ts` - Venmo deeplink builder for settle up (USD only), plus the note explaining a currency it cannot send
 - `frontend/src/components/VenmoButton.tsx` - the hand-off itself, shared by every settle-up surface: a real link that upgrades a plain click to the installed app
+- `frontend/src/utils/settleAmount.ts` - what a typed settle-up figure means against the suggested one (full / partial / over) and the copy that says so; `settlementExpense` is the one place a settlement expense is shaped
 
 **Feature Components:**
 - `frontend/src/ReceiptScanner.tsx` - LLM-based receipt scanning (upload → AI scan → review items)
@@ -78,6 +79,9 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/components/expense/ExpenseItemList.tsx` - Itemized expense UI with per-item splits
 - `frontend/src/components/group/GroupPersonSheet.tsx` - Per-person actions in a group: claim a guest, merge a guest into a member's account (owner only), fold a balance into a manager, remove, send a friend request
 - `frontend/src/components/AddPersonSheet.tsx` - Add a friend by email
+- `frontend/src/components/SettleAmountSheet.tsx` - recording a suggested payment for a different figure (rounded, partial, or over); opened by "Different amount…" on `/settle` and in Simplify Debts
+- `frontend/src/components/OffPlanPaymentSheet.tsx` - recording a payment the plan never suggested: any two people in a group, guests included, with a group picker on `/settle`
+- `frontend/src/components/PaymentAmountField.tsx` - the labelled amount input with the currency pinned beside it, shared by both sheets
 - `frontend/src/hooks/useBalanceSheetExport.ts` - Downloads the balance sheet CSV; owns the blob URL lifecycle and refuses while offline, since the sheet is server-computed and a cached one would be stale
 - `frontend/src/hooks/useOpenExpense.ts` - Opens the expense detail modal from a feed row, loading group context in the background
 - `frontend/src/components/tab/OpenTabsList.tsx` - Open tabs as re-entry rows; on the home page and Activity
@@ -108,7 +112,8 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Registered members can also be managed for balance aggregation
 - Refresh tokens stored hashed (SHA-256) in database with server-side revocation
 - Itemized expenses use proportional tax/tip distribution. `utils/splits.py::allocate_items` is the single implementation: the write path collapses it to one total per person, the balance sheet keeps the per-line detail including which person absorbed the remainder cents
-- Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback. Offered on every surface that settles a specific debt — `/settle`, a group's Simplify Debts, a person's Settle up, the overview's "Clear it in N payments" — but only for debts the signed-in user is party to
+- A settlement is an ordinary expense with `is_settlement`, so the backend never cared whether the amount matched the plan. The settle screens let it differ: a suggested payment can be recorded for a different figure (overpaying is allowed — the payer comes out owed the excess, and the copy says so rather than promising who pays it), and a payment to somebody the plan never named can be recorded outright, which is the one thing that legitimately re-plans the group
+- Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback. Offered on every surface that settles a specific debt — `/settle`, a group's Simplify Debts, a person's Settle up, the overview's "Clear it in N payments" — but only for debts the signed-in user is party to, and on the off-plan sheet only when the signed-in user is the payer
 - Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close. A claimer can Venmo the host straight from the claim page — the surface where the hand-off matters most, since they often owe somebody they have no other way to pay
 - Receipt uploads (images and PDFs) stored in `data/receipts/` directory (configurable via `DATA_DIR` env var); PDFs are rasterized per-page for the LLM but the original file is preserved. Served from `/static/receipts/`, which reaches the browser as `/api/static/receipts/` — so the service worker's navigation fallback must keep its hands off `/api/` (see `navigateFallbackDenylist` in `frontend/vite.config.ts`)
 

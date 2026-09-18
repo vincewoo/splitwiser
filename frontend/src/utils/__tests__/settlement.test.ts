@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     participantDirectory,
     partyName,
+    paymentKey,
     paymentsForUser,
     settlementForUser,
     settlementTotal,
@@ -285,5 +286,34 @@ describe('paymentsForUser', () => {
             ME
         );
         expect(payments.map((p) => p.amount)).toEqual([900, 100]);
+    });
+
+    it('keys a payment by its pair, so the key survives a reload', () => {
+        // After a partial payment the same transaction comes back smaller;
+        // after a full one the rows below it move up. Neither may change a
+        // surviving row's key, or the screen would hide the wrong row.
+        const before = paymentsForUser(
+            [group(1, 'Tahoe', [tx(ME, 2, 5000), tx(ME, 3, 900)])],
+            ME
+        );
+        const afterPartial = paymentsForUser(
+            [group(1, 'Tahoe', [tx(ME, 2, 1000), tx(ME, 3, 900)])],
+            ME
+        );
+        const afterFull = paymentsForUser([group(1, 'Tahoe', [tx(ME, 3, 900)])], ME);
+
+        const keyOf = (list: typeof before, userId: number) =>
+            list.find((p) => p.userId === userId)!.key;
+        expect(keyOf(afterPartial, 2)).toBe(keyOf(before, 2));
+        expect(keyOf(afterFull, 3)).toBe(keyOf(before, 3));
+        expect(keyOf(before, 2)).not.toBe(keyOf(before, 3));
+    });
+
+    it('keeps a guest and a member with the same id apart in the key', () => {
+        expect(paymentKey(1, tx(ME, 2, 100))).not.toBe(
+            paymentKey(1, { ...tx(ME, 2, 100), to_is_guest: true })
+        );
+        // And the same pair in another group is another payment.
+        expect(paymentKey(1, tx(ME, 2, 100))).not.toBe(paymentKey(2, tx(ME, 2, 100)));
     });
 });

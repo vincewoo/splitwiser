@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Settling for a different amount**: Every suggested payment on Settle up
+  and in a group's Simplified debts now has a *Different amount…* beside *Mark
+  as paid*, for when what changed hands was rounded, partial, or generous. The
+  sheet starts from the suggested figure, says what the typed figure leaves
+  outstanding (or, for an overpayment, that the payer is owed the extra), hands the same
+  figure to Venmo, and records it with a note saying what it was measured
+  against. A partially paid row stays on screen, smaller.
+- **Paying someone the plan didn't name**: *Record a payment to someone
+  else…* on Settle up and *Someone else…* in Simplified debts record a payment
+  between any two people in a group — guests included, either side — for when
+  what happened was not one of the suggested transfers. The plan is worked out
+  again around it.
+
 - **Tab breakdowns**: Every per-person total on a tab now opens onto the working
   behind it — their items, how many ways each shared line went, their share of
   anything nobody claimed, and their part of the tax and tip. On the host's
@@ -35,6 +48,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Settle up hid the wrong row after a payment**: paid rows were tracked by
+  position, so once the list shifted the row below could vanish until the
+  page reloaded. Rows are now tracked by the pair they settle — on Settle up
+  and in Simplified debts, where an open amount sheet could otherwise have
+  slid onto a different pair while another row was being recorded.
+- **Simplified debts believed a refused payment had gone through**: a 4xx/5xx
+  from the server still removed the row and closed the sheet. Both now stay,
+  with the error.
+- **Settlements recorded from Settle up said "You"**: the description is a
+  shared record every member sees, so it now names the person, as the
+  Simplified debts modal always did.
+- **Anyone could post an expense into any group**: `POST /expenses` checked
+  that the payer and the splits belonged to the group, but never that the
+  caller did. It now requires membership, as editing and deleting already did.
 - **Receipt links opening a blank tab**: *View receipt* opened a new tab that
   never loaded the image. The service worker, which vite-plugin-pwa points at
   `index.html` for every navigation by default, was answering the link with the

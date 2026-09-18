@@ -11,6 +11,8 @@ leaves every other one alone.
 from datetime import date
 from unittest.mock import patch
 
+import pytest
+
 import models
 from auth import get_password_hash
 from utils.balances import simplify
@@ -355,4 +357,122 @@ def test_off_plan_payment_still_reconciles(client, auth_headers, db_session, tes
             settled.get((t["to_id"], t["to_is_guest"]), 0) + t["amount"]
         )
     for key, amount in balances.items():
+        assert abs(amount - settled.get(key, 0)) < 1
+
+
+def _record(client, auth_headers, group_id, paid, amount, notes="Payment"):
+    """Record a plan transaction as the settle-up screens do, for ``amount``
+    cents — the suggested figure or otherwise."""
+    return client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Payment",
+            "amount": amount,
+            "currency": paid["currency"],
+            "date": str(date.today()),
+            "group_id": group_id,
+            "payer_id": paid["from_id"],
+            "payer_is_guest": paid["from_is_guest"],
+            "split_type": "EQUAL",
+            "icon": "🏦",
+            "notes": notes,
+            "is_settlement": True,
+            "splits": [
+                {
+                    "user_id": paid["to_id"],
+                    "is_guest": paid["to_is_guest"],
+                    "amount_owed": amount,
+                }
+            ],
+        },
+    )
+
+
+def _balances(client, auth_headers, group_id):
+    """Net position per person. The endpoint drops anyone at exactly zero, so
+    read through ``.get(key, 0)``."""
+    return {
+        (b["user_id"], b["is_guest"]): b["amount"]
+        for b in client.get(f"/groups/{group_id}/balances", headers=auth_headers).json()
+    }
+
+
+def test_partial_payment_end_to_end_shrinks_only_its_own_transaction(
+    client, auth_headers, db_session, test_user
+):
+    """What the custom-amount sheet relies on: recording less than the
+    suggested figure leaves the same pair in the plan, smaller by exactly
+    what was paid, with every other transaction untouched."""
+    group_id = _group_of_five(client, auth_headers, db_session, test_user)
+
+    plan = client.get(f"/simplify_debts/{group_id}", headers=auth_headers).json()[
+        "transactions"
+    ]
+    paid = plan[0]
+    part = round(paid["amount"]) - 500
+
+    response = _record(
+        client,
+        auth_headers,
+        group_id,
+        paid,
+        part,
+        notes="Recorded from Settle up · $7.00 against $12.00 suggested",
+    )
+    assert response.status_code == 200
+    assert response.json()["notes"].startswith("Recorded from Settle up")
+
+    after = client.get(f"/simplify_debts/{group_id}", headers=auth_headers).json()[
+        "transactions"
+    ]
+    assert _edges(after) == [(paid["from_id"], paid["to_id"], 500), *_edges(plan)[1:]]
+
+
+def test_overpayment_end_to_end_moves_the_excess_to_the_payer(
+    client, auth_headers, db_session, test_user
+):
+    """Paying more than suggested is allowed. Balances are per person, not
+    per pair, so what the excess does is raise the payer's balance and lower
+    the payee's by that much — whom it is then collected from is for the
+    re-plan to say. Here the payer also owed a third person, so the excess
+    nets against that rather than coming back as a payee→payer edge, which
+    is why the sheet's copy says "you'll be owed" and not "Sam will owe you".
+    """
+    group_id = _group_of_five(client, auth_headers, db_session, test_user)
+
+    plan = client.get(f"/simplify_debts/{group_id}", headers=auth_headers).json()[
+        "transactions"
+    ]
+    paid = plan[0]
+    payer, payee = (paid["from_id"], False), (paid["to_id"], False)
+    over = round(paid["amount"]) + 300
+    before = _balances(client, auth_headers, group_id)
+
+    assert _record(client, auth_headers, group_id, paid, over).status_code == 200
+
+    after = _balances(client, auth_headers, group_id)
+    replanned = client.get(f"/simplify_debts/{group_id}", headers=auth_headers).json()[
+        "transactions"
+    ]
+
+    # Exactly the two parties moved, by exactly what was paid.
+    assert after.get(payer, 0) == pytest.approx(before.get(payer, 0) + over, abs=1)
+    assert after.get(payee, 0) == pytest.approx(before.get(payee, 0) - over, abs=1)
+    for key in set(before) | set(after):
+        if key not in (payer, payee):
+            assert after.get(key, 0) == pytest.approx(before.get(key, 0), abs=1)
+
+    # The suggested pair is settled and gone.
+    assert (paid["from_id"], paid["to_id"]) not in [(f, t) for f, t, _ in _edges(replanned)]
+    # And the re-planned transactions still add up to the balances.
+    settled = {}
+    for t in replanned:
+        settled[(t["from_id"], t["from_is_guest"])] = (
+            settled.get((t["from_id"], t["from_is_guest"]), 0) - t["amount"]
+        )
+        settled[(t["to_id"], t["to_is_guest"])] = (
+            settled.get((t["to_id"], t["to_is_guest"]), 0) + t["amount"]
+        )
+    for key, amount in after.items():
         assert abs(amount - settled.get(key, 0)) < 1

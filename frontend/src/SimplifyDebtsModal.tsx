@@ -1,11 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowRight, Check, CheckCircle, X } from '@phosphor-icons/react';
+import React, { useCallback, useState, useEffect } from 'react';
+import { ArrowRight, Check, CheckCircle, PencilSimple, UserPlus, X } from '@phosphor-icons/react';
 import { useAuth } from './AuthContext';
 import { api } from './services/api';
 import { formatMoney } from './utils/formatters';
 import { Avatar, Button, Card, Money, Notice } from './components/ui';
+import OffPlanPaymentSheet from './components/OffPlanPaymentSheet';
+import SettleAmountSheet from './components/SettleAmountSheet';
 import VenmoButton from './components/VenmoButton';
+import { classifySettleCents, partialPaymentNote, settlementExpense } from './utils/settleAmount';
 import { buildVenmoLinks, venmoUnavailableNote } from './utils/venmo';
+import { paymentKey } from './utils/settlement';
+import type { OffPlanPayment, PaymentPerson } from './components/OffPlanPaymentSheet';
 import type { SettlementParticipant, SimplifiedTransaction } from './utils/settlement';
 
 interface SimplifyDebtsModalProps {
@@ -14,6 +19,10 @@ interface SimplifyDebtsModalProps {
   groupId: number;
   /** Only for the Venmo memo, so the recipient knows what the payment is for. */
   groupName?: string;
+  /** The currency a payment in this group is recorded in — the plan's, and
+   *  the only one that cancels a debt here exactly. Needed even when the plan
+   *  is empty, since a payment can still be recorded then. */
+  groupCurrency: string;
   members: Array<{ id: number; user_id: number; full_name: string }>;
   guests: Array<{ id: number; name: string }>;
   onPaymentCreated?: () => void; // Callback to refresh balances after payment
@@ -24,6 +33,7 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
   onClose,
   groupId,
   groupName,
+  groupCurrency,
   members,
   guests,
   onPaymentCreated,
@@ -33,7 +43,20 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
   const [participants, setParticipants] = useState<SettlementParticipant[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [processingPaymentIndex, setProcessingPaymentIndex] = useState<number | null>(null);
+  /**
+   * Rows are identified by the pair they settle, never by position: recording
+   * one removes it and shifts the rest, so an index held across an await —
+   * or an open sheet — would land on the wrong two people.
+   */
+  const keyOf = (t: SimplifiedTransaction) => paymentKey(groupId, t);
+  const [processingKey, setProcessingKey] = useState<string | null>(null);
+  /** The transaction whose amount is being edited, when the sheet is open. */
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  /** The sheet for a payment the plan never suggested. */
+  const [offPlan, setOffPlan] = useState(false);
+  const [offPlanBusy, setOffPlanBusy] = useState(false);
+  const [offPlanError, setOffPlanError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -68,6 +91,29 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
   };
 
   /**
+   * Which side of a transaction the signed-in user is on, or null for one
+   * between two other people.
+   */
+  const sideOf = (transaction: SimplifiedTransaction): 'payer' | 'payee' | null => {
+    const iAmPayer = !transaction.from_is_guest && transaction.from_id === user?.id;
+    const iAmPayee = !transaction.to_is_guest && transaction.to_id === user?.id;
+    if (iAmPayer === iAmPayee) return null;
+    return iAmPayer ? 'payer' : 'payee';
+  };
+
+  /** The other party's handle, or null: a guest, or nobody who published one. */
+  const venmoUsernameFor = (
+    transaction: SimplifiedTransaction,
+    you: 'payer' | 'payee'
+  ): string | null => {
+    const otherId = you === 'payer' ? transaction.to_id : transaction.from_id;
+    const otherIsGuest = you === 'payer' ? transaction.to_is_guest : transaction.from_is_guest;
+    if (otherIsGuest) return null; // no account, nothing to pay into
+    const other = participants.find(p => p.user_id === otherId && !p.is_guest);
+    return other?.venmo_username ?? null;
+  };
+
+  /**
    * The Venmo hand-off for a transaction, when there is one to offer.
    *
    * This modal lists the whole group's payments, including ones between two
@@ -83,24 +129,19 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
   const handoffFor = (transaction: SimplifiedTransaction) => {
     const none = { links: null, action: 'pay' as const, reachable: false };
 
-    const iAmPayer = !transaction.from_is_guest && transaction.from_id === user?.id;
-    const iAmPayee = !transaction.to_is_guest && transaction.to_id === user?.id;
-    if (iAmPayer === iAmPayee) return none;
-
-    const otherId = iAmPayer ? transaction.to_id : transaction.from_id;
-    const otherIsGuest = iAmPayer ? transaction.to_is_guest : transaction.from_is_guest;
-    if (otherIsGuest) return none; // no account, nothing to pay into
+    const you = sideOf(transaction);
+    if (!you) return none;
 
     // I owe them → pay. They owe me → ask.
-    const action = iAmPayer ? ('pay' as const) : ('request' as const);
-    const other = participants.find(p => p.user_id === otherId && !p.is_guest);
-    if (!other?.venmo_username) return { links: null, action, reachable: false };
+    const action = you === 'payer' ? ('pay' as const) : ('request' as const);
+    const username = venmoUsernameFor(transaction, you);
+    if (!username) return { links: null, action, reachable: false };
 
     return {
       action,
       reachable: true,
       links: buildVenmoLinks({
-        username: other.venmo_username,
+        username,
         amountCents: Math.round(transaction.amount),
         currency: transaction.currency,
         action,
@@ -111,49 +152,150 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
     };
   };
 
-  const handleMarkAsPaid = async (transaction: SimplifiedTransaction, index: number) => {
-    setProcessingPaymentIndex(index);
+  /**
+   * Record one of the plan's payments as a settlement expense.
+   *
+   * `cents` defaults to the suggested figure. Anything else is what actually
+   * changed hands — rounded, or part of it — and is recorded as such, with a
+   * note saying what it was measured against. Returns whether it was
+   * recorded; the caller owns the error, since the row and the amount sheet
+   * each show theirs in a different place.
+   */
+  const recordPayment = async (
+    transaction: SimplifiedTransaction,
+    cents: number = Math.round(transaction.amount)
+  ): Promise<boolean> => {
+    const key = keyOf(transaction);
+    setProcessingKey(key);
     try {
       const payerName = getParticipantName(transaction.from_id, transaction.from_is_guest);
       const payeeName = getParticipantName(transaction.to_id, transaction.to_is_guest);
       const today = new Date().toISOString().split('T')[0];
 
-      // Create expense where payer is the person who owes money
-      // and the only participant is the person who is owed money
-      await api.expenses.create({
-        description: `Payment (${payerName} → ${payeeName})`,
-        amount: Math.round(transaction.amount), // Convert to cents
-        currency: transaction.currency,
-        date: today,
-        group_id: groupId,
-        payer_id: transaction.from_id,
-        payer_is_guest: transaction.from_is_guest,
-        split_type: 'EQUAL',
-        icon: '🏦',
-        notes: 'Created by Simplify Debts',
-        is_settlement: true,
-        splits: [
-          {
-            user_id: transaction.to_id,
-            is_guest: transaction.to_is_guest,
-            amount_owed: Math.round(transaction.amount), // The payee owes this amount (it's a payment)
-          },
-        ],
-      });
+      const status = classifySettleCents(cents, transaction.amount);
+      const against = partialPaymentNote(status, transaction.amount, transaction.currency);
 
-      // Remove this transaction from the list
-      setTransactions(prev => prev.filter((_, i) => i !== index));
+      // The payer is the person who owes money and the only participant is
+      // the person who is owed it, so the split cancels that much of the debt.
+      // apiFetch does not throw on a 4xx/5xx, so the status has to be read.
+      const response = await api.expenses.create(
+        settlementExpense({
+          description: `Payment (${payerName} → ${payeeName})`,
+          notes: against
+            ? `Created by Simplify Debts · ${against}`
+            : 'Created by Simplify Debts',
+          cents,
+          currency: transaction.currency,
+          groupId,
+          payer: { userId: transaction.from_id, isGuest: transaction.from_is_guest },
+          payee: { userId: transaction.to_id, isGuest: transaction.to_is_guest },
+          date: today,
+        })
+      );
+      if (!response.ok) return false;
+
+      if (status.kind === 'partial') {
+        // The plan is stable under being paid, so the rest of the list stands
+        // and this row simply shrinks by what was paid.
+        setTransactions(prev =>
+          prev.map(t => (keyOf(t) === key ? { ...t, amount: t.amount - cents } : t))
+        );
+      } else {
+        // Remove this transaction from the list
+        setTransactions(prev => prev.filter(t => keyOf(t) !== key));
+      }
 
       // Notify parent to refresh balances
       if (onPaymentCreated) {
         onPaymentCreated();
       }
+      return true;
     } catch (err) {
       console.error('Failed to create payment expense:', err);
-      setError('Failed to mark payment as paid. Please try again.');
+      return false;
     } finally {
-      setProcessingPaymentIndex(null);
+      setProcessingKey(null);
     }
+  };
+
+  /** The row's one tap: the suggested figure in full. */
+  const handleMarkAsPaid = async (transaction: SimplifiedTransaction) => {
+    setError(null);
+    if (!(await recordPayment(transaction))) {
+      setError('Failed to mark payment as paid. Please try again.');
+    }
+  };
+
+  /** The sheet's path, keeping its error in the sheet. */
+  const recordCustom = async (cents: number) => {
+    const transaction = transactions.find(t => keyOf(t) === editingKey);
+    if (!transaction) return;
+    setEditError(null);
+    const ok = await recordPayment(transaction, cents);
+    if (ok) setEditingKey(null);
+    else setEditError('Failed to record that payment. Please try again.');
+  };
+
+  /**
+   * Everyone in the group, for the off-plan sheet. The roster is the group's
+   * own — somebody with no balance is not in the plan but can still be paid.
+   * Handles come from the plan's directory, which covers every member.
+   */
+  const loadPeople = useCallback(async (): Promise<PaymentPerson[]> => {
+    const handle = (userId: number) =>
+      participants.find(p => p.user_id === userId && !p.is_guest)?.venmo_username ?? null;
+    return [
+      ...members.map(m => ({
+        userId: m.user_id,
+        isGuest: false,
+        name: m.full_name,
+        venmoUsername: handle(m.user_id),
+      })),
+      ...guests.map(g => ({ userId: g.id, isGuest: true, name: g.name })),
+    ];
+  }, [members, guests, participants]);
+
+  /** A payment the plan never suggested: record it, then re-plan. */
+  const recordOffPlan = async (payment: OffPlanPayment) => {
+    setOffPlanBusy(true);
+    setOffPlanError(null);
+    try {
+      const response = await api.expenses.create(
+        settlementExpense({
+          description: `Payment (${payment.payer.name} → ${payment.payee.name})`,
+          notes: 'Created by Simplify Debts · not one of the suggested payments',
+          cents: payment.cents,
+          currency: payment.currency,
+          groupId,
+          payer: payment.payer,
+          payee: payment.payee,
+          date: new Date().toISOString().split('T')[0],
+        })
+      );
+      if (!response.ok) {
+        setOffPlanError('Failed to record that payment. Please try again.');
+        return;
+      }
+      setOffPlan(false);
+      // Paying somebody the plan never named is the one thing that legitimately
+      // re-plans the group, so fetch the new answer rather than patching the list.
+      await fetchSimplifiedDebts();
+      onPaymentCreated?.();
+    } catch (err) {
+      console.error('Failed to create payment expense:', err);
+      setOffPlanError('Failed to record that payment. Please try again.');
+    } finally {
+      setOffPlanBusy(false);
+    }
+  };
+
+  /** The transaction being edited with the sheet's view of it, or null. */
+  const editingTransaction = transactions.find(t => keyOf(t) === editingKey) ?? null;
+  const editing = editingTransaction && {
+    transaction: editingTransaction,
+    you: sideOf(editingTransaction),
+    payer: getParticipantName(editingTransaction.from_id, editingTransaction.from_is_guest),
+    payee: getParticipantName(editingTransaction.to_id, editingTransaction.to_is_guest),
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -227,11 +369,13 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
 
               {/* Transaction List */}
               <div className="space-y-3">
-                {transactions.map((transaction, index) => {
+                {transactions.map(transaction => {
+                  const key = keyOf(transaction);
+                  const processing = processingKey === key;
                   const payerName = getParticipantName(transaction.from_id, transaction.from_is_guest);
                   const payeeName = getParticipantName(transaction.to_id, transaction.to_is_guest);
                   return (
-                    <Card key={index} tone="sunk" className="p-4">
+                    <Card key={key} tone="sunk" className="p-4">
                       <div className="flex items-center justify-between gap-4 mb-3">
                         {/* From Person */}
                         <div className="flex-1 min-w-0">
@@ -286,17 +430,35 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
                               )}
                               <Button
                                 variant="primary"
-                                onClick={() => handleMarkAsPaid(transaction, index)}
-                                disabled={processingPaymentIndex === index}
+                                onClick={() => handleMarkAsPaid(transaction)}
+                                disabled={processing}
                                 icon={
-                                  processingPaymentIndex === index ? (
+                                  processing ? (
                                     <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-sw-line border-t-sw-accent" />
                                   ) : (
                                     <Check size={14} />
                                   )
                                 }
                               >
-                                {processingPaymentIndex === index ? 'Processing…' : 'Mark as paid'}
+                                {processing ? 'Processing…' : 'Mark as paid'}
+                              </Button>
+                            </div>
+                            {/*
+                              * The figure is a suggestion. What was actually
+                              * paid may be rounded, or part of it.
+                              */}
+                            <div className="flex justify-end mt-1">
+                              <Button
+                                variant="ghost"
+                                icon={<PencilSimple size={14} />}
+                                disabled={processing}
+                                onClick={() => {
+                                  setEditError(null);
+                                  setEditingKey(key);
+                                }}
+                                className="text-[12.5px]"
+                              >
+                                Different amount…
                               </Button>
                             </div>
                             {links && (
@@ -339,8 +501,25 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
 
         {/* Footer */}
         <div className="border-t border-sw-line p-5">
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>
+          <div className="flex items-center gap-2">
+            {/*
+              * The plan is the fewest transfers, not the only ones. Somebody who
+              * paid a person the plan did not name still needs it recorded.
+              */}
+            {!isLoading && !error && (
+              <Button
+                variant="ghost"
+                icon={<UserPlus size={15} />}
+                onClick={() => {
+                  setOffPlanError(null);
+                  setOffPlan(true);
+                }}
+                className="mr-auto text-[12.5px]"
+              >
+                Someone else…
+              </Button>
+            )}
+            <Button variant="ghost" onClick={onClose} className="ml-auto">
               Close
             </Button>
             {transactions.length > 0 && (
@@ -363,6 +542,35 @@ const SimplifyDebtsModal: React.FC<SimplifyDebtsModalProps> = ({
           </div>
         </div>
       </div>
+
+      {offPlan && user?.id && (
+        <OffPlanPaymentSheet
+          groups={[{ id: groupId, name: groupName ?? 'This group', currency: groupCurrency }]}
+          loadPeople={loadPeople}
+          youId={user.id}
+          onClose={() => setOffPlan(false)}
+          onRecord={recordOffPlan}
+          busy={offPlanBusy}
+          error={offPlanError}
+        />
+      )}
+
+      {editing && (
+        <SettleAmountSheet
+          key={editingKey}
+          outstanding={editing.transaction.amount}
+          currency={editing.transaction.currency}
+          payer={editing.payer}
+          payee={editing.payee}
+          you={editing.you}
+          groupName={groupName ?? 'This group'}
+          venmoUsername={editing.you ? venmoUsernameFor(editing.transaction, editing.you) : null}
+          onClose={() => setEditingKey(null)}
+          onRecord={recordCustom}
+          busy={processingKey === editingKey}
+          error={editError}
+        />
+      )}
     </div>
   );
 };
