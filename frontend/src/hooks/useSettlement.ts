@@ -36,7 +36,11 @@ export function useSettlement(): {
     reload: () => void;
 } {
     const { user } = useAuth();
-    const { groups } = useAppData();
+    const { groups, refreshGeneration } = useAppData();
+    // Keyed by id rather than the user object, so the memoised results keep
+    // their identity across renders — SettleUpPage scopes its hidden rows to
+    // the `payments` array it marked them against.
+    const userId = user?.id;
     const [byGroup, setByGroup] = useState<GroupTransactions[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -55,7 +59,9 @@ export function useSettlement(): {
         }
 
         let cancelled = false;
-        setLoading(true);
+        // `loading` is only ever true before the first fan-out lands: a later
+        // refresh (a recorded payment, a pull to refresh) updates the figures
+        // in place rather than swapping the screen for a spinner.
 
         Promise.all(
             groups.map(async (group) => {
@@ -89,16 +95,16 @@ export function useSettlement(): {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [groupKey, nonce]);
+    }, [groupKey, nonce, refreshGeneration]);
 
     const counterparties = useMemo(
-        () => (user ? settlementForUser(byGroup, user.id) : []),
-        [byGroup, user]
+        () => (userId ? settlementForUser(byGroup, userId) : []),
+        [byGroup, userId]
     );
 
     const payments = useMemo(
-        () => (user ? paymentsForUser(byGroup, user.id) : []),
-        [byGroup, user]
+        () => (userId ? paymentsForUser(byGroup, userId) : []),
+        [byGroup, userId]
     );
 
     const directory = useMemo(() => participantDirectory(byGroup), [byGroup]);

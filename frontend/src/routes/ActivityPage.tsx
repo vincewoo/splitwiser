@@ -6,6 +6,7 @@ import ExpenseDetailModal from '../ExpenseDetailModal';
 import OpenTabsList from '../components/tab/OpenTabsList';
 import { useAuth } from '../AuthContext';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useAppData } from '../contexts/AppDataContext';
 import { useExpenseFeed } from '../hooks/useExpenseFeed';
 import { useExpenseLabels } from '../hooks/useExpenseLabels';
 import { useOpenExpense } from '../hooks/useOpenExpense';
@@ -18,7 +19,8 @@ import { useOpenTabs } from '../hooks/useOpenTabs';
 const ActivityPage: React.FC = () => {
     usePageTitle('Activity');
     const { user } = useAuth();
-    const { expenses, loading, reload } = useExpenseFeed();
+    const { refreshAll } = useAppData();
+    const { expenses, loading } = useExpenseFeed();
     const { payerName, groupName } = useExpenseLabels();
     const openExpense = useOpenExpense();
 
@@ -77,10 +79,11 @@ const ActivityPage: React.FC = () => {
                     isOpen
                     expenseId={openExpense.expenseId}
                     onClose={openExpense.close}
-                    onExpenseUpdated={reload}
+                    // Balances and groups move with an edit, not just the feed.
+                    onExpenseUpdated={refreshAll}
                     onExpenseDeleted={() => {
                         openExpense.close();
-                        reload();
+                        refreshAll();
                     }}
                     groupMembers={openExpense.members}
                     groupGuests={openExpense.guests}

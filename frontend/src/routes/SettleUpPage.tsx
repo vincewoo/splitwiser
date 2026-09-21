@@ -44,7 +44,7 @@ const SettleUpPage: React.FC = () => {
     const isDesktop = useIsDesktop();
     const { user } = useAuth();
     const { friends, groups, refreshAll } = useAppData();
-    const { counterparties, payments, directory, loading, reload } = useSettlement();
+    const { counterparties, payments, directory, loading } = useSettlement();
 
     const [recording, setRecording] = useState<string | null>(null);
     /**
@@ -179,8 +179,8 @@ const SettleUpPage: React.FC = () => {
                     keys: new Set(prev.plan === payments ? prev.keys : []).add(payment.key),
                 }));
             }
+            // refreshAll reaches useSettlement through refreshGeneration.
             await refreshAll();
-            reload();
             return true;
         } catch (err) {
             console.error('Failed to record settlement:', err);
@@ -269,7 +269,6 @@ const SettleUpPage: React.FC = () => {
             }
             setOffPlan(false);
             await refreshAll();
-            reload();
         } catch (err) {
             console.error('Failed to record settlement:', err);
             setOffPlanError('Could not record that payment. Please try again.');
