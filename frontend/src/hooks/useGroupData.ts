@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { useAppData } from '../contexts/AppDataContext';
 import type { Group, GroupBalance } from '../types/group';
 
 export interface GroupExpenseSplit {
@@ -50,6 +51,7 @@ interface GroupData {
  * historical rates, so switching modes is a refetch rather than a recompute.
  */
 export function useGroupData(groupId: number | undefined): GroupData {
+    const { refreshGeneration } = useAppData();
     const [group, setGroup] = useState<Group | null>(null);
     const [expenses, setExpenses] = useState<GroupExpense[]>([]);
     const [balances, setBalances] = useState<GroupBalance[]>([]);
@@ -89,9 +91,11 @@ export function useGroupData(groupId: number | undefined): GroupData {
         }
     }, [groupId, inGroupCurrency]);
 
+    // Also re-runs on a global refresh: an expense added from the shell's
+    // modal, or a pull to refresh, lands here without the route remounting.
     useEffect(() => {
         load();
-    }, [load]);
+    }, [load, refreshGeneration]);
 
     return {
         group,

@@ -101,9 +101,10 @@ const GroupPage: React.FC = () => {
         error: exportError,
     } = useBalanceSheetExport(id ?? null);
 
-    const refreshEverything = useCallback(async () => {
-        await Promise.all([reload(), refreshAll()]);
-    }, [reload, refreshAll]);
+    // A global refresh reaches this group too, through `refreshGeneration`
+    // in useGroupData — so one call covers the group, the sidebar and the
+    // balances, and calling `reload()` beside it would fetch the group twice.
+    const refreshEverything = refreshAll;
 
     const payerName = useCallback(
         (expense: GroupExpense): string => {

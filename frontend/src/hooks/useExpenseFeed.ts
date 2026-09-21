@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAppData } from '../contexts/AppDataContext';
 import { expensesApi } from '../services/api';
 
 export interface FeedExpense {
@@ -29,6 +30,7 @@ export function useExpenseFeed(): {
     /** Re-fetch, after an expense is edited or deleted from the feed. */
     reload: () => void;
 } {
+    const { refreshGeneration } = useAppData();
     const [expenses, setExpenses] = useState<FeedExpense[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -40,6 +42,7 @@ export function useExpenseFeed(): {
             .finally(() => setLoading(false));
     }, []);
 
+    // On mount, and again on every global refresh (see `refreshGeneration`).
     useEffect(() => {
         let cancelled = false;
         expensesApi
@@ -54,7 +57,7 @@ export function useExpenseFeed(): {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [refreshGeneration]);
 
     const sorted = useMemo(
         () =>

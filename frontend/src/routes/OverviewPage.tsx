@@ -63,8 +63,9 @@ const OverviewPage: React.FC = () => {
         setShowInMyCurrency,
         displayCurrency,
         pendingRequests,
+        refreshAll,
     } = useAppData();
-    const { expenses, loading, reload } = useExpenseFeed();
+    const { expenses, loading } = useExpenseFeed();
     const { payerName, groupName } = useExpenseLabels();
     const openExpense = useOpenExpense();
     const { openTabs } = useOpenTabs();
@@ -637,10 +638,11 @@ const OverviewPage: React.FC = () => {
                     isOpen
                     expenseId={openExpense.expenseId}
                     onClose={openExpense.close}
-                    onExpenseUpdated={reload}
+                    // Balances and groups move with an edit, not just the feed.
+                    onExpenseUpdated={refreshAll}
                     onExpenseDeleted={() => {
                         openExpense.close();
-                        reload();
+                        refreshAll();
                     }}
                     groupMembers={openExpense.members}
                     groupGuests={openExpense.guests}
