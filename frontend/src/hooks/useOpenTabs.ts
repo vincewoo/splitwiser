@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { tabsApi } from '../services/api';
+import { useAppData } from '../contexts/AppDataContext';
 import type { Tab } from '../types/tab';
 
 /**
@@ -10,6 +11,7 @@ import type { Tab } from '../types/tab';
  * back into a tab you have wandered off from.
  */
 export function useOpenTabs(): { openTabs: Tab[] } {
+    const { refreshGeneration } = useAppData();
     const [openTabs, setOpenTabs] = useState<Tab[]>([]);
 
     useEffect(() => {
@@ -23,7 +25,7 @@ export function useOpenTabs(): { openTabs: Tab[] } {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [refreshGeneration]);
 
     return { openTabs };
 }

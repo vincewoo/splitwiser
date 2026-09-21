@@ -3,9 +3,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import SettleUpPage from '../SettleUpPage';
 
+import { AppDataProvider } from '../../contexts/AppDataContext';
+
 const simplifyDebts = vi.fn();
 const createExpense = vi.fn();
 const getGroup = vi.fn();
+const getGroups = vi.fn();
 vi.mock('../../services/api', () => ({
     api: {
         expenses: { create: (...args: unknown[]) => createExpense(...args) },
@@ -13,21 +16,20 @@ vi.mock('../../services/api', () => ({
     },
     balancesApi: {
         simplifyDebts: (...args: unknown[]) => simplifyDebts(...args),
+        getAll: async () => ({ balances: [] }),
+    },
+    groupsApi: { getAll: (...args: unknown[]) => getGroups(...args) },
+    friendsApi: {
+        getAll: async () => [],
+        getPendingCount: async () => ({ count: 0 }),
     },
 }));
 
-// Maya is the signed-in user throughout.
+// Maya is the signed-in user throughout. One object, as the real context
+// gives, so memoised results keep their identity between renders.
+const MAYA = { id: 1, full_name: 'Maya Lin', default_currency: 'USD' };
 vi.mock('../../AuthContext', () => ({
-    useAuth: () => ({ user: { id: 1, full_name: 'Maya Lin' }, loading: false }),
-}));
-
-const refreshAll = vi.fn().mockResolvedValue(undefined);
-vi.mock('../../contexts/AppDataContext', () => ({
-    useAppData: () => ({
-        groups: [{ id: 7, name: 'Tahoe', default_currency: 'USD' }],
-        friends: [],
-        refreshAll,
-    }),
+    useAuth: () => ({ user: MAYA, loading: false }),
 }));
 
 vi.mock('../../hooks/useMediaQuery', () => ({
@@ -49,10 +51,17 @@ const iOweSam = {
     currency: 'USD',
 };
 
+/**
+ * Rendered under the real AppDataProvider: recording a payment calls its
+ * refreshAll(), and the page relies on the refresh generation that bumps to
+ * reload the plan — a static mock would leave the page frozen.
+ */
 const open = () =>
     render(
         <MemoryRouter>
-            <SettleUpPage />
+            <AppDataProvider>
+                <SettleUpPage />
+            </AppDataProvider>
         </MemoryRouter>
     );
 
@@ -63,6 +72,9 @@ beforeEach(() => {
     simplifyDebts.mockReset();
     createExpense.mockReset();
     getGroup.mockReset();
+    getGroups.mockReset().mockResolvedValue([
+        { id: 7, name: 'Tahoe', default_currency: 'USD' },
+    ]);
     createExpense.mockResolvedValue({ ok: true });
     simplifyDebts.mockResolvedValue({ transactions: [iOweSam], participants });
     getGroup.mockResolvedValue({

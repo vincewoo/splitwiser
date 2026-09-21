@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Pull to refresh**: drag down from the top of any screen on mobile to
+  refresh it. The installed app owns the viewport, so the browser's own
+  pull-to-refresh never fired.
 - **Settling for a different amount**: Every suggested payment on Settle up
   and in a group's Simplified debts now has a *Different amount…* beside *Mark
   as paid*, for when what changed hands was rounded, partial, or generous. The
@@ -48,6 +51,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **An expense added from the FAB did not appear in the group until you left
+  and came back**: the shell's add-expense modal refreshed the app-wide
+  lists but not the group page's own fetch. Every screen-local fetch now
+  follows the global refresh, so adding, editing, settling or pulling to
+  refresh anywhere reaches the screen showing the affected data. Editing an
+  expense from the Overview or Activity feed likewise now refreshes balances,
+  not just the feed.
 - **Settle up hid the wrong row after a payment**: paid rows were tracked by
   position, so once the list shifted the row below could vanish until the
   page reloaded. Rows are now tracked by the pair they settle — on Settle up

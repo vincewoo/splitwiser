@@ -44,7 +44,7 @@ const PersonPage: React.FC = () => {
     const navigate = useNavigate();
     const isDesktop = useIsDesktop();
     const { user } = useAuth();
-    const { friends, groups, refreshAll } = useAppData();
+    const { friends, groups, refreshAll, refreshGeneration } = useAppData();
 
     const [friend, setFriend] = useState<Friend | null>(null);
     const [expenses, setExpenses] = useState<FriendExpenseWithSplits[]>([]);
@@ -86,9 +86,10 @@ const PersonPage: React.FC = () => {
         }
     }, [friendId]);
 
+    // Also on a global refresh, so a payment recorded elsewhere shows here.
     useEffect(() => {
         load();
-    }, [load]);
+    }, [load, refreshGeneration]);
 
     /** Balances in cents, so they render through the same Money component. */
     const balancesInCents = useMemo(
@@ -336,10 +337,8 @@ const PersonPage: React.FC = () => {
             <AddExpenseModal
                 isOpen={addExpenseOpen}
                 onClose={() => setAddExpenseOpen(false)}
-                onExpenseAdded={() => {
-                    load();
-                    refreshAll();
-                }}
+                // refreshAll reaches this page's own fetch via refreshGeneration.
+                onExpenseAdded={refreshAll}
                 friends={friends}
                 groups={groups}
                 preselectedFriendId={friend.id}
@@ -348,10 +347,7 @@ const PersonPage: React.FC = () => {
             <SettleUpModal
                 isOpen={settleUpOpen}
                 onClose={() => setSettleUpOpen(false)}
-                onSettled={() => {
-                    load();
-                    refreshAll();
-                }}
+                onSettled={refreshAll}
                 friends={friends}
                 preselectedFriendId={friend.id}
             />
@@ -361,13 +357,9 @@ const PersonPage: React.FC = () => {
                     isOpen
                     expenseId={openExpenseId}
                     onClose={() => setOpenExpenseId(null)}
-                    onExpenseUpdated={() => {
-                        load();
-                        refreshAll();
-                    }}
+                    onExpenseUpdated={refreshAll}
                     onExpenseDeleted={() => {
                         setOpenExpenseId(null);
-                        load();
                         refreshAll();
                     }}
                     groupMembers={[]}

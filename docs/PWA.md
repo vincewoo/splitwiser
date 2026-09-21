@@ -91,6 +91,49 @@ Replaced browser `alert()`, `prompt()`, and `confirm()` with custom modals:
 - **DeleteGroupConfirm** - Confirmation dialogs with proper styling
 - Mobile-responsive with touch-friendly buttons
 
+## Pull to Refresh
+
+Installed, the app owns the viewport: the shell is `overflow-hidden` and each
+screen scrolls inside its own container, so the browser's pull-to-refresh
+never fires — and would reload the whole app if it did.
+`frontend/src/components/PullToRefresh.tsx` is the replacement, mounted once
+around the shell's routed content on mobile.
+
+- It listens for touches and finds whatever is scrolling under the finger
+  (`utils/pullToRefresh.ts::scrollableAncestor`). A drag only becomes a pull
+  when that scroller is at the top and the movement is downward; a scrolled
+  list, a sideways swipe, or a touch inside a `role="dialog"` (a sheet being
+  dragged down is a sheet being dismissed) are left alone.
+- Once a pull is under way `touchmove` is cancelled, so the page does not
+  rubber-band alongside the indicator. That needs a non-passive listener,
+  which is why the listeners are attached by hand rather than as React props.
+- The indicator lags the finger 2:1 and caps at `MAX_PULL`; letting go past
+  `PULL_THRESHOLD` (64px of indicator travel) runs the refresh and holds the
+  spinner until it lands.
+- What it runs is `refreshAll()` from `AppDataContext` — the same refresh
+  every mutation triggers — so a pull reaches every screen through
+  `refreshGeneration` (below) rather than needing a per-screen hook.
+
+### Refresh generation
+
+`AppDataContext.refreshGeneration` is a counter bumped by every
+`refreshAll()`. Screens that fetch their own data — `useGroupData`,
+`useExpenseFeed`, `useSettlement`, `useOpenTabs`, the person page — put it in
+their fetch effect's dependencies, so a mutation recorded anywhere (the
+shell's add-expense modal behind the FAB, a settlement on `/settle`, an edit
+from the activity feed, a pull to refresh) reaches the screen showing the
+affected data without it remounting.
+
+This is what fixed "an expense added from the FAB does not appear in the
+group until you back out and come back": the shell-mounted modal only ever
+refreshed the four collections the context owns, and the group page's own
+fetch had no way to hear about it. The initial load does not bump the
+counter — screens mounting alongside the provider fetch on their own, and a
+bump then would only make them fetch twice. Screens keep existing data on
+screen while they re-fetch (`loading && !group` guards, and `loading` that
+is only true before the first load), so a refresh never flashes a spinner
+over content that is already there.
+
 ## iOS Keyboard Fix
 
 Number inputs show numeric keypad on iOS:

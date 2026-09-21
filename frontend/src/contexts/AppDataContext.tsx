@@ -29,6 +29,16 @@ interface AppData {
      */
     showInMyCurrency: boolean;
     setShowInMyCurrency: (value: boolean) => void;
+    /**
+     * Bumped by every `refreshAll()`. Screens that fetch their own data — a
+     * group's expenses, a person's history, the activity feed — re-run their
+     * fetch when it changes, so a mutation recorded anywhere in the app (the
+     * shell's add-expense modal, a settlement on `/settle`, a pull to refresh)
+     * reaches the screen that is showing the affected data. Without it, only
+     * the four collections this context owns were refreshed, and a group's
+     * list stayed stale until the route remounted.
+     */
+    refreshGeneration: number;
     /** The user's default currency, used whenever a converted figure is shown. */
     displayCurrency: string;
     refreshAll: () => Promise<void>;
@@ -59,6 +69,7 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({
     const [balances, setBalances] = useState<Balance[]>([]);
     const [pendingRequests, setPendingRequests] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [refreshGeneration, setRefreshGeneration] = useState(0);
     // Default to the converted view: the redesign leads with a single net
     // figure, which only exists once everything is in one currency.
     const [showInMyCurrency, setShowInMyCurrency] = useState(true);
@@ -102,7 +113,7 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({
         }
     }, []);
 
-    const refreshAll = useCallback(async () => {
+    const fetchAll = useCallback(async () => {
         await Promise.all([
             refreshFriends(),
             refreshGroups(),
@@ -111,17 +122,28 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({
         ]);
     }, [refreshFriends, refreshGroups, refreshBalances, refreshPendingRequests]);
 
+    /**
+     * Everything, plus a nudge to every screen-local fetch (see
+     * `refreshGeneration`). The initial load below does not bump it: screens
+     * mounting alongside the provider fetch on their own, and a bump then
+     * would only make them fetch twice.
+     */
+    const refreshAll = useCallback(async () => {
+        setRefreshGeneration((n) => n + 1);
+        await fetchAll();
+    }, [fetchAll]);
+
     useEffect(() => {
         if (!user) return;
         let cancelled = false;
         setLoading(true);
-        refreshAll().finally(() => {
+        fetchAll().finally(() => {
             if (!cancelled) setLoading(false);
         });
         return () => {
             cancelled = true;
         };
-        // refreshAll is stable apart from the currency mode, which has its own
+        // fetchAll is stable apart from the currency mode, which has its own
         // effect below; re-running the full fetch here would double-request.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user?.id]);
@@ -162,6 +184,7 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({
             showInMyCurrency,
             setShowInMyCurrency,
             displayCurrency,
+            refreshGeneration,
             refreshAll,
             refreshBalances,
             refreshGroups,
@@ -176,6 +199,7 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({
             loading,
             showInMyCurrency,
             displayCurrency,
+            refreshGeneration,
             refreshAll,
             refreshBalances,
             refreshGroups,
