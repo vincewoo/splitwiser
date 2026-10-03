@@ -21,12 +21,16 @@ primary_region = 'sjc'
 [http_service]
   internal_port = 8080
   force_https = true
-  # Keep one machine up at all times: SQLite on a mounted volume means a
-  # cold start is a real wait, and the PWA's background sync expects the API
-  # to answer without one.
-  auto_stop_machines = 'off'
+  # Suspend (not stop) when idle to save cost. Suspend snapshots the running
+  # VM, memory included, so the next request resumes it in well under a second
+  # with uvicorn, nginx and the SQLite file already warm -- no cold boot, no
+  # start.sh migrations. 'stop' was the setting that made the first request
+  # slow; this one does not. Nothing in the app runs on a timer, so there is
+  # no background work for a suspended machine to miss. Fly falls back to a
+  # plain stop if a snapshot ever fails.
+  auto_stop_machines = 'suspend'
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
   processes = ['app']
 
 [[http_service.checks]]
