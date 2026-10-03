@@ -140,7 +140,12 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({
     useEffect(() => {
         if (!user) return;
 
-        const timer = window.setInterval(refreshPendingRequests, PENDING_POLL_MS);
+        // Only poll a visible tab: a forgotten background tab polling forever
+        // would keep the Fly machine from ever suspending. Coming back to the
+        // foreground re-checks immediately, below.
+        const timer = window.setInterval(() => {
+            if (document.visibilityState === 'visible') refreshPendingRequests();
+        }, PENDING_POLL_MS);
         const onVisible = () => {
             if (document.visibilityState === 'visible') refreshPendingRequests();
         };

@@ -80,7 +80,9 @@ const TabPassPage: React.FC = () => {
     // taps would move the list under the person using it.
     useEffect(() => {
         if (!tab || tab.status !== 'open' || activeId !== null) return;
-        const timer = setInterval(load, POLL_MS);
+        const timer = setInterval(() => {
+            if (document.visibilityState === 'visible') load();
+        }, POLL_MS);
         return () => clearInterval(timer);
     }, [tab, activeId, load]);
 

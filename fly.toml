@@ -21,12 +21,14 @@ primary_region = 'sjc'
 [http_service]
   internal_port = 8080
   force_https = true
-  # Keep one machine up at all times: SQLite on a mounted volume means a
-  # cold start is a real wait, and the PWA's background sync expects the API
-  # to answer without one.
-  auto_stop_machines = 'off'
+  # Suspend when idle to save cost. 'suspend' snapshots the machine's memory,
+  # so the next request resumes it in a few hundred milliseconds with
+  # uvicorn, nginx and the in-memory caches (exchange rates, public summary)
+  # already warm. A 'stop' would mean a full boot plus start.sh's migrations.
+  # Suspend needs <= 2GB RAM and no swap, which the [[vm]] below satisfies.
+  auto_stop_machines = 'suspend'
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
   processes = ['app']
 
 [[http_service.checks]]

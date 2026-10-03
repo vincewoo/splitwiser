@@ -86,10 +86,13 @@ const TabBoardPage: React.FC = () => {
         load(true);
     }, [load]);
 
-    // Claims arrive from other people's phones, so the board polls while open.
+    // Claims arrive from other people's phones, so the board polls while open
+    // and visible — a hidden tab polling would keep the server from suspending.
     useEffect(() => {
         if (!tab || tab.status !== 'open') return;
-        const timer = setInterval(() => load(), POLL_MS);
+        const timer = setInterval(() => {
+            if (document.visibilityState === 'visible') load();
+        }, POLL_MS);
         return () => clearInterval(timer);
     }, [tab, load]);
 
