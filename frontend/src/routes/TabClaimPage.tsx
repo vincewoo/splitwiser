@@ -86,10 +86,13 @@ const TabClaimPage: React.FC = () => {
         load();
     }, [shareToken, load]);
 
-    // Other people are claiming at the same table; keep the board fresh.
+    // Other people are claiming at the same table; keep the board fresh while
+    // it is on screen (a hidden tab polling would keep the server awake).
     useEffect(() => {
         if (!tab || tab.status !== 'open') return;
-        const timer = setInterval(load, 5000);
+        const timer = setInterval(() => {
+            if (document.visibilityState === 'visible') load();
+        }, 5000);
         return () => clearInterval(timer);
     }, [tab, load]);
 
