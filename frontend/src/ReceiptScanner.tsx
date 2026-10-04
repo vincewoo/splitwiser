@@ -112,6 +112,12 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
     const [total, setTotal] = useState<number | null>(null);
     const [receiptImagePath, setReceiptImagePath] = useState<string>('');
 
+    // What the tax and tip inputs show. Kept as strings so a half-typed value
+    // ("3." mid-edit) survives; `tax`/`tip` above stay the parsed cents that
+    // reconciliation and the confirm payload read.
+    const [taxInput, setTaxInput] = useState('');
+    const [tipInput, setTipInput] = useState('');
+
     /**
      * What came back from the scan, held separately from `items` so the reveal
      * animates the response before the editable list takes over.
@@ -262,6 +268,8 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
 
             setTax(data.tax);
             setTip(data.tip);
+            setTaxInput(data.tax != null ? (data.tax / 100).toFixed(2) : '');
+            setTipInput(data.tip != null ? (data.tip / 100).toFixed(2) : '');
             setTotal(data.total);
             setReceiptImagePath(data.receipt_image_path);
             // Reveal the response rather than dropping it in all at once.
@@ -326,6 +334,23 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
     };
 
     const cancelEdit = () => setEditingIndex(null);
+
+    // '' means not on the receipt (null), anything else is whole cents.
+    const centsFromInput = (value: string): number | null => {
+        if (value.trim() === '') return null;
+        const parsed = parseFloat(value);
+        return Number.isNaN(parsed) ? null : Math.round(parsed * 100);
+    };
+
+    const handleTaxChange = (value: string) => {
+        setTaxInput(value);
+        setTax(centsFromInput(value));
+    };
+
+    const handleTipChange = (value: string) => {
+        setTipInput(value);
+        setTip(centsFromInput(value));
+    };
 
     const deleteItem = (index: number) => {
         setItems(prev => prev.filter((_, i) => i !== index));
@@ -726,18 +751,46 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
                                     {formatCents(reconciliation.itemsSum)}
                                 </span>
                             </div>
-                            {tax != null && tax > 0 && (
-                                <div className="flex justify-between text-[12.5px] text-sw-muted mb-0.5">
-                                    <span>Tax</span>
-                                    <span className="sw-num">{formatCents(tax)}</span>
-                                </div>
-                            )}
-                            {tip != null && tip > 0 && (
-                                <div className="flex justify-between text-[12.5px] text-sw-muted mb-2">
-                                    <span>Tip</span>
-                                    <span className="sw-num">{formatCents(tip)}</span>
-                                </div>
-                            )}
+                            {/*
+                              * Tax and tip are as editable as the lines above:
+                              * the scan can misread them, and a tip is often
+                              * added after the receipt prints — so the rows are
+                              * always shown, even when the scan found nothing.
+                              */}
+                            <div className="flex justify-between items-center text-[12.5px] text-sw-muted mb-1">
+                                <span>Tax</span>
+                                <span className="flex items-center gap-1 px-2 py-[3px] rounded-lg bg-sw-bg shadow-[0_0_0_1px_var(--sw-line)]">
+                                    <span className="text-sw-dim">$</span>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        inputMode="decimal"
+                                        value={taxInput}
+                                        onChange={e => handleTaxChange(e.target.value)}
+                                        placeholder="0.00"
+                                        aria-label="Tax"
+                                        className="sw-num w-16 bg-transparent text-right text-sw-text focus:outline-none"
+                                    />
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center text-[12.5px] text-sw-muted mb-2">
+                                <span>Tip</span>
+                                <span className="flex items-center gap-1 px-2 py-[3px] rounded-lg bg-sw-bg shadow-[0_0_0_1px_var(--sw-line)]">
+                                    <span className="text-sw-dim">$</span>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        inputMode="decimal"
+                                        value={tipInput}
+                                        onChange={e => handleTipChange(e.target.value)}
+                                        placeholder="0.00"
+                                        aria-label="Tip"
+                                        className="sw-num w-16 bg-transparent text-right text-sw-text focus:outline-none"
+                                    />
+                                </span>
+                            </div>
                             {total != null && (
                                 <div className="flex justify-between text-[15px] font-medium mb-3">
                                     <span>Receipt total</span>
