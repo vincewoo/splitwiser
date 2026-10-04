@@ -62,8 +62,13 @@ const PersonPage: React.FC = () => {
 
     usePageTitle(friend?.full_name ?? 'Person');
 
+    // Loads can overlap now that global refreshes trigger them too; only the
+    // newest one may write, or a slow older response would overwrite newer data.
+    const loadSeq = React.useRef(0);
+
     const load = React.useCallback(async () => {
         if (!friendId) return;
+        const seq = ++loadSeq.current;
         setLoading(true);
         setError(null);
         try {
@@ -74,15 +79,17 @@ const PersonPage: React.FC = () => {
                 friendsApi.getBalance(id),
                 fetch(getApiUrl('exchange_rates')),
             ]);
+            if (seq !== loadSeq.current) return;
             setFriend(friendData);
             setExpenses(expensesData);
             setBalances(balanceData);
             if (ratesRes.ok) setRates(await ratesRes.json());
         } catch (err) {
+            if (seq !== loadSeq.current) return;
             console.error('Failed to fetch person data:', err);
             setError('Failed to load this person');
         } finally {
-            setLoading(false);
+            if (seq === loadSeq.current) setLoading(false);
         }
     }, [friendId]);
 
@@ -133,7 +140,10 @@ const PersonPage: React.FC = () => {
         );
     }
 
-    if (error || !friend) {
+    // Only without data: a failed *re*fetch (a pull on a flaky connection, a
+    // background refresh after a mutation) must not wipe a loaded page down to
+    // an error screen — the stale data stays up and the next refresh heals it.
+    if (!friend) {
         return (
             <div className="flex-1 flex flex-col items-center justify-center gap-3">
                 <p className="text-sm text-sw-muted">{error ?? 'Person not found'}</p>

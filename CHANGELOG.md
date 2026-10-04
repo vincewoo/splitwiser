@@ -49,6 +49,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   at a time, with anyone who never opened the link seated by name on the spot.
   Reached from *Get picks* on the board, alongside sending the link and the QR.
 
+- **Editable tax and tip on the receipt review screen**: both are now inline
+  inputs, always visible and prefilled from the scan, where before they were a
+  read-only summary that was hidden entirely when the scan read nothing.
+  Clearing an input means "not on the receipt".
+- **Static zoom on mobile**: pinch zoom is disabled app-wide. The viewport
+  meta carries the flags, and an inline script cancels WebKit's gesture events
+  for iOS Safari, which ignores that meta in-browser.
+
 ### Fixed
 
 - **An expense added from the FAB did not appear in the group until you left

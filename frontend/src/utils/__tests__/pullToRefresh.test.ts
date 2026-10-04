@@ -131,4 +131,16 @@ describe('canStartPull', () => {
 
         expect(canStartPull(field, root)).toBe(false);
     });
+
+    it('refuses inside an alertdialog — confirms must not pull either', () => {
+        const root = document.createElement('div');
+        const confirm = document.createElement('div');
+        confirm.setAttribute('role', 'alertdialog');
+        const button = document.createElement('button');
+        confirm.appendChild(button);
+        root.appendChild(confirm);
+        document.body.appendChild(root);
+
+        expect(canStartPull(button, root)).toBe(false);
+    });
 });

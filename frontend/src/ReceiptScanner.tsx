@@ -336,10 +336,12 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
     const cancelEdit = () => setEditingIndex(null);
 
     // '' means not on the receipt (null), anything else is whole cents.
+    // Clamped at zero: min="0" stops the spinner but not a typed minus, and a
+    // negative here would flow into reconciliation and the expense payload.
     const centsFromInput = (value: string): number | null => {
         if (value.trim() === '') return null;
         const parsed = parseFloat(value);
-        return Number.isNaN(parsed) ? null : Math.round(parsed * 100);
+        return Number.isNaN(parsed) ? null : Math.max(0, Math.round(parsed * 100));
     };
 
     const handleTaxChange = (value: string) => {
@@ -374,7 +376,12 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
 
     return (
         <div className="fixed inset-0 z-50 bg-black/55 flex items-end sm:items-center justify-center font-sans">
-            <div className="bg-sw-bg text-sw-text w-full sm:max-w-lg h-[92vh] sm:h-auto sm:max-h-[90vh] rounded-t-sw-sheet sm:rounded-sw-card-lg shadow-[0_-12px_40px_rgba(0,0,0,.45)] sm:shadow-[0_0_0_1px_var(--sw-line)] flex flex-col overflow-hidden">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Scan a receipt"
+                className="bg-sw-bg text-sw-text w-full sm:max-w-lg h-[92vh] sm:h-auto sm:max-h-[90vh] rounded-t-sw-sheet sm:rounded-sw-card-lg shadow-[0_-12px_40px_rgba(0,0,0,.45)] sm:shadow-[0_0_0_1px_var(--sw-line)] flex flex-col overflow-hidden"
+            >
 
                 {/* ---------------------------------------------------- capture */}
                 {phase === 'capture' && (

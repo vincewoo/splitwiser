@@ -192,6 +192,30 @@ describe('ReceiptScanner tax and tip editing', () => {
         const [, , , taxCents] = onItemsDetected.mock.calls[0];
         expect(taxCents).toBeNull();
     });
+
+    it('treats a cleared input as no tip on the receipt', async () => {
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+        await scanToReview({ ...scanResult, tip: 300 });
+
+        fireEvent.change(screen.getByLabelText('Tip'), { target: { value: '' } });
+        fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
+
+        const [, , , , tipCents] = onItemsDetected.mock.calls[0];
+        expect(tipCents).toBeNull();
+    });
+
+    it('clamps a typed negative to zero — min="0" does not stop the keyboard', async () => {
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+        await scanToReview(scanResult);
+
+        fireEvent.change(screen.getByLabelText('Tax'), { target: { value: '-5' } });
+        fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
+
+        const [, , , taxCents] = onItemsDetected.mock.calls[0];
+        expect(taxCents).toBe(0);
+    });
 });
 
 describe('ReceiptScanner paste', () => {

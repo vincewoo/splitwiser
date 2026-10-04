@@ -62,7 +62,7 @@ export function scrollableAncestor(target: Element, root: Element): Element | nu
  * is scrolled away from the top, since that drag is just scrolling up.
  */
 export function canStartPull(target: Element, root: Element): boolean {
-    if (target.closest('[role="dialog"]')) return false;
+    if (target.closest('[role="dialog"], [role="alertdialog"]')) return false;
     const scroller = scrollableAncestor(target, root);
     return scroller === null || scroller.scrollTop <= 0;
 }

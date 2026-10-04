@@ -105,8 +105,12 @@ around the shell's routed content on mobile.
   list, a sideways swipe, or a touch inside a `role="dialog"` (a sheet being
   dragged down is a sheet being dismissed) are left alone.
 - Once a pull is under way `touchmove` is cancelled, so the page does not
-  rubber-band alongside the indicator. That needs a non-passive listener,
-  which is why the listeners are attached by hand rather than as React props.
+  rubber-band alongside the indicator. The `touchmove` listener is non-passive
+  — the only way `preventDefault` can take over the gesture — which is also
+  why the listeners are attached by hand rather than as React props. But it is
+  only attached while an eligible pull is in progress: from a `touchstart`
+  that passes `canStartPull` until the gesture ends or is cancelled. Ordinary
+  scrolling never runs it, so it keeps the browser's passive fast path.
 - The indicator lags the finger 2:1 and caps at `MAX_PULL`; letting go past
   `PULL_THRESHOLD` (64px of indicator travel) runs the refresh and holds the
   spinner until it lands.
@@ -122,7 +126,11 @@ around the shell's routed content on mobile.
 their fetch effect's dependencies, so a mutation recorded anywhere (the
 shell's add-expense modal behind the FAB, a settlement on `/settle`, an edit
 from the activity feed, a pull to refresh) reaches the screen showing the
-affected data without it remounting.
+affected data without it remounting. The group Spending summary
+(`SummarySection`) follows it too, receiving the generation as a prop from
+`GroupPage`. Two surfaces stay out on purpose: `TabBoardPage` polls on its
+own schedule, and the public share-link and claim pages live outside the app
+shell, where no `AppDataProvider` refreshes exist.
 
 This is what fixed "an expense added from the FAB does not appear in the
 group until you back out and come back": the shell-mounted modal only ever
@@ -130,9 +138,22 @@ refreshed the four collections the context owns, and the group page's own
 fetch had no way to hear about it. The initial load does not bump the
 counter — screens mounting alongside the provider fetch on their own, and a
 bump then would only make them fetch twice. Screens keep existing data on
-screen while they re-fetch (`loading && !group` guards, and `loading` that
-is only true before the first load), so a refresh never flashes a spinner
-over content that is already there.
+screen while they re-fetch, so a refresh never flashes a spinner over content
+that is already there — though how varies: `useSettlement`'s `loading` is
+only true before the first load, while `useGroupData` and the person page
+still flip `loading` on every refetch and rely on `loading && !group` /
+`loading && !friend` render guards plus the stale data staying on screen.
+
+## Viewport Lock
+
+The viewport meta in `frontend/index.html` pins `maximum-scale=1.0,
+user-scalable=no`, so the app renders at a fixed scale. iOS Safari ignores
+that meta in-browser, so an inline script in the same file cancels the
+WebKit-only `gesturestart`/`gesturechange` events — it looks redundant next
+to the meta, but do not remove it as cleanup. This is a deliberate
+accessibility tradeoff: pinch zoom is gone (WCAG 1.4.4), accepted because
+the app-shaped PWA lays itself out for the screen rather than presenting a
+document to magnify. It also stops iOS auto-zooming focused inputs.
 
 ## iOS Keyboard Fix
 

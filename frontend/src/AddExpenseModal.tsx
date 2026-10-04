@@ -758,7 +758,12 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     itemDescription={itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex]?.description || ''}
                 />
             )}
-            <div className="bg-sw-surface text-sw-text w-full md:w-[448px] max-h-[92vh] rounded-t-sw-sheet md:rounded-sw-card-lg shadow-[0_-12px_40px_rgba(0,0,0,.45)] md:shadow-[0_0_0_1px_var(--sw-line)] overflow-hidden flex flex-col">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="New expense"
+                className="bg-sw-surface text-sw-text w-full md:w-[448px] max-h-[92vh] rounded-t-sw-sheet md:rounded-sw-card-lg shadow-[0_-12px_40px_rgba(0,0,0,.45)] md:shadow-[0_0_0_1px_var(--sw-line)] overflow-hidden flex flex-col"
+            >
                 <div className="sticky top-0 bg-sw-surface z-10 px-4 sm:px-5 py-3.5 border-b border-sw-line flex items-center gap-3">
                     <button
                         type="button"

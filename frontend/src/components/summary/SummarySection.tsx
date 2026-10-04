@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Notice } from '../ui';
 import { groupsApi } from '../../services/api';
 import type {
@@ -16,6 +16,13 @@ interface SummarySectionProps {
     shareLinkId?: string;
     /** Authenticated user's id; null in public mode. Forwarded to MemberConsumptionTable. */
     currentUserId: number | null;
+    /**
+     * `AppDataContext.refreshGeneration`: when it moves, the summary re-fetches
+     * in place, so a mutation recorded anywhere (the shell's add-expense modal,
+     * a pull to refresh) reaches an open Spending view. Omitted on public
+     * share-link pages, which live outside the app shell and its refreshes.
+     */
+    refreshGeneration?: number;
 }
 
 type SummaryResponse = GroupSummaryResponse | PublicGroupSummaryResponse;
@@ -30,7 +37,12 @@ type SummaryResponse = GroupSummaryResponse | PublicGroupSummaryResponse;
  *
  * The response is cached for the session; switching views does not refetch.
  */
-const SummarySection: React.FC<SummarySectionProps> = ({ groupId, shareLinkId, currentUserId }) => {
+const SummarySection: React.FC<SummarySectionProps> = ({
+    groupId,
+    shareLinkId,
+    currentUserId,
+    refreshGeneration,
+}) => {
     const isPublic = !!shareLinkId;
     const [response, setResponse] = useState<SummaryResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -61,6 +73,17 @@ const SummarySection: React.FC<SummarySectionProps> = ({ groupId, shareLinkId, c
         fetchSummary();
     }, [response, isLoading, error, fetchSummary]);
 
+    // A global refresh re-fetches in place — the guard above only governs the
+    // initial mount. Tracked against the last seen generation so mounting
+    // mid-session doesn't double-fetch.
+    const lastGeneration = useRef(refreshGeneration);
+    useEffect(() => {
+        if (refreshGeneration === undefined) return;
+        if (refreshGeneration === lastGeneration.current) return;
+        lastGeneration.current = refreshGeneration;
+        fetchSummary();
+    }, [refreshGeneration, fetchSummary]);
+
     const handleRetry = () => {
         // Retry directly rather than relying on the effect — the effect's
         // response/isLoading guards keep it idle here.
@@ -68,11 +91,14 @@ const SummarySection: React.FC<SummarySectionProps> = ({ groupId, shareLinkId, c
         fetchSummary();
     };
 
+    // With data already on screen, a refetch updates it in place: no skeleton
+    // swap, and a failed background refresh keeps the stale figures rather
+    // than replacing them with an error.
     return (
         <div>
-            {isLoading && <SummarySkeleton isPublic={isPublic} />}
+            {isLoading && !response && <SummarySkeleton isPublic={isPublic} />}
 
-            {error && !isLoading && (
+            {error && !isLoading && !response && (
                 <div role="alert" aria-live="assertive" className="flex flex-col items-start gap-2.5">
                     <Notice tone="error">{error}</Notice>
                     <Button variant="secondary" onClick={handleRetry}>
@@ -81,7 +107,7 @@ const SummarySection: React.FC<SummarySectionProps> = ({ groupId, shareLinkId, c
                 </div>
             )}
 
-            {!isLoading && !error && response && (
+            {response && (
                 isPublic ? (
                     <PublicSummaryContent response={response as PublicGroupSummaryResponse} />
                 ) : (

@@ -88,7 +88,7 @@ System prompt rules:
 **ReceiptScanner** (`frontend/src/ReceiptScanner.tsx`):
 - Two phases: upload → review
 - Upload: file picker (accepts images and PDFs); images get an inline preview and are compressed before upload, PDFs show a file-name placeholder and are uploaded as-is
-- Review: editable item list (tap to edit inline), tax/tip/total summary, collapsible receipt image
+- Review: editable item list (tap to edit inline), inline tax and tip inputs (always visible, prefilled from the scan; clearing one means "not on the receipt", and negative input is clamped to zero), total, collapsible receipt image
 - Passes items + tax + tip + total to `AddExpenseModal` via `onItemsDetected` callback
 
 **AddExpenseModal** (`frontend/src/AddExpenseModal.tsx`):

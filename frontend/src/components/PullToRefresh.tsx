@@ -27,10 +27,12 @@ export interface PullToRefreshProps {
  * scrolling under the finger and stays out of the way unless that scroller
  * is at the top and the drag is downward.
  *
- * Touch only. The listeners are attached by hand so `touchmove` can be
- * non-passive — once a pull is under way the page must not scroll or
- * rubber-band alongside it — while an ordinary scroll keeps the passive
- * fast path.
+ * Touch only. Only `touchstart` lives for the component's lifetime, and
+ * passively. When it decides a pull may begin it attaches `touchmove` by
+ * hand, non-passively — the only kind that can `preventDefault` once the
+ * pull is under way, so the page does not scroll or rubber-band alongside
+ * it — and takes it off again when the gesture ends. An ordinary scroll
+ * never runs it, so scrolling keeps the browser's passive fast path.
  */
 const PullToRefresh: React.FC<PullToRefreshProps> = ({
     onRefresh,
@@ -50,8 +52,9 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
         const root = rootRef.current;
         if (!root) return;
 
-        // Gesture state lives in refs: the listeners are attached once and
-        // must see the current values, not the ones from their first render.
+        // Gesture state lives in plain locals: the handlers are created once
+        // per mount and must see the current values, not the ones from their
+        // first invocation.
         let tracking = false;
         let startX = 0;
         let startY = 0;
@@ -59,10 +62,18 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
         let current = 0;
         let busy = false;
 
+        // The gesture listeners come and go with the pull; see `onStart`.
+        const detach = () => {
+            root.removeEventListener('touchmove', onMove);
+            root.removeEventListener('touchend', onEnd);
+            root.removeEventListener('touchcancel', onCancel);
+        };
+
         const reset = () => {
             tracking = false;
             current = 0;
             setPull(0);
+            detach();
         };
 
         const onStart = (event: TouchEvent) => {
@@ -73,6 +84,11 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
             startX = event.touches[0].clientX;
             startY = event.touches[0].clientY;
             tracking = true;
+            // Only an eligible pull earns the non-passive `touchmove`; it is
+            // taken off on end or cancel, so an ordinary scroll never runs it.
+            root.addEventListener('touchmove', onMove, { passive: false });
+            root.addEventListener('touchend', onEnd);
+            root.addEventListener('touchcancel', onCancel);
         };
 
         const onMove = (event: TouchEvent) => {
@@ -98,6 +114,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
 
         const onEnd = async () => {
             if (!tracking) return;
+            detach();
             const release = current;
             tracking = false;
             if (release < PULL_THRESHOLD) {
@@ -121,15 +138,17 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
             }
         };
 
+        // The OS took the touch — a notification shade, an app switch. An
+        // interrupted gesture is not an intent to refresh, however far it got.
+        const onCancel = () => {
+            if (!tracking) return;
+            reset();
+        };
+
         root.addEventListener('touchstart', onStart, { passive: true });
-        root.addEventListener('touchmove', onMove, { passive: false });
-        root.addEventListener('touchend', onEnd);
-        root.addEventListener('touchcancel', onEnd);
         return () => {
             root.removeEventListener('touchstart', onStart);
-            root.removeEventListener('touchmove', onMove);
-            root.removeEventListener('touchend', onEnd);
-            root.removeEventListener('touchcancel', onEnd);
+            detach();
         };
     }, []);
 

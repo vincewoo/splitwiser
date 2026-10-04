@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { balancesApi } from '../services/api';
 import { useAppData } from '../contexts/AppDataContext';
 import { useAuth } from '../AuthContext';
@@ -33,19 +33,18 @@ export function useSettlement(): {
      */
     directory: Map<string, SettlementParticipant>;
     loading: boolean;
-    reload: () => void;
 } {
     const { user } = useAuth();
-    const { groups, refreshGeneration } = useAppData();
+    const { groups, loading: groupsLoading, refreshGeneration } = useAppData();
     // Keyed by id rather than the user object, so the memoised results keep
     // their identity across renders — SettleUpPage scopes its hidden rows to
     // the `payments` array it marked them against.
     const userId = user?.id;
     const [byGroup, setByGroup] = useState<GroupTransactions[]>([]);
-    const [loading, setLoading] = useState(true);
-
-    // Bumping this re-runs the fan-out after a settlement is recorded.
-    const [nonce, setNonce] = useState(0);
+    // Set once the first fan-out lands. Later refreshes (a recorded payment, a
+    // pull to refresh) update the figures in place rather than swapping the
+    // screen for a spinner.
+    const [loadedOnce, setLoadedOnce] = useState(false);
 
     // Depend on the group ids rather than the array identity, so a refetch that
     // returns the same groups does not re-trigger the fan-out.
@@ -53,15 +52,14 @@ export function useSettlement(): {
 
     useEffect(() => {
         if (groups.length === 0) {
+            // Nothing to fan out over. Deliberately not "loaded": before the
+            // provider has delivered the groups, an empty list means "not
+            // loaded yet", not "no groups" — `loading` below covers both.
             setByGroup([]);
-            setLoading(false);
             return;
         }
 
         let cancelled = false;
-        // `loading` is only ever true before the first fan-out lands: a later
-        // refresh (a recorded payment, a pull to refresh) updates the figures
-        // in place rather than swapping the screen for a spinner.
 
         Promise.all(
             groups.map(async (group) => {
@@ -88,14 +86,18 @@ export function useSettlement(): {
                 if (!cancelled) setByGroup(result);
             })
             .finally(() => {
-                if (!cancelled) setLoading(false);
+                if (!cancelled) setLoadedOnce(true);
             });
 
         return () => {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [groupKey, nonce, refreshGeneration]);
+    }, [groupKey, refreshGeneration]);
+
+    // True until something definitive has landed: the first fan-out, or the
+    // provider confirming there are no groups at all.
+    const loading = groupsLoading || (groups.length > 0 && !loadedOnce);
 
     const counterparties = useMemo(
         () => (userId ? settlementForUser(byGroup, userId) : []),
@@ -109,7 +111,5 @@ export function useSettlement(): {
 
     const directory = useMemo(() => participantDirectory(byGroup), [byGroup]);
 
-    const reload = useCallback(() => setNonce((n) => n + 1), []);
-
-    return { counterparties, payments, directory, loading, reload };
+    return { counterparties, payments, directory, loading };
 }
