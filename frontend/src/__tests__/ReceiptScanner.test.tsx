@@ -22,8 +22,8 @@ const mockCompressImage = vi.mocked(compressImage);
 // success path (which transitions the component to the 'review' phase).
 const scanResult = {
     items: [{ description: 'Coffee', price: 100, quantity: 1 }],
-    tax: null,
-    tip: null,
+    tax: null as number | null,
+    tip: null as number | null,
     total: 100,
     receipt_image_path: '/static/receipts/x.pdf',
 };
@@ -116,6 +116,105 @@ describe('ReceiptScanner upload', () => {
         // Regression balance: images DO go through compression.
         expect(mockCompressImage).toHaveBeenCalledTimes(1);
         expect(mockCompressImage).toHaveBeenCalledWith(pngFile, 1920, 1);
+    });
+});
+
+describe('ReceiptScanner tax and tip editing', () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    // Reach the review phase with the given scan response.
+    async function scanToReview(result: typeof scanResult) {
+        fetchMock = vi.fn(async () => ({
+            ok: true,
+            json: async () => result,
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        selectFile(getFileInput(), new File(['a'], 'receipt.png', { type: 'image/png' }));
+        fireEvent.click(screen.getByRole('button', { name: /read this receipt/i }));
+        await waitFor(() =>
+            expect(screen.getByText(/Tap any line to fix it/i)).toBeInTheDocument()
+        );
+    }
+
+    beforeEach(() => {
+        mockCompressImage.mockClear();
+        mockCompressImage.mockImplementation(async (file: File) => file);
+        localStorage.setItem('token', 'test-token');
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        localStorage.clear();
+    });
+
+    it('prefills the inputs with what the scan read', async () => {
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+        await scanToReview({ ...scanResult, tax: 125, tip: 300 });
+
+        expect(screen.getByLabelText('Tax')).toHaveValue(1.25);
+        expect(screen.getByLabelText('Tip')).toHaveValue(3);
+    });
+
+    it('shows empty inputs when the scan read no tax or tip', async () => {
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+        await scanToReview(scanResult);
+
+        expect(screen.getByLabelText('Tax')).toHaveValue(null);
+        expect(screen.getByLabelText('Tip')).toHaveValue(null);
+    });
+
+    it('hands edited tax and tip to onItemsDetected in cents', async () => {
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+        await scanToReview(scanResult);
+
+        fireEvent.change(screen.getByLabelText('Tax'), { target: { value: '0.50' } });
+        fireEvent.change(screen.getByLabelText('Tip'), { target: { value: '1.00' } });
+        fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
+
+        expect(onItemsDetected).toHaveBeenCalledTimes(1);
+        const [, , , taxCents, tipCents] = onItemsDetected.mock.calls[0];
+        expect(taxCents).toBe(50);
+        expect(tipCents).toBe(100);
+    });
+
+    it('treats a cleared input as no tax on the receipt', async () => {
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+        await scanToReview({ ...scanResult, tax: 125 });
+
+        fireEvent.change(screen.getByLabelText('Tax'), { target: { value: '' } });
+        fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
+
+        const [, , , taxCents] = onItemsDetected.mock.calls[0];
+        expect(taxCents).toBeNull();
+    });
+
+    it('treats a cleared input as no tip on the receipt', async () => {
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+        await scanToReview({ ...scanResult, tip: 300 });
+
+        fireEvent.change(screen.getByLabelText('Tip'), { target: { value: '' } });
+        fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
+
+        const [, , , , tipCents] = onItemsDetected.mock.calls[0];
+        expect(tipCents).toBeNull();
+    });
+
+    it('clamps a typed negative to zero — min="0" does not stop the keyboard', async () => {
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+        await scanToReview(scanResult);
+
+        fireEvent.change(screen.getByLabelText('Tax'), { target: { value: '-5' } });
+        fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
+
+        const [, , , taxCents] = onItemsDetected.mock.calls[0];
+        expect(taxCents).toBe(0);
     });
 });
 

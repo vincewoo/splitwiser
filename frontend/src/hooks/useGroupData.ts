@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
+import { useAppData } from '../contexts/AppDataContext';
 import type { Group, GroupBalance } from '../types/group';
 
 export interface GroupExpenseSplit {
@@ -50,6 +51,7 @@ interface GroupData {
  * historical rates, so switching modes is a refetch rather than a recompute.
  */
 export function useGroupData(groupId: number | undefined): GroupData {
+    const { refreshGeneration } = useAppData();
     const [group, setGroup] = useState<Group | null>(null);
     const [expenses, setExpenses] = useState<GroupExpense[]>([]);
     const [balances, setBalances] = useState<GroupBalance[]>([]);
@@ -57,8 +59,14 @@ export function useGroupData(groupId: number | undefined): GroupData {
     const [error, setError] = useState<string | null>(null);
     const [inGroupCurrency, setInGroupCurrency] = useState(true);
 
+    // Loads can overlap now that global refreshes trigger them too (a pull
+    // racing the currency toggle, say); only the newest one may write, or a
+    // slow older response would overwrite newer data.
+    const loadSeq = useRef(0);
+
     const load = useCallback(async () => {
         if (groupId === undefined) return;
+        const seq = ++loadSeq.current;
         setLoading(true);
         setError(null);
 
@@ -67,6 +75,7 @@ export function useGroupData(groupId: number | undefined): GroupData {
                 api.groups.getById(groupId),
                 api.groups.getExpenses(groupId),
             ]);
+            if (seq !== loadSeq.current) return;
             setGroup(groupData);
             setExpenses(expensesData);
 
@@ -74,8 +83,10 @@ export function useGroupData(groupId: number | undefined): GroupData {
                 groupId,
                 inGroupCurrency ? groupData.default_currency : undefined
             );
+            if (seq !== loadSeq.current) return;
             setBalances(balancesData);
         } catch (err) {
+            if (seq !== loadSeq.current) return;
             const message = err instanceof Error ? err.message : '';
             if (message.includes('404') || message.includes('not found')) {
                 setError('Group not found');
@@ -85,13 +96,15 @@ export function useGroupData(groupId: number | undefined): GroupData {
                 setError('Failed to load group data');
             }
         } finally {
-            setLoading(false);
+            if (seq === loadSeq.current) setLoading(false);
         }
     }, [groupId, inGroupCurrency]);
 
+    // Also re-runs on a global refresh: an expense added from the shell's
+    // modal, or a pull to refresh, lands here without the route remounting.
     useEffect(() => {
         load();
-    }, [load]);
+    }, [load, refreshGeneration]);
 
     return {
         group,

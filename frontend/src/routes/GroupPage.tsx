@@ -66,6 +66,7 @@ const GroupPage: React.FC = () => {
         balances: allBalances,
         friends,
         refreshAll,
+        refreshGeneration,
         refreshGroups,
     } = useAppData();
 
@@ -101,9 +102,10 @@ const GroupPage: React.FC = () => {
         error: exportError,
     } = useBalanceSheetExport(id ?? null);
 
-    const refreshEverything = useCallback(async () => {
-        await Promise.all([reload(), refreshAll()]);
-    }, [reload, refreshAll]);
+    // Mutation callbacks below call `refreshAll` directly: a global refresh
+    // reaches this group too, through `refreshGeneration` in useGroupData —
+    // so one call covers the group, the sidebar and the balances, and calling
+    // `reload()` beside it would fetch the group twice.
 
     const payerName = useCallback(
         (expense: GroupExpense): string => {
@@ -191,7 +193,10 @@ const GroupPage: React.FC = () => {
         );
     }
 
-    if (error || !group) {
+    // Only without data: a failed *re*fetch (a pull on a flaky connection, a
+    // background refresh after a mutation) must not wipe a loaded page down to
+    // an error screen — the stale data stays up and the next refresh heals it.
+    if (!group) {
         return (
             <div className="flex-1 flex flex-col items-center justify-center gap-3">
                 <p className="text-sm text-sw-muted">{error ?? 'Group not found'}</p>
@@ -207,7 +212,7 @@ const GroupPage: React.FC = () => {
             <AddExpenseModal
                 isOpen={addExpenseOpen}
                 onClose={() => setAddExpenseOpen(false)}
-                onExpenseAdded={refreshEverything}
+                onExpenseAdded={refreshAll}
                 friends={friends}
                 groups={groups}
                 preselectedGroupId={id ?? null}
@@ -217,10 +222,10 @@ const GroupPage: React.FC = () => {
                 isOpen={editingExpenseId !== null}
                 expenseId={editingExpenseId}
                 onClose={() => setEditingExpenseId(null)}
-                onExpenseUpdated={refreshEverything}
+                onExpenseUpdated={refreshAll}
                 onExpenseDeleted={() => {
                     setSelectedId(null);
-                    refreshEverything();
+                    refreshAll();
                 }}
                 groupMembers={group.members ?? []}
                 groupGuests={group.guests ?? []}
@@ -251,7 +256,7 @@ const GroupPage: React.FC = () => {
             <AddMemberModal
                 isOpen={addMemberOpen}
                 onClose={() => setAddMemberOpen(false)}
-                onMemberAdded={refreshEverything}
+                onMemberAdded={refreshAll}
                 groupId={String(id)}
                 friends={friends}
             />
@@ -259,7 +264,7 @@ const GroupPage: React.FC = () => {
             <AddGuestModal
                 isOpen={addGuestOpen}
                 onClose={() => setAddGuestOpen(false)}
-                onGuestAdded={refreshEverything}
+                onGuestAdded={refreshAll}
                 groupId={String(id)}
             />
 
@@ -271,7 +276,7 @@ const GroupPage: React.FC = () => {
                 groupCurrency={group.default_currency}
                 members={group.members ?? []}
                 guests={group.guests ?? []}
-                onPaymentCreated={refreshEverything}
+                onPaymentCreated={refreshAll}
             />
 
             <GroupPersonSheet
@@ -282,7 +287,7 @@ const GroupPage: React.FC = () => {
                 guests={group.guests ?? []}
                 currentUserId={user?.id}
                 ownerId={group.created_by_id}
-                onChanged={refreshEverything}
+                onChanged={refreshAll}
             />
         </>
     );
@@ -432,7 +437,7 @@ const GroupPage: React.FC = () => {
                     )}
                 </>
             ) : (
-                <SummarySection groupId={id} currentUserId={user?.id ?? null} />
+                <SummarySection groupId={id} currentUserId={user?.id ?? null} refreshGeneration={refreshGeneration} />
             )}
         </div>
     );
@@ -701,7 +706,7 @@ const GroupPage: React.FC = () => {
                 )}
                 {mobileTab === 'spending' && (
                     <div className="pt-3">
-                        <SummarySection groupId={id} currentUserId={user?.id ?? null} />
+                        <SummarySection groupId={id} currentUserId={user?.id ?? null} refreshGeneration={refreshGeneration} />
                     </div>
                 )}
                 {mobileTab === 'people' && (

@@ -44,7 +44,7 @@ const PersonPage: React.FC = () => {
     const navigate = useNavigate();
     const isDesktop = useIsDesktop();
     const { user } = useAuth();
-    const { friends, groups, refreshAll } = useAppData();
+    const { friends, groups, refreshAll, refreshGeneration } = useAppData();
 
     const [friend, setFriend] = useState<Friend | null>(null);
     const [expenses, setExpenses] = useState<FriendExpenseWithSplits[]>([]);
@@ -62,8 +62,13 @@ const PersonPage: React.FC = () => {
 
     usePageTitle(friend?.full_name ?? 'Person');
 
+    // Loads can overlap now that global refreshes trigger them too; only the
+    // newest one may write, or a slow older response would overwrite newer data.
+    const loadSeq = React.useRef(0);
+
     const load = React.useCallback(async () => {
         if (!friendId) return;
+        const seq = ++loadSeq.current;
         setLoading(true);
         setError(null);
         try {
@@ -74,21 +79,24 @@ const PersonPage: React.FC = () => {
                 friendsApi.getBalance(id),
                 fetch(getApiUrl('exchange_rates')),
             ]);
+            if (seq !== loadSeq.current) return;
             setFriend(friendData);
             setExpenses(expensesData);
             setBalances(balanceData);
             if (ratesRes.ok) setRates(await ratesRes.json());
         } catch (err) {
+            if (seq !== loadSeq.current) return;
             console.error('Failed to fetch person data:', err);
             setError('Failed to load this person');
         } finally {
-            setLoading(false);
+            if (seq === loadSeq.current) setLoading(false);
         }
     }, [friendId]);
 
+    // Also on a global refresh, so a payment recorded elsewhere shows here.
     useEffect(() => {
         load();
-    }, [load]);
+    }, [load, refreshGeneration]);
 
     /** Balances in cents, so they render through the same Money component. */
     const balancesInCents = useMemo(
@@ -132,7 +140,10 @@ const PersonPage: React.FC = () => {
         );
     }
 
-    if (error || !friend) {
+    // Only without data: a failed *re*fetch (a pull on a flaky connection, a
+    // background refresh after a mutation) must not wipe a loaded page down to
+    // an error screen — the stale data stays up and the next refresh heals it.
+    if (!friend) {
         return (
             <div className="flex-1 flex flex-col items-center justify-center gap-3">
                 <p className="text-sm text-sw-muted">{error ?? 'Person not found'}</p>
@@ -336,10 +347,8 @@ const PersonPage: React.FC = () => {
             <AddExpenseModal
                 isOpen={addExpenseOpen}
                 onClose={() => setAddExpenseOpen(false)}
-                onExpenseAdded={() => {
-                    load();
-                    refreshAll();
-                }}
+                // refreshAll reaches this page's own fetch via refreshGeneration.
+                onExpenseAdded={refreshAll}
                 friends={friends}
                 groups={groups}
                 preselectedFriendId={friend.id}
@@ -348,10 +357,7 @@ const PersonPage: React.FC = () => {
             <SettleUpModal
                 isOpen={settleUpOpen}
                 onClose={() => setSettleUpOpen(false)}
-                onSettled={() => {
-                    load();
-                    refreshAll();
-                }}
+                onSettled={refreshAll}
                 friends={friends}
                 preselectedFriendId={friend.id}
             />
@@ -361,13 +367,9 @@ const PersonPage: React.FC = () => {
                     isOpen
                     expenseId={openExpenseId}
                     onClose={() => setOpenExpenseId(null)}
-                    onExpenseUpdated={() => {
-                        load();
-                        refreshAll();
-                    }}
+                    onExpenseUpdated={refreshAll}
                     onExpenseDeleted={() => {
                         setOpenExpenseId(null);
-                        load();
                         refreshAll();
                     }}
                     groupMembers={[]}

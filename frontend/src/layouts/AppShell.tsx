@@ -5,6 +5,7 @@ import MobileTabBar from './MobileTabBar';
 import FabSheet from './FabSheet';
 import type { ResumeTarget } from './FabSheet';
 import AddExpenseModal from '../AddExpenseModal';
+import PullToRefresh from '../components/PullToRefresh';
 import ReceiptScanner from '../ReceiptScanner';
 import ProfileSheet from '../components/ProfileSheet';
 import OpenTabSheet from '../components/tab/OpenTabSheet';
@@ -215,7 +216,16 @@ const AppShell: React.FC = () => {
 
     return (
         <div className="flex flex-col h-screen bg-sw-bg text-sw-text font-sans overflow-hidden">
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{content}</div>
+            {/*
+              * The shell owns the viewport, so the browser's pull-to-refresh
+              * never fires. This one refreshes the data instead of the page.
+              */}
+            <PullToRefresh
+                onRefresh={refreshAll}
+                className="flex-1 min-h-0 flex flex-col overflow-hidden"
+            >
+                {content}
+            </PullToRefresh>
 
             <MobileTabBar onFabPress={() => setFabOpen(true)} />
 
