@@ -242,6 +242,10 @@ class Group(GroupBase):
     created_by_id: int
     share_link_id: Optional[str] = None
     is_public: bool = False
+    # Highest expense id in the group (settlements included). Expense ids are
+    # globally monotonic, so this orders groups by most recent activity without
+    # a timestamp column. Only populated by the group-list endpoint.
+    latest_expense_id: Optional[int] = None
 
     class Config:
         from_attributes = True

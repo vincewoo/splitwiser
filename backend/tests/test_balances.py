@@ -1,7 +1,7 @@
 from datetime import date
 
 from auth import get_password_hash
-from models import Group, GroupMember, GuestMember, User
+from models import Expense, ExpenseSplit, Group, GroupMember, GuestMember, User
 from utils.balances import (
     _detect_managed_cycles,
     _fold_managed_relationships,
@@ -540,3 +540,87 @@ def test_calculate_net_balances_circular_managed_by_reconciles(
         and str(group_id) in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_balances_skips_subcent_conversion_residual(client, auth_headers, db_session, test_user):
+    """A settled multi-currency group must not linger as a -$0.00 balance.
+
+    Converting an EUR expense to the group's USD at the stored historical rate
+    leaves a fractional-cent debt (558.7 cents here); the settlement is quoted
+    and recorded in whole cents (559), so a sub-cent residual survives. The
+    /balances endpoint works in cents and must drop anything that rounds to
+    zero cents, or the group list shows -$0.00 instead of "all square".
+    """
+    other = User(
+        email="residual@example.com",
+        hashed_password=get_password_hash("pw"),
+        full_name="Residual User",
+        is_active=True,
+    )
+    db_session.add(other)
+    db_session.commit()
+
+    group = Group(name="China 2025", created_by_id=test_user.id, default_currency="USD")
+    db_session.add(group)
+    db_session.commit()
+    db_session.add_all([
+        GroupMember(group_id=group.id, user_id=test_user.id),
+        GroupMember(group_id=group.id, user_id=other.id),
+    ])
+    db_session.commit()
+
+    # Other pays 10.00 EUR, split equally; EUR->USD rate 1.1174 makes
+    # test_user's debt 500 * 1.1174 = 558.7 USD cents.
+    eur_expense = Expense(
+        description="Dinner",
+        amount=1000,
+        currency="EUR",
+        date=str(date.today()),
+        payer_id=other.id,
+        payer_is_guest=False,
+        group_id=group.id,
+        created_by_id=other.id,
+        exchange_rate="1.1174",
+        split_type="EQUAL",
+    )
+    db_session.add(eur_expense)
+    db_session.commit()
+    db_session.add_all([
+        ExpenseSplit(expense_id=eur_expense.id, user_id=test_user.id, amount_owed=500, is_guest=False),
+        ExpenseSplit(expense_id=eur_expense.id, user_id=other.id, amount_owed=500, is_guest=False),
+    ])
+    db_session.commit()
+
+    # Before settling, the debt is real and must be reported.
+    res = client.get("/balances", headers=auth_headers)
+    assert res.status_code == 200
+    rows = [b for b in res.json()["balances"] if b.get("group_id") == group.id]
+    assert len(rows) == 1
+    assert round(rows[0]["amount"]) == -559
+
+    # Settle for the whole-cent figure the plan quotes: 559 USD cents.
+    settlement = Expense(
+        description="Settle up",
+        amount=559,
+        currency="USD",
+        date=str(date.today()),
+        payer_id=test_user.id,
+        payer_is_guest=False,
+        group_id=group.id,
+        created_by_id=test_user.id,
+        exchange_rate="1.0",
+        split_type="EXACT",
+        is_settlement=True,
+    )
+    db_session.add(settlement)
+    db_session.commit()
+    db_session.add(
+        ExpenseSplit(expense_id=settlement.id, user_id=other.id, amount_owed=559, is_guest=False)
+    )
+    db_session.commit()
+
+    # Net is +0.3 cents of conversion dust — the group must drop out entirely.
+    res = client.get("/balances", headers=auth_headers)
+    assert res.status_code == 200
+    rows = [b for b in res.json()["balances"] if b.get("group_id") == group.id]
+    assert rows == []

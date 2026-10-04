@@ -4,6 +4,7 @@ import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -51,10 +52,28 @@ def read_groups(
 ):
     # Get groups where user is a member
     user_groups = db.query(models.Group).join(
-        models.GroupMember, 
+        models.GroupMember,
         models.Group.id == models.GroupMember.group_id
     ).filter(models.GroupMember.user_id == current_user.id).all()
-    return user_groups
+
+    # Attach each group's highest expense id so clients can order by most
+    # recent activity (see schemas.Group.latest_expense_id).
+    group_ids = [g.id for g in user_groups]
+    latest_by_group: dict[int, int] = {}
+    if group_ids:
+        latest_by_group = dict(
+            db.query(models.Expense.group_id, func.max(models.Expense.id))
+            .filter(models.Expense.group_id.in_(group_ids))
+            .group_by(models.Expense.group_id)
+            .all()
+        )
+
+    result = []
+    for g in user_groups:
+        item = schemas.Group.model_validate(g)
+        item.latest_expense_id = latest_by_group.get(g.id)
+        result.append(item)
+    return result
 
 
 @router.get("/{group_id}", response_model=schemas.GroupWithMembers)

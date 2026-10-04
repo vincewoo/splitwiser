@@ -36,6 +36,9 @@ export interface Group {
     created_by_id: number;
     default_currency: string;
     icon?: string | null;
+    /** Highest expense id in the group — a most-recent-activity marker.
+     *  Only populated by the group-list endpoint; null for empty groups. */
+    latest_expense_id?: number | null;
     members?: GroupMember[];
     guests?: GuestMember[];
 }

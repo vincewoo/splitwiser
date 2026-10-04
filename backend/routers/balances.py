@@ -323,7 +323,10 @@ def get_balances(
         user_key = (current_user.id, False)  # (user_id, is_guest=False)
         user_balance = net_balances.get(user_key, 0)
         
-        if abs(user_balance) > 0.01:  # Skip near-zero balances
+        # Amounts are in cents: skip anything that rounds to zero cents, such as
+        # sub-cent conversion dust left behind by settling a multi-currency
+        # group, which would otherwise display as -$0.00.
+        if abs(round(user_balance)) >= 1:
             # Determine display currency
             display_currency = convert_to if convert_to else group_default_currency
             
