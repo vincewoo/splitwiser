@@ -7,6 +7,7 @@ import AddGroupModal from '../AddGroupModal';
 import { useAppData } from '../contexts/AppDataContext';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { netForGroup } from '../utils/groupBalances';
+import { byMostRecentActivity } from '../utils/groupSort';
 
 /**
  * Every group you are in, each with its own net balance.
@@ -20,7 +21,7 @@ const GroupsPage: React.FC = () => {
     const rows = useMemo(
         () =>
             [...groups]
-                .sort((a, b) => a.name.localeCompare(b.name))
+                .sort(byMostRecentActivity)
                 .map((group) => ({ group, net: netForGroup(balances, group.id) })),
         [groups, balances]
     );

@@ -1,7 +1,9 @@
 from datetime import date
 
+import pytest
+
 from auth import get_password_hash
-from models import Group, GroupMember, GuestMember, User
+from models import Expense, ExpenseSplit, Group, GroupMember, GuestMember, User
 from utils.balances import (
     _detect_managed_cycles,
     _fold_managed_relationships,
@@ -540,3 +542,259 @@ def test_calculate_net_balances_circular_managed_by_reconciles(
         and str(group_id) in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_balances_skips_subcent_conversion_residual(client, auth_headers, db_session, test_user):
+    """A settled multi-currency group must not linger as a -$0.00 balance.
+
+    Converting an EUR expense to the group's USD at the stored historical rate
+    leaves a fractional-cent debt (558.7 cents here); the settlement is quoted
+    and recorded in whole cents (559), so a sub-cent residual survives. The
+    /balances endpoint works in cents and must drop anything that rounds to
+    zero cents, or the group list shows -$0.00 instead of "all square".
+    """
+    other = User(
+        email="residual@example.com",
+        hashed_password=get_password_hash("pw"),
+        full_name="Residual User",
+        is_active=True,
+    )
+    db_session.add(other)
+    db_session.commit()
+
+    group = Group(name="China 2025", created_by_id=test_user.id, default_currency="USD")
+    db_session.add(group)
+    db_session.commit()
+    db_session.add_all([
+        GroupMember(group_id=group.id, user_id=test_user.id),
+        GroupMember(group_id=group.id, user_id=other.id),
+    ])
+    db_session.commit()
+
+    # Other pays 10.00 EUR, split equally; EUR->USD rate 1.1174 makes
+    # test_user's debt 500 * 1.1174 = 558.7 USD cents.
+    eur_expense = Expense(
+        description="Dinner",
+        amount=1000,
+        currency="EUR",
+        date=str(date.today()),
+        payer_id=other.id,
+        payer_is_guest=False,
+        group_id=group.id,
+        created_by_id=other.id,
+        exchange_rate="1.1174",
+        split_type="EQUAL",
+    )
+    db_session.add(eur_expense)
+    db_session.commit()
+    db_session.add_all([
+        ExpenseSplit(expense_id=eur_expense.id, user_id=test_user.id, amount_owed=500, is_guest=False),
+        ExpenseSplit(expense_id=eur_expense.id, user_id=other.id, amount_owed=500, is_guest=False),
+    ])
+    db_session.commit()
+
+    # Before settling, the debt is real and must be reported.
+    res = client.get("/balances", headers=auth_headers)
+    assert res.status_code == 200
+    rows = [b for b in res.json()["balances"] if b.get("group_id") == group.id]
+    assert len(rows) == 1
+    assert round(rows[0]["amount"]) == -559
+
+    # Settle for the whole-cent figure the plan quotes: 559 USD cents.
+    settlement = Expense(
+        description="Settle up",
+        amount=559,
+        currency="USD",
+        date=str(date.today()),
+        payer_id=test_user.id,
+        payer_is_guest=False,
+        group_id=group.id,
+        created_by_id=test_user.id,
+        exchange_rate="1.0",
+        split_type="EXACT",
+        is_settlement=True,
+    )
+    db_session.add(settlement)
+    db_session.commit()
+    db_session.add(
+        ExpenseSplit(expense_id=settlement.id, user_id=other.id, amount_owed=559, is_guest=False)
+    )
+    db_session.commit()
+
+    # Net is +0.3 cents of conversion dust — the group must drop out entirely.
+    res = client.get("/balances", headers=auth_headers)
+    assert res.status_code == 200
+    rows = [b for b in res.json()["balances"] if b.get("group_id") == group.id]
+    assert rows == []
+
+
+@pytest.mark.parametrize(
+    "exchange_rate, split_cents, settle_cents, expect_kept, expected_rounded",
+    [
+        # Residual after settling = settle - split * rate, in USD cents.
+        pytest.param("1.1174", 500, 559, False, None, id="plus-0.3-dropped"),
+        # 373 * 1.5 = 559.5 exactly (both floats are binary-exact), so the
+        # residual is precisely -0.5 — round() is banker's rounding, which
+        # sends half a cent to zero. Pinned on purpose; see utils.balances.is_dust.
+        pytest.param("1.5", 373, 559, False, None, id="exact-half-cent-dropped-bankers"),
+        pytest.param("1.11898", 500, 560, True, 1, id="plus-0.51-kept-shows-one-cent"),
+        # A real 1-cent debt must never be treated as dust: a regression to
+        # int() truncation or a strict > comparison would drop it.
+        pytest.param("1.5", 500, 749, True, -1, id="real-one-cent-debt-kept"),
+        pytest.param("1.1174", 500, 558, True, -1, id="minus-0.7-kept"),
+    ],
+)
+def test_balances_dust_threshold_boundaries(
+    client, auth_headers, db_session, test_user,
+    exchange_rate, split_cents, settle_cents, expect_kept, expected_rounded,
+):
+    """Pin the dust boundary on /balances: anything that rounds to zero whole
+    cents is dropped, anything that rounds to a cent or more survives.
+
+    Same construction as test_balances_skips_subcent_conversion_residual: an
+    EUR expense converted at a chosen stored rate leaves a fractional USD-cent
+    debt, then a whole-cent settlement lands the net exactly on the boundary
+    value under test.
+    """
+    other = User(
+        email="boundary@example.com",
+        hashed_password=get_password_hash("pw"),
+        full_name="Boundary User",
+        is_active=True,
+    )
+    db_session.add(other)
+    db_session.commit()
+
+    group = Group(name="Boundary Group", created_by_id=test_user.id, default_currency="USD")
+    db_session.add(group)
+    db_session.commit()
+    db_session.add_all([
+        GroupMember(group_id=group.id, user_id=test_user.id),
+        GroupMember(group_id=group.id, user_id=other.id),
+    ])
+    db_session.commit()
+
+    # Other pays an EUR expense; test_user's half converts to
+    # split_cents * exchange_rate USD cents of debt.
+    eur_expense = Expense(
+        description="Dinner",
+        amount=split_cents * 2,
+        currency="EUR",
+        date=str(date.today()),
+        payer_id=other.id,
+        payer_is_guest=False,
+        group_id=group.id,
+        created_by_id=other.id,
+        exchange_rate=exchange_rate,
+        split_type="EQUAL",
+    )
+    db_session.add(eur_expense)
+    db_session.commit()
+    db_session.add_all([
+        ExpenseSplit(expense_id=eur_expense.id, user_id=test_user.id, amount_owed=split_cents, is_guest=False),
+        ExpenseSplit(expense_id=eur_expense.id, user_id=other.id, amount_owed=split_cents, is_guest=False),
+    ])
+    db_session.commit()
+
+    # test_user settles for a whole-cent figure, leaving the residual under test.
+    settlement = Expense(
+        description="Settle up",
+        amount=settle_cents,
+        currency="USD",
+        date=str(date.today()),
+        payer_id=test_user.id,
+        payer_is_guest=False,
+        group_id=group.id,
+        created_by_id=test_user.id,
+        exchange_rate="1.0",
+        split_type="EXACT",
+        is_settlement=True,
+    )
+    db_session.add(settlement)
+    db_session.commit()
+    db_session.add(
+        ExpenseSplit(expense_id=settlement.id, user_id=other.id, amount_owed=settle_cents, is_guest=False)
+    )
+    db_session.commit()
+
+    res = client.get("/balances", headers=auth_headers)
+    assert res.status_code == 200
+    rows = [b for b in res.json()["balances"] if b.get("group_id") == group.id]
+    if expect_kept:
+        assert len(rows) == 1
+        assert round(rows[0]["amount"]) == expected_rounded
+    else:
+        assert rows == []
+
+
+def test_balances_convert_to_filters_display_dust(
+    client, auth_headers, db_session, test_user, monkeypatch
+):
+    """With convert_to, the dust decision runs on the CONVERTED amount.
+
+    A balance worth a whole cent in the group's own currency (1 JPY cent
+    here) converts to well under half a USD cent, so in the converted view —
+    the app's default — it would render as -$0.00. The row must be present in
+    group-currency mode and dropped in converted mode. Rates are patched on
+    routers.balances (where get_current_exchange_rates was imported into), so
+    the suite stays offline.
+    """
+    other = User(
+        email="jpy@example.com",
+        hashed_password=get_password_hash("pw"),
+        full_name="JPY User",
+        is_active=True,
+    )
+    db_session.add(other)
+    db_session.commit()
+
+    group = Group(name="Tokyo", created_by_id=test_user.id, default_currency="JPY")
+    db_session.add(group)
+    db_session.commit()
+    db_session.add_all([
+        GroupMember(group_id=group.id, user_id=test_user.id),
+        GroupMember(group_id=group.id, user_id=other.id),
+    ])
+    db_session.commit()
+
+    # Other pays 2 JPY cents, split equally: test_user owes exactly 1 JPY
+    # cent — a real balance in the group's currency, no conversion involved.
+    expense = Expense(
+        description="Gum",
+        amount=2,
+        currency="JPY",
+        date=str(date.today()),
+        payer_id=other.id,
+        payer_is_guest=False,
+        group_id=group.id,
+        created_by_id=other.id,
+        split_type="EQUAL",
+    )
+    db_session.add(expense)
+    db_session.commit()
+    db_session.add_all([
+        ExpenseSplit(expense_id=expense.id, user_id=test_user.id, amount_owed=1, is_guest=False),
+        ExpenseSplit(expense_id=expense.id, user_id=other.id, amount_owed=1, is_guest=False),
+    ])
+    db_session.commit()
+
+    import routers.balances as balances_router
+    monkeypatch.setattr(
+        balances_router,
+        "get_current_exchange_rates",
+        lambda: {"USD": 1.0, "JPY": 147.0},
+    )
+
+    # Group-currency view: the 1 JPY cent debt is real and must be reported.
+    res = client.get("/balances", headers=auth_headers)
+    assert res.status_code == 200
+    rows = [b for b in res.json()["balances"] if b.get("group_id") == group.id]
+    assert len(rows) == 1
+    assert rows[0]["currency"] == "JPY"
+    assert round(rows[0]["amount"]) == -1
+
+    # Converted view: 1 JPY cent is ~0.007 USD cents — display dust, dropped.
+    res = client.get("/balances?convert_to=USD", headers=auth_headers)
+    assert res.status_code == 200
+    rows = [b for b in res.json()["balances"] if b.get("group_id") == group.id]
+    assert rows == []

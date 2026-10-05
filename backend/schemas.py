@@ -246,6 +246,21 @@ class Group(GroupBase):
     class Config:
         from_attributes = True
 
+
+class GroupListItem(Group):
+    """The group-list response shape — a Group plus its recency marker.
+
+    Only GET /groups returns this; every other group endpoint keeps the plain
+    Group/GroupWithMembers shape, so the field is never emitted as a
+    misleading null elsewhere.
+    """
+    # Highest expense id in the group (settlements included). Expense ids are
+    # effectively monotonic — they follow creation order, though SQLite
+    # without AUTOINCREMENT can reuse the max rowid after deletes, and
+    # deleting a group's newest expense regresses its marker — which is fine
+    # for ordering groups by most recent activity without a timestamp column.
+    latest_expense_id: Optional[int] = None
+
 class FriendAddRequest(BaseModel):
     """Request to add friend by email (legacy)."""
     email: EmailStr

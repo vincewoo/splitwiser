@@ -36,6 +36,12 @@ export interface Group {
     created_by_id: number;
     default_currency: string;
     icon?: string | null;
+    /** Highest expense id in the group — a most-recent-activity marker.
+     *  Effectively creation order: SQLite can reuse the max id after deletes,
+     *  and deleting a group's newest expense regresses its marker — fine for
+     *  ordering. Only present on the group-list response (null for empty
+     *  groups there); absent from every other group-shaped response. */
+    latest_expense_id?: number | null;
     members?: GroupMember[];
     guests?: GuestMember[];
 }

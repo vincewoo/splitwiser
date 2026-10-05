@@ -259,7 +259,7 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 - `POST /auth/change-password`, `POST /auth/change-email` - Account changes
 
 ### Groups
-- `GET /groups` - List groups (`schemas.Group`): **no `members`/`guests` fields at all.** Use for name/currency/icon only
+- `GET /groups` - List groups (`schemas.GroupListItem`): **no `members`/`guests` fields at all.** Name/currency/icon plus `latest_expense_id` — each group's highest expense id (settlements included), a most-recent-activity marker clients sort by; no other group endpoint carries it
 - `GET /groups/{group_id}` - Full group (`schemas.GroupWithMembers`): the only endpoint that returns `members` and `guests`
 - `POST /groups`, `PUT /groups/{group_id}`, `DELETE /groups/{group_id}` - Group CRUD
 - `GET /groups/{group_id}/balances` - Get group balances
@@ -283,7 +283,7 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 - `GET /public/groups/{share_link_id}/expenses/{expense_id}` - Get expense via public link
 
 ### Balances & Currency
-- `GET /balances` - User balance summary across all groups
+- `GET /balances` - User balance summary across all groups. Per-group rows that round to zero cents (after any `convert_to` conversion) are dropped as conversion dust, so a settled multi-currency group never shows -$0.00
 - `GET /simplify_debts/{group_id}` - Debt simplification, plus a `participants` directory (display name + Venmo handle) for the ids in it. Paying one of the returned transactions leaves the others untouched
 - `GET /exchange_rates` - Current exchange rates
 
