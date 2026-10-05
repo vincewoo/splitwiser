@@ -110,55 +110,57 @@ Mapped in detail (file:line) during exploration:
 ## Implementation Steps
 
 ### Step 1: Migration + model + schema compat layer
-- [ ] Create `backend/migrations/add_expense_kind.py` from the `add_tab_offapp_payer.py` template: add `kind TEXT NOT NULL DEFAULT 'expense'`, backfill `UPDATE expenses SET kind='settlement' WHERE is_settlement=1`, idempotent, `--dry-run`/`--db-path`
-- [ ] Add the invocation line to `start.sh` (exact-format, matching the existing lines)
-- [ ] `backend/models.py`: add `kind = Column(String, nullable=False, default="expense")` beside `is_settlement` (comment: compat alias, drop later)
-- [ ] `backend/schemas.py`: add `kind` to `ExpenseCreate`/`ExpenseUpdate`/`Expense`; model validator normalizing kind↔is_settlement (derive missing kind, 400 on contradiction); responses serialize both
-- [ ] `backend/routers/expenses.py`: create/update write `kind` (and mirrored `is_settlement`); fix the PUT-clears footgun by normalizing from whichever field the client sent; validate income: `amount > 0`, split type ≠ ITEMIZED
-- [ ] `backend/routers/tabs.py:892`: write `kind="expense"` explicitly
+- [x] Create `backend/migrations/add_expense_kind.py` from the `add_tab_offapp_payer.py` template: add `kind TEXT NOT NULL DEFAULT 'expense'`, backfill `UPDATE expenses SET kind='settlement' WHERE is_settlement=1`, idempotent, `--dry-run`/`--db-path`
+- [x] Add the invocation line to `start.sh` (exact-format, matching the existing lines)
+- [x] `backend/models.py`: add `kind = Column(String, nullable=False, default="expense")` beside `is_settlement` (comment: compat alias, drop later)
+- [x] `backend/schemas.py`: add `kind` to `ExpenseCreate`/`ExpenseUpdate`/`Expense`; model validator normalizing kind↔is_settlement (derive missing kind, 400 on contradiction); responses serialize both
+- [x] `backend/routers/expenses.py`: create/update write `kind` (and mirrored `is_settlement`); fix the PUT-clears footgun by normalizing from whichever field the client sent; validate income: `amount > 0`, split type ≠ ITEMIZED
+- [x] `backend/routers/tabs.py:892`: write `kind="expense"` explicitly
 
 ### Step 2: Backend aggregation sign flips (all five loops)
-- [ ] `utils/balances.py:446-480`: `sign = -1 if expense.kind == "income" else 1` in both loop modes; switch `is_settlement` reads at `:379-382` and `:540-541` to `kind == "settlement"` (income stays in anchors)
-- [ ] `routers/groups.py:689-708` (public balances loop): same flip
-- [ ] `routers/friends.py:699-720` and `:833-855`: same flip; serialize `kind` in `FriendExpenseWithSplits`
-- [ ] `routers/balances.py:387-405` (1-to-1 path): same flip
-- [ ] `utils/summary.py:217`: filter becomes `models.Expense.kind == "expense"`
-- [ ] `utils/balance_sheet.py`: note "money received" at `:432`; sign-flip income in the `:651-670` accumulation (consumption/paid/target/conv **and** presettlement); confirm all CHECKS reconcile
-- [ ] (opportunistic) `check_balances.py:25-41`
+- [x] `utils/balances.py:446-480`: `sign = -1 if expense.kind == "income" else 1` in both loop modes; switch `is_settlement` reads at `:379-382` and `:540-541` to `kind == "settlement"` (income stays in anchors)
+- [x] `routers/groups.py:689-708` (public balances loop): same flip
+- [x] `routers/friends.py:699-720` and `:833-855`: same flip; serialize `kind` in `FriendExpenseWithSplits`
+- [x] `routers/balances.py:387-405` (1-to-1 path): same flip
+- [x] `utils/summary.py:217`: filter becomes `models.Expense.kind == "expense"`
+- [x] `utils/balance_sheet.py`: note "money received" at `:432`; sign-flip income in the `:651-670` accumulation (consumption/paid/target/conv **and** presettlement); confirm all CHECKS reconcile
+- [x] (opportunistic) `check_balances.py:25-41`
 
 ### Step 3: Frontend types + entry points
-- [ ] `types/expense.ts`, `hooks/useGroupData.ts:29`, `hooks/useExpenseFeed.ts:15`, `db/schema.ts` (`CachedExpense` cleanup): add `kind?: 'expense' | 'settlement' | 'income'`
-- [ ] New `utils/expenseKind.ts`: `expenseKind(e)` (fallback: `is_settlement` → settlement, else expense), `isIncome`, `isSettlement`; migrate existing `is_settlement` reads to it
-- [ ] `AddExpenseModal.tsx`: `initialKind` prop; SegmentedControl (Expense | Money received) below header `:787`; income mode hides Scan, ITEMIZED pill, settlement checkbox; labels "Money received"/"Received by:"; `kind` in both payload builders and `resetForm`
-- [ ] `layouts/AppShell.tsx` + `layouts/shellActions.ts` + `layouts/FabSheet.tsx`: `kind` in the modal-open state, "Money received" FAB row; GroupPage/PersonPage modal mounts pass it through
-- [ ] `utils/settleAmount.ts` `settlementExpense` + `SettleUpModal.tsx:104-117`: add `kind: 'settlement'` (keep `is_settlement` for compat)
+- [x] `types/expense.ts`, `hooks/useGroupData.ts:29`, `hooks/useExpenseFeed.ts:15`, `db/schema.ts` (`CachedExpense` cleanup): add `kind?: 'expense' | 'settlement' | 'income'`
+- [x] New `utils/expenseKind.ts`: `expenseKind(e)` (fallback: `is_settlement` → settlement, else expense), `isIncome`, `isSettlement`; migrate existing `is_settlement` reads to it
+- [x] `AddExpenseModal.tsx`: `initialKind` prop; SegmentedControl (Expense | Money received) below header `:787`; income mode hides Scan, ITEMIZED pill, settlement checkbox; labels "Money received"/"Received by:"; `kind` in both payload builders and `resetForm`
+- [x] `layouts/AppShell.tsx` + `layouts/shellActions.ts` + `layouts/FabSheet.tsx`: `kind` in the modal-open state, "Money received" FAB row; GroupPage/PersonPage modal mounts pass it through
+- [x] `utils/settleAmount.ts` `settlementExpense` + `SettleUpModal.tsx:104-117`: add `kind: 'settlement'` (keep `is_settlement` for compat)
 
 ### Step 4: Frontend display
-- [ ] `utils/expenseImpact.ts`: negate impact for income
-- [ ] `components/group/GroupExpenseList.tsx`: income row — 💸 icon fallback, "received" subtitle copy, keep impact line (reversed sign flows from expenseImpact), no dimming
-- [ ] `components/ExpenseFeedRow.tsx`, `components/group/OpenExpensePane.tsx`: income icon + copy variants
-- [ ] Payer copy sites → "X received": `routes/GroupPage.tsx:111-121`, `routes/PublicGroupPage.tsx:50-55`, `hooks/useExpenseLabels.ts:25-33`, `routes/PersonPage.tsx:128-132`
-- [ ] `ExpenseDetailModal.tsx`: view labels ("Received by", "Shared among"), edit round-trips `kind`, hide quick-settle for income
-- [ ] `routes/GroupPage.tsx:126-128`: expenses bucket filter → `kind !== 'settlement'`
+- [x] `utils/expenseImpact.ts`: negate impact for income
+- [x] `components/group/GroupExpenseList.tsx`: income row — 💸 icon fallback, "received" subtitle copy, keep impact line (reversed sign flows from expenseImpact), no dimming
+- [x] `components/ExpenseFeedRow.tsx`, `components/group/OpenExpensePane.tsx`: income icon + copy variants
+- [x] Payer copy sites → "X received": `routes/GroupPage.tsx:111-121`, `routes/PublicGroupPage.tsx:50-55`, `hooks/useExpenseLabels.ts:25-33`, `routes/PersonPage.tsx:128-132`
+- [x] `ExpenseDetailModal.tsx`: view labels ("Received by", "Shared among"), edit round-trips `kind`, hide quick-settle for income
+- [x] `routes/GroupPage.tsx:126-128`: expenses bucket filter → `kind !== 'settlement'`
 
 ### Step 5: Write Tests
-- [ ] `backend/tests/test_startup_migrations.py`: the four standard migration tests for `add_expense_kind` (adds + idempotent; backfills settlements; dry-run writes nothing; start.sh line present)
-- [ ] `backend/tests/test_balances.py`: income scenario — receiver R, N participants: receiver −R(N−1)/N, others +R/N; group balances, `/balances`, and simplify all agree; income entry does not destabilize an existing simplify plan (extend `test_settlement_stability.py` pattern)
-- [ ] Parity tests: public share-link balances and friend balance for a group containing an income expense match the group-balances endpoint
-- [ ] 1-to-1: non-group income expense flips sign in `/balances` and friend balance
-- [ ] `backend/tests/test_summary_aggregation.py`: income excluded from consumption (member totals and series)
-- [ ] Balance sheet: group with income row → all CHECKS pass incl. `matches_balances_endpoint`; EXPENSES note says "money received"
-- [ ] Write-path compat: legacy payload (`is_settlement` only, no `kind`) still creates a settlement; contradiction → 400; income with ITEMIZED or `amount <= 0` → 400; PUT without `kind` on an income expense (stale-client downgrade — pin the documented behavior)
-- [ ] `frontend/src/utils/__tests__/expenseImpact.test.ts`: reversed sign for income (payer and participant perspectives)
-- [ ] `frontend` component tests: AddExpenseModal income mode (labels, hidden controls, payload carries `kind: 'income'`); GroupExpenseList income row (copy, icon, impact direction); extend `settleAmount` tests for `kind: 'settlement'`
+- [x] `backend/tests/test_startup_migrations.py`: the four standard migration tests for `add_expense_kind` (adds + idempotent; backfills settlements; dry-run writes nothing; start.sh line present)
+- [x] `backend/tests/test_balances.py`: income scenario — receiver R, N participants: receiver −R(N−1)/N, others +R/N; group balances, `/balances`, and simplify all agree; income entry does not destabilize an existing simplify plan (extend `test_settlement_stability.py` pattern)
+- [x] Parity tests: public share-link balances and friend balance for a group containing an income expense match the group-balances endpoint
+- [x] 1-to-1: non-group income expense flips sign in `/balances` and friend balance
+- [x] `backend/tests/test_summary_aggregation.py`: income excluded from consumption (member totals and series)
+- [x] Balance sheet: group with income row → all CHECKS pass incl. `matches_balances_endpoint`; EXPENSES note says "money received"
+- [x] Write-path compat: legacy payload (`is_settlement` only, no `kind`) still creates a settlement; contradiction → 400; income with ITEMIZED or `amount <= 0` → 400; PUT without `kind` on an income expense (stale-client downgrade — pin the documented behavior)
+- [x] `frontend/src/utils/__tests__/expenseImpact.test.ts`: reversed sign for income (payer and participant perspectives)
+- [x] `frontend` component tests: AddExpenseModal income mode (labels, hidden controls, payload carries `kind: 'income'`); GroupExpenseList income row (copy, icon, impact direction); extend `settleAmount` tests for `kind: 'settlement'`
+
+All steps completed 2026-10-04. Added post-plan: a per-type helper caption under the Expense | Money received toggle (user request). Remaining: the two [test-manual] acceptance items below.
 
 ## Acceptance Criteria
-- [ ] [test] Income expense of R split equally among N: receiver nets −R·(N−1)/N, each participant +R/N, across group balances, `/balances`, public balances, and friend balance
-- [ ] [test] Simplify debts incorporates income and remains stable when a suggested payment is then recorded
-- [ ] [test] Consumption summary (authed + public) excludes income entirely
-- [ ] [test] Balance-sheet CSV for a group with income reconciles: every CHECKS row true, including `matches_balances_endpoint`
-- [ ] [test] Migration backfills existing settlements to `kind='settlement'` and is idempotent; legacy `is_settlement` write payloads keep working; contradictions rejected
-- [ ] [test] Frontend: income mode produces a `kind: 'income'` payload with positive amounts; feed rows show "received" copy with correctly-signed impact
+- [x] [test] Income expense of R split equally among N: receiver nets −R·(N−1)/N, each participant +R/N, across group balances, `/balances`, public balances, and friend balance
+- [x] [test] Simplify debts incorporates income and remains stable when a suggested payment is then recorded
+- [x] [test] Consumption summary (authed + public) excludes income entirely
+- [x] [test] Balance-sheet CSV for a group with income reconciles: every CHECKS row true, including `matches_balances_endpoint`
+- [x] [test] Migration backfills existing settlements to `kind='settlement'` and is idempotent; legacy `is_settlement` write payloads keep working; contradictions rejected
+- [x] [test] Frontend: income mode produces a `kind: 'income'` payload with positive amounts; feed rows show "received" copy with correctly-signed impact
 - [ ] [test-manual] Phone PWA: create "Money received" offline → sync replays it correctly once online
 - [ ] [test-manual] Eliz's Airbnb case end-to-end: off-platform-settled group, record $200 received split 4 ways, settle-up offers each person their $50 with Venmo hand-off
 
