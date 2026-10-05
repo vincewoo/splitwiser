@@ -40,9 +40,11 @@ export interface FabSheetProps {
 }
 
 /**
- * The sheet behind the FAB. Peer actions — "Split a bill at the table" and
- * "Money received" sit alongside "Add an expense" rather than buried inside
- * it — plus a strip for resuming whatever was already in progress.
+ * The sheet behind the FAB. "Add an expense" carries the accent because it is
+ * the everyday action and the one the + button literally promises; the
+ * situational peers (split a bill, settle up, money received) stay neutral so
+ * the eye lands on the primary. A live tab gets its prominence from the
+ * "pick up where you left off" strip instead, which is the situational slot.
  */
 const FabSheet: React.FC<FabSheetProps> = ({
     open,
@@ -64,45 +66,28 @@ const FabSheet: React.FC<FabSheetProps> = ({
         <Sheet open={open} onClose={onClose} label="Add something">
             <Row
                 variant="card"
+                tone="accent"
                 onClick={run(onAddExpense)}
                 leading={
-                    <IconTile tone="accent">
-                        <CurrencyDollarSimple size={21} />
+                    <IconTile tone="accent-solid">
+                        <CurrencyDollarSimple size={21} weight="fill" />
                     </IconTile>
                 }
                 title={<span className="text-[15px]">Add an expense</span>}
-                subtitle={addExpenseCaption}
-                trailing={<CaretRight size={17} className="text-sw-dim" />}
-            />
-
-            <Row
-                variant="card"
-                tone="accent"
-                onClick={run(onSplitBill)}
-                leading={
-                    <IconTile tone="accent-solid">
-                        <Scan size={21} weight="fill" />
-                    </IconTile>
-                }
-                title={<span className="text-[15px]">Split a bill at the table</span>}
-                subtitle={
-                    <span className="text-sw-accent">
-                        Scan it, everyone claims their own
-                    </span>
-                }
+                subtitle={<span className="text-sw-accent">{addExpenseCaption}</span>}
                 trailing={<CaretRight size={17} className="text-sw-accent" />}
             />
 
             <Row
                 variant="card"
-                onClick={run(onAddIncome)}
+                onClick={run(onSplitBill)}
                 leading={
                     <IconTile tone="neutral">
-                        <HandCoins size={21} />
+                        <Scan size={21} />
                     </IconTile>
                 }
-                title={<span className="text-[15px]">Money received</span>}
-                subtitle="A refund or deposit someone's holding for the group"
+                title={<span className="text-[15px]">Split a bill at the table</span>}
+                subtitle="Scan it, everyone claims their own"
                 trailing={<CaretRight size={17} className="text-sw-dim" />}
             />
 
@@ -116,6 +101,19 @@ const FabSheet: React.FC<FabSheetProps> = ({
                 }
                 title={<span className="text-[15px]">Settle up</span>}
                 subtitle={settleUpCaption}
+                trailing={<CaretRight size={17} className="text-sw-dim" />}
+            />
+
+            <Row
+                variant="card"
+                onClick={run(onAddIncome)}
+                leading={
+                    <IconTile tone="neutral">
+                        <HandCoins size={21} />
+                    </IconTile>
+                }
+                title={<span className="text-[15px]">Money received</span>}
+                subtitle="A refund or deposit someone's holding for the group"
                 trailing={<CaretRight size={17} className="text-sw-dim" />}
             />
 
