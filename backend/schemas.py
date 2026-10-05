@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from utils.currency import VALID_CURRENCIES
 
@@ -59,6 +59,38 @@ class User(UserBase):
 
     class Config:
         from_attributes = True
+
+# The three things an expense row can be. "income" is money received — the
+# sign flips at aggregation, so the receiver ends up owing the participants.
+VALID_EXPENSE_KINDS = ("expense", "settlement", "income")
+
+
+def _normalize_expense_kind(kind: Optional[str], is_settlement: bool) -> str:
+    """
+    Reconcile ``kind`` with the ``is_settlement`` compat alias.
+
+    Stale PWA clients know nothing about ``kind`` and send only the boolean,
+    so a missing ``kind`` is derived from it. When both are sent they must
+    agree — but ``is_settlement`` defaults to False, so only an explicit
+    ``True`` can contradict anything: ``kind="settlement"`` alongside the
+    default False is just a new client not bothering with the alias.
+
+    Known accepted edge (documented in the plan): a stale client *editing* an
+    income entry sends no ``kind`` and ``is_settlement=False``, which
+    downgrades it to a plain expense. Stale clients cannot render income
+    anyway, and the window closes when bundles cycle.
+    """
+    if kind is None:
+        return "settlement" if is_settlement else "expense"
+    if kind not in VALID_EXPENSE_KINDS:
+        raise ValueError(f"kind must be one of {', '.join(VALID_EXPENSE_KINDS)}")
+    if is_settlement and kind != "settlement":
+        raise ValueError(
+            f"kind={kind!r} contradicts is_settlement=true; "
+            "send one or the other, or make them agree"
+        )
+    return kind
+
 
 class ExpenseSplitBase(BaseModel):
     user_id: int
@@ -148,7 +180,14 @@ class ExpenseCreate(BaseModel):
     icon: Optional[str] = Field(None, max_length=10)  # Optional emoji icon
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)
-    is_settlement: bool = False  # True if this is a payment/settlement
+    is_settlement: bool = False  # Compat alias for kind == "settlement" (stale PWA clients)
+    kind: Optional[str] = None  # expense | settlement | income; missing → derived from is_settlement
+
+    @model_validator(mode="after")
+    def normalize_kind(self):
+        self.kind = _normalize_expense_kind(self.kind, self.is_settlement)
+        self.is_settlement = self.kind == "settlement"
+        return self
 
 class Expense(BaseModel):
     id: int
@@ -165,7 +204,19 @@ class Expense(BaseModel):
     icon: Optional[str] = None
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = None
-    is_settlement: bool = False
+    is_settlement: bool = False  # Compat alias, always derived from kind below
+    kind: Optional[str] = None  # expense | settlement | income
+
+    @model_validator(mode="after")
+    def derive_compat_alias(self):
+        # Construction sites that predate `kind` pass only is_settlement;
+        # derive each from the other so the two can never disagree in a
+        # response. Unknown kinds from the database pass through untouched —
+        # a read path is no place to reject stored data.
+        if self.kind is None:
+            self.kind = "settlement" if self.is_settlement else "expense"
+        self.is_settlement = self.kind == "settlement"
+        return self
 
     class Config:
         from_attributes = True
@@ -211,7 +262,18 @@ class ExpenseUpdate(BaseModel):
     icon: Optional[str] = Field(None, max_length=10)  # Optional emoji icon
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)
-    is_settlement: bool = False
+    is_settlement: bool = False  # Compat alias for kind == "settlement" (stale PWA clients)
+    # Normalized from whichever field the client sent, exactly as on create.
+    # A PUT that omits both therefore writes kind="expense" — this is what
+    # fixes the old footgun where omitting is_settlement silently cleared it
+    # only on some paths, and what pins the stale-client income downgrade.
+    kind: Optional[str] = None
+
+    @model_validator(mode="after")
+    def normalize_kind(self):
+        self.kind = _normalize_expense_kind(self.kind, self.is_settlement)
+        self.is_settlement = self.kind == "settlement"
+        return self
 
 class Token(BaseModel):
     access_token: str

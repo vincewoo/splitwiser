@@ -1,7 +1,7 @@
 from datetime import date
 
 from auth import get_password_hash
-from models import Expense, ExpenseSplit, Group, GroupMember, GuestMember, User
+from models import Expense, ExpenseSplit, Friendship, Group, GroupMember, GuestMember, User
 from utils.balances import (
     _detect_managed_cycles,
     _fold_managed_relationships,
@@ -624,3 +624,248 @@ def test_balances_skips_subcent_conversion_residual(client, auth_headers, db_ses
     assert res.status_code == 200
     rows = [b for b in res.json()["balances"] if b.get("group_id") == group.id]
     assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Money received (kind="income"): the sign flips at aggregation, so the
+# receiver ends up owing the split participants — on every surface that
+# reads the ledger.
+# ---------------------------------------------------------------------------
+
+
+def _income_group(client, auth_headers, db_session, test_user):
+    """Eliz's Airbnb case: test_user receives a $200 refund split equally
+    among four — themselves, two members, and a guest. Expected: receiver
+    −150.00, each of the other three +50.00."""
+    group_id = client.post(
+        "/groups/",
+        headers=auth_headers,
+        json={"name": "Refund Group", "default_currency": "USD"},
+    ).json()["id"]
+
+    others = []
+    for n in (1, 2):
+        user = User(
+            email=f"income{n}@example.com",
+            hashed_password=get_password_hash("pw"),
+            full_name=f"Income Friend {n}",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+        client.post(
+            f"/groups/{group_id}/members", headers=auth_headers, json={"email": user.email}
+        )
+        others.append(user)
+
+    guest_id = client.post(
+        f"/groups/{group_id}/guests", headers=auth_headers, json={"name": "Guest Gia"}
+    ).json()["id"]
+
+    response = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Airbnb refund",
+            "amount": 20000,
+            "currency": "USD",
+            "date": str(date.today()),
+            "payer_id": test_user.id,
+            "group_id": group_id,
+            "split_type": "EQUAL",
+            "kind": "income",
+            "splits": [
+                {"user_id": test_user.id, "amount_owed": 5000, "is_guest": False},
+                {"user_id": others[0].id, "amount_owed": 5000, "is_guest": False},
+                {"user_id": others[1].id, "amount_owed": 5000, "is_guest": False},
+                {"user_id": guest_id, "amount_owed": 5000, "is_guest": True},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["kind"] == "income"
+    assert response.json()["is_settlement"] is False
+
+    return group_id, others, guest_id
+
+
+def test_income_flips_sign_in_group_balances(client, auth_headers, db_session, test_user):
+    group_id, others, guest_id = _income_group(client, auth_headers, db_session, test_user)
+
+    balances = {
+        (b["user_id"], b["is_guest"]): b["amount"]
+        for b in client.get(f"/groups/{group_id}/balances", headers=auth_headers).json()
+    }
+
+    # Receiver nets −R·3/4; the common case where the receiver is also a
+    # participant: −(total − own share) = −(20000 − 5000).
+    assert balances[(test_user.id, False)] == -15000
+    assert balances[(others[0].id, False)] == 5000
+    assert balances[(others[1].id, False)] == 5000
+    assert balances[(guest_id, True)] == 5000
+
+
+def test_income_flips_sign_in_the_balances_endpoint(
+    client, auth_headers, db_session, test_user
+):
+    group_id, _, _ = _income_group(client, auth_headers, db_session, test_user)
+
+    balances = client.get("/balances/", headers=auth_headers).json()["balances"]
+    group_balance = next(b for b in balances if b.get("group_id") == group_id)
+    assert group_balance["amount"] == -15000
+
+
+def test_income_flips_sign_in_public_share_link_balances(
+    client, auth_headers, db_session, test_user
+):
+    """The public balances loop is a verbatim copy of the ledger loop — the
+    share-link page must agree with the group's own Balances screen."""
+    group_id, _, _ = _income_group(client, auth_headers, db_session, test_user)
+    share_link_id = client.post(
+        f"/groups/{group_id}/share", headers=auth_headers
+    ).json()["share_link_id"]
+
+    group_balances = {
+        (b["user_id"], b["is_guest"]): b["amount"]
+        for b in client.get(f"/groups/{group_id}/balances", headers=auth_headers).json()
+    }
+    public_balances = {
+        (b["user_id"], b["is_guest"]): b["amount"]
+        for b in client.get(f"/groups/public/{share_link_id}/balances").json()
+    }
+
+    assert public_balances == group_balances
+
+
+def test_income_flips_sign_in_friend_balance(client, auth_headers, db_session, test_user):
+    """The friend paths read group expenses too, so the flip is mandatory
+    there regardless of where income can be entered."""
+    group_id, others, _ = _income_group(client, auth_headers, db_session, test_user)
+    friend = others[0]
+    db_session.add(Friendship(user_id1=test_user.id, user_id2=friend.id))
+    db_session.commit()
+
+    response = client.get(f"/friends/{friend.id}/balance", headers=auth_headers)
+    assert response.status_code == 200
+    balances = response.json()
+
+    # Friend's +50.00 is owed by the receiver: from test_user's side, −50.00,
+    # in dollars — agreeing with the group balances endpoint's cents.
+    group_balances = {
+        (b["user_id"], b["is_guest"]): b["amount"]
+        for b in client.get(f"/groups/{group_id}/balances", headers=auth_headers).json()
+    }
+    assert len(balances) == 1
+    assert balances[0]["currency"] == "USD"
+    # The group says the friend is owed +5000; from test_user's side that
+    # is −5000, i.e. −50.00 in the friend endpoint's dollars.
+    assert balances[0]["amount"] * 100 == -group_balances[(friend.id, False)]
+    assert balances[0]["amount"] == -50.0
+
+    # And the friend expense feed reports the same reversed impact per row.
+    expenses = client.get(f"/friends/{friend.id}/expenses", headers=auth_headers).json()
+    assert len(expenses) == 1
+    assert expenses[0]["kind"] == "income"
+    assert expenses[0]["balance_impact"] == -5000
+
+
+def test_one_to_one_income_flips_sign(client, auth_headers, db_session, test_user):
+    """A non-group "money received" entry with a friend."""
+    friend = User(
+        email="oneonone@example.com",
+        hashed_password=get_password_hash("pw"),
+        full_name="One On One",
+        is_active=True,
+    )
+    db_session.add(friend)
+    db_session.commit()
+    db_session.refresh(friend)
+    db_session.add(Friendship(user_id1=test_user.id, user_id2=friend.id))
+    db_session.commit()
+
+    response = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Ticket resale",
+            "amount": 3000,
+            "currency": "USD",
+            "date": str(date.today()),
+            "payer_id": test_user.id,
+            "group_id": None,
+            "split_type": "EQUAL",
+            "kind": "income",
+            "splits": [
+                {"user_id": test_user.id, "amount_owed": 1500, "is_guest": False},
+                {"user_id": friend.id, "amount_owed": 1500, "is_guest": False},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    # /balances: the receiver owes the friend their share.
+    balances = client.get("/balances/", headers=auth_headers).json()["balances"]
+    row = next(b for b in balances if b["user_id"] == friend.id and not b.get("group_id"))
+    assert row["amount"] == -1500
+
+    # Friend balance agrees (in dollars).
+    friend_balances = client.get(f"/friends/{friend.id}/balance", headers=auth_headers).json()
+    assert friend_balances == [{"amount": -15.0, "currency": "USD"}]
+
+
+def test_simplify_includes_income_and_stays_stable_when_paid(
+    client, auth_headers, db_session, test_user
+):
+    """Income is a real ledger event: it is in the simplify plan (receiver
+    pays the participants), and — like any plan — recording one suggested
+    payment leaves the other transactions untouched."""
+    group_id, others, guest_id = _income_group(client, auth_headers, db_session, test_user)
+
+    plan = client.get(f"/simplify_debts/{group_id}", headers=auth_headers).json()[
+        "transactions"
+    ]
+    edges = [(t["from_id"], t["from_is_guest"], t["to_id"], t["to_is_guest"], round(t["amount"])) for t in plan]
+
+    # The receiver pays each of the three participants their 50.00.
+    assert len(plan) == 3
+    assert all(e[0] == test_user.id and not e[1] for e in edges)
+    assert {(e[2], e[3]) for e in edges} == {
+        (others[0].id, False),
+        (others[1].id, False),
+        (guest_id, True),
+    }
+    assert all(e[4] == 5000 for e in edges)
+
+    # Record the first suggested payment exactly as the settle screens do.
+    paid = plan[0]
+    assert client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Payment",
+            "amount": round(paid["amount"]),
+            "currency": paid["currency"],
+            "date": str(date.today()),
+            "group_id": group_id,
+            "payer_id": paid["from_id"],
+            "payer_is_guest": paid["from_is_guest"],
+            "split_type": "EQUAL",
+            "is_settlement": True,
+            "splits": [
+                {
+                    "user_id": paid["to_id"],
+                    "is_guest": paid["to_is_guest"],
+                    "amount_owed": round(paid["amount"]),
+                }
+            ],
+        },
+    ).status_code == 200
+
+    after = client.get(f"/simplify_debts/{group_id}", headers=auth_headers).json()[
+        "transactions"
+    ]
+    assert [
+        (t["from_id"], t["from_is_guest"], t["to_id"], t["to_is_guest"], round(t["amount"]))
+        for t in after
+    ] == edges[1:]

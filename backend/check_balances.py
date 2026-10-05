@@ -16,29 +16,31 @@ try:
 
     for expense in expenses:
         splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
+        # Income ("money received") flips direction, as in utils/balances.
+        sign = -1 if expense.kind == "income" else 1
 
         for split in splits:
             # Check if it's Tim or Jezmin as debtor
             if split.is_guest and split.user_id == tim_id:
                 if expense.currency not in tim_balance:
                     tim_balance[expense.currency] = 0
-                tim_balance[expense.currency] -= split.amount_owed
+                tim_balance[expense.currency] -= sign * split.amount_owed
             if split.is_guest and split.user_id == jezmin_id:
                 if expense.currency not in jezmin_balance:
                     jezmin_balance[expense.currency] = 0
-                jezmin_balance[expense.currency] -= split.amount_owed
+                jezmin_balance[expense.currency] -= sign * split.amount_owed
 
         # Check if Tim or Jezmin is the payer
         if expense.payer_is_guest and expense.payer_id == tim_id:
             for split in splits:
                 if expense.currency not in tim_balance:
                     tim_balance[expense.currency] = 0
-                tim_balance[expense.currency] += split.amount_owed
+                tim_balance[expense.currency] += sign * split.amount_owed
         if expense.payer_is_guest and expense.payer_id == jezmin_id:
             for split in splits:
                 if expense.currency not in jezmin_balance:
                     jezmin_balance[expense.currency] = 0
-                jezmin_balance[expense.currency] += split.amount_owed
+                jezmin_balance[expense.currency] += sign * split.amount_owed
 
     print('Raw balances:')
     print('  Tim balance:', tim_balance)

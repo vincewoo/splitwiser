@@ -84,7 +84,12 @@ def _mk_expense(
     splits,  # list of (user_id, amount_owed, is_guest)
     exchange_rate="1.0",
     is_settlement: bool = False,
+    kind: str | None = None,
 ) -> models.Expense:
+    # Mirror the write path: kind is the source of truth, is_settlement the
+    # derived compat alias.
+    if kind is None:
+        kind = "settlement" if is_settlement else "expense"
     expense = models.Expense(
         description="Test Expense",
         amount=amount,
@@ -96,7 +101,8 @@ def _mk_expense(
         created_by_id=payer_id,
         exchange_rate=exchange_rate,
         split_type="EXACT",
-        is_settlement=is_settlement,
+        is_settlement=kind == "settlement",
+        kind=kind,
     )
     db_session.add(expense)
     db_session.commit()
@@ -346,6 +352,46 @@ def test_settlements_are_excluded(db_session):
     # Settlement amount does not appear anywhere.
     for m in summary.members:
         assert m.total in {1000}
+    assert sum(s.total for s in summary.series) == 2000
+
+
+def test_income_is_excluded_from_consumption(db_session):
+    """Money received is not consumption: it must not appear in member
+    totals, the group total, or the time-bucketed series — in either
+    direction (not added, not subtracted)."""
+    u1 = _mk_user(db_session, "inc1@ex.com", "A")
+    u2 = _mk_user(db_session, "inc2@ex.com", "B")
+    group = _mk_group(db_session, u1.id)
+    _add_member(db_session, group.id, u1.id)
+    _add_member(db_session, group.id, u2.id)
+
+    # Normal expense.
+    _mk_expense(
+        db_session,
+        group_id=group.id,
+        amount=2000,
+        currency="USD",
+        expense_date="2026-02-01",
+        payer_id=u1.id,
+        splits=[(u1.id, 1000, False), (u2.id, 1000, False)],
+    )
+    # A received a refund split with B — must be fully ignored.
+    _mk_expense(
+        db_session,
+        group_id=group.id,
+        amount=800,
+        currency="USD",
+        expense_date="2026-02-10",
+        payer_id=u1.id,
+        splits=[(u1.id, 400, False), (u2.id, 400, False)],
+        kind="income",
+    )
+
+    summary = calculate_consumption_summary(db_session, group.id, "USD")
+
+    assert summary.group_total == 2000
+    for m in summary.members:
+        assert m.total == 1000
     assert sum(s.total for s in summary.series) == 2000
 
 
