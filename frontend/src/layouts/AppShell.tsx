@@ -46,7 +46,9 @@ const AppShell: React.FC = () => {
         open: boolean;
         scanner: boolean;
         groupId: number | null;
-    }>({ open: false, scanner: false, groupId: null });
+        /** Which side of Expense | Money received the modal opens on. */
+        kind: 'expense' | 'income';
+    }>({ open: false, scanner: false, groupId: null, kind: 'expense' });
 
     // "Split a bill at the table": scan the receipt, name the place, open a tab.
     const [tabScannerOpen, setTabScannerOpen] = useState(false);
@@ -139,14 +141,30 @@ const AppShell: React.FC = () => {
     );
 
     const openAddExpense = useCallback(
-        () => setExpenseModal({ open: true, scanner: false, groupId: activeGroupId }),
+        () =>
+            setExpenseModal({
+                open: true,
+                scanner: false,
+                groupId: activeGroupId,
+                kind: 'expense',
+            }),
+        [activeGroupId]
+    );
+    const openAddIncome = useCallback(
+        () =>
+            setExpenseModal({
+                open: true,
+                scanner: false,
+                groupId: activeGroupId,
+                kind: 'income',
+            }),
         [activeGroupId]
     );
     const openSettleUp = useCallback(() => navigate('/settle'), [navigate]);
     const openProfile = useCallback(() => setProfileOpen(true), []);
     const shellActions = useMemo<ShellActions>(
-        () => ({ openAddExpense, openSettleUp, openProfile }),
-        [openAddExpense, openSettleUp, openProfile]
+        () => ({ openAddExpense, openAddIncome, openSettleUp, openProfile }),
+        [openAddExpense, openAddIncome, openSettleUp, openProfile]
     );
 
     const tabFlow = (
@@ -186,8 +204,14 @@ const AppShell: React.FC = () => {
                 isOpen={expenseModal.open}
                 openScanner={expenseModal.scanner}
                 preselectedGroupId={expenseModal.groupId}
+                initialKind={expenseModal.kind}
                 onClose={() =>
-                    setExpenseModal({ open: false, scanner: false, groupId: null })
+                    setExpenseModal({
+                        open: false,
+                        scanner: false,
+                        groupId: null,
+                        kind: 'expense',
+                    })
                 }
                 onExpenseAdded={refreshAll}
                 friends={friends}
@@ -223,6 +247,7 @@ const AppShell: React.FC = () => {
                 open={fabOpen}
                 onClose={() => setFabOpen(false)}
                 onAddExpense={openAddExpense}
+                onAddIncome={openAddIncome}
                 onSplitBill={() => setTabScannerOpen(true)}
                 onSettleUp={openSettleUp}
                 resumeTargets={resumeTargets}

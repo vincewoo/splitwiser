@@ -6,6 +6,7 @@ import {
     partialPaymentNote,
     settleAmountNote,
     settleHeading,
+    settlementExpense,
 } from '../settleAmount';
 import type { SettleAmountContext } from '../settleAmount';
 
@@ -159,5 +160,30 @@ describe('partialPaymentNote', () => {
         expect(
             partialPaymentNote({ kind: 'over', cents: 6000, excess: 565 }, OWED, 'USD')
         ).toBe('$60.00 against $54.35 suggested');
+    });
+});
+
+describe('settlementExpense', () => {
+    it('marks the payload a settlement in both the enum and the alias', () => {
+        const payload = settlementExpense({
+            description: 'Sam pays you',
+            notes: '',
+            cents: 5435,
+            currency: 'USD',
+            groupId: 7,
+            payer: { userId: 2, isGuest: false },
+            payee: { userId: 1, isGuest: false },
+            date: '2026-10-04',
+        });
+
+        // kind is what new servers read; is_settlement keeps older ones
+        // filing it under Settlements rather than spending.
+        expect(payload.kind).toBe('settlement');
+        expect(payload.is_settlement).toBe(true);
+        // The payer covers it all and the payee carries the whole split.
+        expect(payload.amount).toBe(5435);
+        expect(payload.splits).toEqual([
+            { user_id: 1, is_guest: false, amount_owed: 5435 },
+        ]);
     });
 });

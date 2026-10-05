@@ -101,9 +101,9 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({
         setSubmitting(true);
         try {
             // Recorded as an expense the payer covered in full, which cancels
-            // that much of the debt. is_settlement keeps it out of spending
-            // totals and under the Settlements filter — matching how Simplify
-            // Debts records one.
+            // that much of the debt. kind: 'settlement' keeps it out of
+            // spending totals and under the Settlements filter — matching how
+            // Simplify Debts records one (is_settlement is the compat alias).
             const response = await api.expenses.create({
                 description: 'Settle up',
                 amount: cents,
@@ -114,6 +114,7 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({
                 group_id: null,
                 split_type: 'EXACT',
                 icon: '🏦',
+                kind: 'settlement',
                 is_settlement: true,
                 splits: [{ user_id: recipientId, amount_owed: cents }],
             });

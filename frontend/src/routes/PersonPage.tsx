@@ -20,6 +20,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { getApiUrl } from '../api';
 import { friendsApi } from '../services/api';
 import { formatDate } from '../utils/formatters';
+import { payerVerb } from '../utils/expenseKind';
 import type {
     Friend,
     FriendBalance,
@@ -118,10 +119,11 @@ const PersonPage: React.FC = () => {
     const visible = expanded ? filtered : filtered.slice(0, 10);
 
     const payerName = (expense: FriendExpenseWithSplits): string => {
-        if (expense.payer_is_guest) return 'A guest paid';
-        if (expense.payer_id === user?.id) return 'You paid';
-        if (expense.payer_id === friend?.id) return `${friend.full_name} paid`;
-        return 'Someone paid';
+        const verb = payerVerb(expense);
+        if (expense.payer_is_guest) return `A guest ${verb}`;
+        if (expense.payer_id === user?.id) return `You ${verb}`;
+        if (expense.payer_id === friend?.id) return `${friend.full_name} ${verb}`;
+        return `Someone ${verb}`;
     };
 
     if (loading && !friend) {

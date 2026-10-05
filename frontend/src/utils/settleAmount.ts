@@ -159,8 +159,9 @@ export interface PaymentParty {
 /**
  * The expense a settlement is recorded as, wherever it is recorded from: the
  * payer covers the whole amount and the payee carries the whole split, so it
- * cancels that much of the debt between them. `is_settlement` keeps it out
- * of spending totals and under the Settlements filter.
+ * cancels that much of the debt between them. `kind: 'settlement'` keeps it
+ * out of spending totals and under the Settlements filter; `is_settlement`
+ * rides along for servers that predate the enum.
  */
 export function settlementExpense(payment: {
     description: string;
@@ -183,6 +184,7 @@ export function settlementExpense(payment: {
         split_type: 'EQUAL',
         icon: '🏦',
         notes: payment.notes,
+        kind: 'settlement',
         is_settlement: true,
         splits: [
             {

@@ -44,6 +44,8 @@ import {
     centsToDisplayAmount,
 } from './utils/expenseTransformations';
 import { payerParticipantId } from './utils/tabShares';
+import { expenseKind, isIncome } from './utils/expenseKind';
+import type { ExpenseKind } from './utils/expenseKind';
 import { formatMoney, formatDate, formatItemPercent } from './utils/formatters';
 import { CURRENCIES } from './utils/currencyHelpers';
 import type { Tab } from './types/tab';
@@ -112,7 +114,11 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('USD');
     const [notes, setNotes] = useState('');
-    const [isSettlement, setIsSettlement] = useState(false);
+    /**
+     * Round-tripped on edit rather than rebuilt: the form has no
+     * expense/income toggle, so whatever kind the row was, it stays.
+     */
+    const [kind, setKind] = useState<ExpenseKind>('expense');
     const [expenseDate, setExpenseDate] = useState('');
     const [payerId, setPayerId] = useState<number>(0);
     const [payerIsGuest, setPayerIsGuest] = useState(false);
@@ -243,7 +249,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         setSplitType(exp.split_type as SplitType || 'EQUAL');
         setSelectedIcon(exp.icon || null);
         setNotes(exp.notes || '');
-        setIsSettlement(exp.is_settlement || false);
+        setKind(expenseKind(exp));
 
         // Set selected participants from splits
         setSelectedParticipantKeys(extractParticipantKeysFromExpense(exp));
@@ -448,7 +454,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             split_type: splitType,
             icon: selectedIcon,
             notes,
-            is_settlement: isSettlement
+            kind,
+            is_settlement: kind === 'settlement'
         };
 
         if (splitType === 'ITEMIZED') {
@@ -472,7 +479,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     splits: splitResult.splits,
                     icon: selectedIcon,
                     notes,
-                    is_settlement: isSettlement
+                    kind,
+                    is_settlement: kind === 'settlement'
                 };
 
                 const result = await offlineExpensesApi.update(expenseId!, itemizedPayload);
@@ -559,6 +567,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     // All group members can edit/delete expenses (not just the creator)
     const canEdit = !readOnly;
 
+    /** Money received flips the labels; the kind itself is not editable here. */
+    const income = expense ? isIncome(expense) : false;
+
     return (
         <div
             className="fixed inset-0 bg-black/55 z-40 flex items-end md:items-center justify-center font-sans"
@@ -595,7 +606,15 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             <div
                 role="dialog"
                 aria-modal="true"
-                aria-label={isEditing ? 'Edit expense' : 'Expense details'}
+                aria-label={
+                    isEditing
+                        ? income
+                            ? 'Edit money received'
+                            : 'Edit expense'
+                        : income
+                          ? 'Money received details'
+                          : 'Expense details'
+                }
                 className="bg-sw-surface text-sw-text w-full md:w-[448px] max-h-[90vh] rounded-t-sw-sheet md:rounded-sw-card-lg shadow-[0_0_0_1px_var(--sw-line)] overflow-y-auto flex flex-col"
             >
                 {isLoading ? (
@@ -610,7 +629,13 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                         {/* Header */}
                         <div className="sticky top-0 bg-sw-surface z-10 p-4 sm:p-5 border-b border-sw-line flex justify-between items-center gap-2">
                             <h2 className="sw-heading text-[17px]">
-                                {isEditing ? 'Edit expense' : 'Expense details'}
+                                {isEditing
+                                    ? income
+                                        ? 'Edit money received'
+                                        : 'Edit expense'
+                                    : income
+                                      ? 'Money received details'
+                                      : 'Expense details'}
                             </h2>
                             {canEdit && !isEditing && !showDeleteConfirm && (
                                 <div className="flex gap-2">
@@ -733,17 +758,21 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                         />
                                     </div>
 
-                                    <div className="mb-4">
-                                        <label className="flex items-center gap-2 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={isSettlement}
-                                                onChange={(e) => setIsSettlement(e.target.checked)}
-                                                className="w-4 h-4 rounded accent-[var(--sw-accent)] focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
-                                            />
-                                            <span className="text-sm text-sw-text">This is a settlement (payment)</span>
-                                        </label>
-                                    </div>
+                                    {/* Money received is not a payment; the checkbox would
+                                        silently downgrade it, so it is not offered. */}
+                                    {kind !== 'income' && (
+                                        <div className="mb-4">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={kind === 'settlement'}
+                                                    onChange={(e) => setKind(e.target.checked ? 'settlement' : 'expense')}
+                                                    className="w-4 h-4 rounded accent-[var(--sw-accent)] focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
+                                                />
+                                                <span className="text-sm text-sw-text">This is a settlement (payment)</span>
+                                            </label>
+                                        </div>
+                                    )}
 
                                     <div className="mb-4">
                                         <span className={LABEL_CLASS}>Participants</span>
@@ -812,7 +841,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
                                     {getPotentialPayers().length > 1 && (
                                         <div className="mb-4">
-                                            <label className={LABEL_CLASS} htmlFor="expense-payer">Paid by</label>
+                                            <label className={LABEL_CLASS} htmlFor="expense-payer">
+                                                {income ? 'Received by' : 'Paid by'}
+                                            </label>
                                             <select
                                                 id="expense-payer"
                                                 value={payerIsGuest ? `guest_${payerId}` : `user_${payerId}`}
@@ -834,7 +865,11 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
                                     <div className="mb-4">
                                         <span className={LABEL_CLASS}>Split by</span>
-                                        <ExpenseSplitTypeSelector value={splitType} onChange={setSplitType} />
+                                        <ExpenseSplitTypeSelector
+                                            value={splitType}
+                                            onChange={setSplitType}
+                                            allowItemized={kind !== 'income'}
+                                        />
 
                                         {splitType === 'ITEMIZED' && (
                                             <Card tone="sunk" className="p-3 mt-3">
@@ -984,7 +1019,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             <span className="text-sw-text">{formatDate(expense.date)}</span>
                                         </div>
                                         <div className="flex justify-between gap-3 text-[12.5px]">
-                                            <span className="text-sw-muted">Paid by</span>
+                                            <span className="text-sw-muted">
+                                                {income ? 'Received by' : 'Paid by'}
+                                            </span>
                                             <span className="text-sw-text">{getPayerName()}</span>
                                         </div>
                                         <div className="flex justify-between items-center gap-3 text-[12.5px]">
@@ -1136,7 +1173,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                     )}
 
                                     <div className="border-t border-sw-line pt-4">
-                                        <h4 className={SECTION_CLASS}>Split breakdown</h4>
+                                        <h4 className={SECTION_CLASS}>
+                                            {income ? 'Shared among' : 'Split breakdown'}
+                                        </h4>
                                         <div className="space-y-4">
                                             {[...expense.splits].sort((a, b) => {
                                                 const aName = a.user_id === currentUserId && !a.is_guest ? 'You' : a.user_name;
@@ -1222,8 +1261,10 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                         </div>
                                     </div>
 
-                                    {/* Quick Settle Section - Only for non-group expenses with expense guests */}
-                                    {expense.expense_guests && expense.expense_guests.length > 0 && (
+                                    {/* Quick Settle Section - Only for non-group expenses with
+                                        expense guests. Hidden for income: nobody owes the
+                                        receiver anything, so "paid" has no meaning here. */}
+                                    {!income && expense.expense_guests && expense.expense_guests.length > 0 && (
                                         <div className="border-t border-sw-line pt-4 mt-4">
                                             <div className="flex justify-between items-center gap-2 mb-3">
                                                 <h4 className="text-[11px] uppercase tracking-[0.09em] text-sw-dim">Quick settle</h4>

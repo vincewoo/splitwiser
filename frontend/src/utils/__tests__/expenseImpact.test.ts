@@ -104,6 +104,59 @@ describe('expenseImpact', () => {
         expect(impactLabel(impact)).toBe('none');
     });
 
+    it('reverses the sign when the receiver holds money for the group', () => {
+        // Eliz (me) receives a $200 refund split equally among 4: I hold the
+        // other three shares, so I am down $150 — the dual of having paid.
+        const impact = expenseImpact(
+            {
+                amount: 20000,
+                payer_id: ME,
+                kind: 'income',
+                splits: [
+                    { user_id: ME, is_guest: false, amount_owed: 5000 },
+                    { user_id: 2, is_guest: false, amount_owed: 5000 },
+                    { user_id: 3, is_guest: false, amount_owed: 5000 },
+                    { user_id: 4, is_guest: false, amount_owed: 5000 },
+                ],
+            },
+            ME
+        );
+        expect(impact).toEqual({ amount: -15000, involved: true });
+        expect(impactLabel(impact)).toBe('owe');
+    });
+
+    it('credits a participant their share of money received', () => {
+        const impact = expenseImpact(
+            {
+                amount: 20000,
+                payer_id: 2,
+                kind: 'income',
+                splits: [
+                    { user_id: ME, is_guest: false, amount_owed: 5000 },
+                    { user_id: 2, is_guest: false, amount_owed: 5000 },
+                    { user_id: 3, is_guest: false, amount_owed: 10000 },
+                ],
+            },
+            ME
+        );
+        expect(impact).toEqual({ amount: 5000, involved: true });
+        expect(impactLabel(impact)).toBe('lent');
+    });
+
+    it('leaves the sign alone when only the compat alias is present', () => {
+        // is_settlement never meant income; the fallback must not flip it.
+        const impact = expenseImpact(
+            {
+                amount: 10000,
+                payer_id: 2,
+                is_settlement: true,
+                splits: [{ user_id: ME, is_guest: false, amount_owed: 10000 }],
+            },
+            ME
+        );
+        expect(impact.amount).toBe(-10000);
+    });
+
     it('handles a missing user and missing splits', () => {
         expect(expenseImpact({ amount: 100, payer_id: 1 }, undefined)).toEqual({
             amount: 0,

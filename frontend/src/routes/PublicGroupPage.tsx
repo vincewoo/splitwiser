@@ -9,6 +9,7 @@ import { useAuth } from '../AuthContext';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { usePublicGroupData } from '../hooks/usePublicGroupData';
 import { api } from '../services/api';
+import { payerVerb } from '../utils/expenseKind';
 import type { GroupExpense } from '../hooks/useGroupData';
 
 type Section = 'expenses' | 'balances' | 'spending' | 'people';
@@ -45,14 +46,15 @@ const PublicGroupPage: React.FC = () => {
     const payerName = useMemo(
         () =>
             (expense: GroupExpense): string => {
+                const verb = payerVerb(expense);
                 if (expense.payer_is_guest) {
                     const guest = group?.guests?.find((g) => g.id === expense.payer_id);
-                    return guest ? `${guest.name} paid` : 'A guest paid';
+                    return guest ? `${guest.name} ${verb}` : `A guest ${verb}`;
                 }
                 const member = group?.members?.find(
                     (m) => m.user_id === expense.payer_id
                 );
-                return member ? `${member.full_name} paid` : 'Someone paid';
+                return member ? `${member.full_name} ${verb}` : `Someone ${verb}`;
             },
         [group]
     );
