@@ -212,3 +212,62 @@ class TestRoundTrip:
         response = client.get(URL.format(group_id=group_id), headers=auth_headers)
         expense_rows = _rows(response, "EXPENSE")
         assert expense_rows[0][2].startswith("'=HYPERLINK")
+
+
+class TestMoneyReceived:
+    def test_a_group_with_income_reconciles_and_notes_it(
+        self, client, db_session, test_user, auth_headers
+    ):
+        """Income rows appear in EXPENSES with a "money received" note, their
+        contributions sign-flipped — so every CHECKS row still passes,
+        including the one pinning the sheet to the balances endpoint."""
+        group_id = _make_group(client, auth_headers)
+        guest_id = _add_guest(client, auth_headers, group_id, "Dave")
+
+        client.post("/expenses", json={
+            "description": "Dinner",
+            "amount": 9000,
+            "currency": "USD",
+            "date": "2026-07-04",
+            "group_id": group_id,
+            "payer_id": test_user.id,
+            "split_type": "EQUAL",
+            "splits": [
+                {"user_id": test_user.id, "is_guest": False, "amount_owed": 4500},
+                {"user_id": guest_id, "is_guest": True, "amount_owed": 4500},
+            ],
+        }, headers=auth_headers)
+        client.post("/expenses", json={
+            "description": "Deposit back",
+            "amount": 3000,
+            "currency": "USD",
+            "date": "2026-07-05",
+            "group_id": group_id,
+            "payer_id": test_user.id,
+            "split_type": "EQUAL",
+            "kind": "income",
+            "splits": [
+                {"user_id": test_user.id, "is_guest": False, "amount_owed": 1500},
+                {"user_id": guest_id, "is_guest": True, "amount_owed": 1500},
+            ],
+        }, headers=auth_headers)
+
+        response = client.get(URL.format(group_id=group_id), headers=auth_headers)
+        assert response.status_code == 200
+
+        expense_rows = _rows(response, "EXPENSE")
+        notes_by_description = {row[2]: row[-1] for row in expense_rows}
+        assert notes_by_description["Deposit back"] == "money received"
+        assert notes_by_description["Dinner"] == ""
+
+        checks = _rows(response, "CHECKS")
+        failures = [c for c in checks if c[2] != "pass"]
+        assert not failures, failures
+        assert any(c[1] == "matches_balances_endpoint" for c in checks)
+
+        # Dinner leaves Dave owing 45.00; the deposit hands 15.00 back, so
+        # the sheet's net column must say ±30.00.
+        net = _rows(response, "NET_BALANCE")
+        nets = {row[1]: int(row[9]) for row in net}
+        assert nets["Dave"] == -3000
+        assert nets[test_user.full_name] == 3000

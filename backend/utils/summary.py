@@ -7,9 +7,11 @@ splits) over the lifetime of the group, broken out by time-bucket and by member.
 
 Design notes (see ``docs/plans/2026-04-17-001-feat-group-spending-summary-plan.md``):
 
-* **Settlements are excluded.** Expenses with ``is_settlement == True`` are
-  filtered out entirely. This filter is local to this primitive — the existing
-  ``calculate_net_balances`` in ``utils.balances`` does NOT filter settlements.
+* **Only ``kind == "expense"`` counts.** Settlements move money without
+  consuming anything, and income ("money received") is the reverse of
+  consumption; both are filtered out entirely. This filter is local to this
+  primitive — the existing ``calculate_net_balances`` in ``utils.balances``
+  does NOT filter either.
 * **Integer cents.** All monetary values are integer cents. The split-level
   conversion is truncated to ``int`` (matching ``calculate_net_balances``'s
   behavior at the response boundary), so higher-granularity totals formed by
@@ -198,7 +200,8 @@ def calculate_consumption_summary(
             with no spending.
 
     Notes:
-        * Settlements (``expense.is_settlement == True``) are filtered out.
+        * Only ``kind == "expense"`` rows count: settlements and income
+          ("money received") are filtered out.
         * Expense-guest consumption (ExpenseGuest / ExpenseItemAssignment.expense_guest_id)
           is not counted; only ``ExpenseSplit`` rows contribute.
         * Managed guests and managed members are folded into their managers via
@@ -209,12 +212,15 @@ def calculate_consumption_summary(
     """
 
     # ------------------------------------------------------------------
-    # Load non-settlement expenses and their splits.
+    # Load the expenses that count as consumption, with their splits.
+    # Only kind == "expense": a settlement moves money without consuming
+    # anything, and income ("money received") is the reverse of consuming.
+    # The column is NOT NULL, so the equality comparison drops no rows.
     # ------------------------------------------------------------------
     expenses: List[models.Expense] = (
         db.query(models.Expense)
         .filter(models.Expense.group_id == group_id)
-        .filter(models.Expense.is_settlement != True)
+        .filter(models.Expense.kind == "expense")
         .all()
     )
 

@@ -92,7 +92,12 @@ class Expense(Base):
     receipt_image_path = Column(String, nullable=True) # Path to stored receipt image
     icon = Column(String, nullable=True) # Optional emoji icon for categorization
     notes = Column(String, nullable=True) # Freeform text notes
-    is_settlement = Column(Boolean, default=False) # True if this is a payment/settlement
+    is_settlement = Column(Boolean, default=False) # Compat alias for kind == "settlement"; drop once stale PWA bundles cycle
+    # What the row *is*: "expense" (default), "settlement" (a payment recorded
+    # to settle up) or "income" (money received — the sign flips at
+    # aggregation, so the receiver ends up owing the split participants).
+    # NOT NULL with a server default so SQL filters on it never drop NULLs.
+    kind = Column(String, nullable=False, default="expense", server_default="expense")
 
 class ExpenseSplit(Base):
     __tablename__ = "expense_splits"

@@ -382,8 +382,11 @@ def plan_group_settlement(
         return {}, []
 
     net_balances = _accumulate_balances(expenses, splits_by_expense, currency)
+    # Only settlements are left out of the anchor ledger. Income is a real
+    # ledger event like an expense — recording one legitimately re-plans the
+    # group — so it stays in (sign-flipped, as everywhere).
     anchors = _accumulate_balances(
-        [e for e in expenses if not e.is_settlement], splits_by_expense, currency
+        [e for e in expenses if e.kind != "settlement"], splits_by_expense, currency
     )
 
     # One read of the management rows for both folds.
@@ -449,8 +452,11 @@ def _accumulate_balances(
         balances = {}  # (user_id, is_guest) -> amount
 
         for expense in expenses:
+            # Income is the dual of an expense: the receiver owes the split
+            # participants. Amounts are stored positive; the sign lives here.
+            sign = -1 if expense.kind == "income" else 1
             for split in splits_by_expense.get(expense.id, []):
-                amount_in_target = convert_split_to_currency(
+                amount_in_target = sign * convert_split_to_currency(
                     split.amount_owed, expense, target_currency
                 )
 
@@ -466,6 +472,8 @@ def _accumulate_balances(
         balances = {}  # (user_id, is_guest) -> {currency -> amount}
 
         for expense in expenses:
+            # Same flip as the scalar mode above: income reverses direction.
+            sign = -1 if expense.kind == "income" else 1
             for split in splits_by_expense.get(expense.id, []):
                 key = (split.user_id, split.is_guest)
                 if key not in balances:
@@ -474,7 +482,7 @@ def _accumulate_balances(
                     balances[key][expense.currency] = 0
 
                 # Debtor decreases balance
-                balances[key][expense.currency] -= split.amount_owed
+                balances[key][expense.currency] -= sign * split.amount_owed
 
                 # Creditor (payer) increases balance
                 payer_key = (expense.payer_id, expense.payer_is_guest)
@@ -482,7 +490,7 @@ def _accumulate_balances(
                     balances[payer_key] = {}
                 if expense.currency not in balances[payer_key]:
                     balances[payer_key][expense.currency] = 0
-                balances[payer_key][expense.currency] += split.amount_owed
+                balances[payer_key][expense.currency] += sign * split.amount_owed
 
     return balances
 
@@ -532,7 +540,7 @@ def calculate_raw_balances(
         target_currency: Optional currency to convert all balances to. If None,
             returns balances per currency.
         include_settlements: When False, payments recorded to settle up
-            (``Expense.is_settlement``) are left out, giving the ledger as it
+            (``Expense.kind == "settlement"``) are left out, giving the ledger as it
             stood before anyone paid anything. Only ``simplify``'s ordering
             wants this — every balance shown to a user includes them.
 
@@ -543,7 +551,7 @@ def calculate_raw_balances(
     expenses, splits_by_expense = _load_group_ledger(db, group_id)
 
     if not include_settlements:
-        expenses = [e for e in expenses if not e.is_settlement]
+        expenses = [e for e in expenses if e.kind != "settlement"]
 
     return _accumulate_balances(expenses, splits_by_expense, target_currency)
 
