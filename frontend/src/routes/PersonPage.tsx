@@ -20,7 +20,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { getApiUrl } from '../api';
 import { friendsApi } from '../services/api';
 import { formatDate } from '../utils/formatters';
-import { payerVerb } from '../utils/expenseKind';
+import { fallbackIcon, payerVerb } from '../utils/expenseKind';
 import type {
     Friend,
     FriendBalance,
@@ -286,7 +286,7 @@ const PersonPage: React.FC = () => {
                                     className="flex items-center gap-3 py-[11px] border-b border-sw-line text-left hover:bg-sw-surface focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
                                 >
                                     <IconTile tone="surface" size={38}>
-                                        {expense.icon || '🧾'}
+                                        {expense.icon || fallbackIcon(expense)}
                                     </IconTile>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-1.5 min-w-0">

@@ -13,6 +13,13 @@
 
 export type ExpenseKind = 'expense' | 'settlement' | 'income';
 
+/**
+ * The two kinds a person can pick when creating an entry: the Expense |
+ * Money received toggle. Settlements come from the settle-up surfaces, never
+ * from the add-expense modal.
+ */
+export type EntryKind = Extract<ExpenseKind, 'expense' | 'income'>;
+
 /** The minimal shape the derivation needs — any expense-like object fits. */
 export interface ExpenseKindSource {
     kind?: string | null;

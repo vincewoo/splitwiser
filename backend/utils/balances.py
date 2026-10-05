@@ -16,6 +16,17 @@ def is_dust(cents: float) -> bool:
     return round(cents) == 0
 
 
+def ledger_sign(expense: "models.Expense") -> int:
+    """The direction an expense's splits move money: −1 for income, else +1.
+
+    Income ("money received") is the dual of an expense — the receiver ends up
+    owing the split participants — and amounts are stored positive, so the
+    sign lives here. Every loop that aggregates splits into balances must
+    multiply by this; a new loop that forgets it silently reverses income.
+    """
+    return -1 if expense.kind == models.KIND_INCOME else 1
+
+
 def convert_split_to_currency(
     amount: float,
     expense: "models.Expense",
@@ -386,7 +397,7 @@ def plan_group_settlement(
     # ledger event like an expense — recording one legitimately re-plans the
     # group — so it stays in (sign-flipped, as everywhere).
     anchors = _accumulate_balances(
-        [e for e in expenses if e.kind != "settlement"], splits_by_expense, currency
+        [e for e in expenses if e.kind != models.KIND_SETTLEMENT], splits_by_expense, currency
     )
 
     # One read of the management rows for both folds.
@@ -453,8 +464,8 @@ def _accumulate_balances(
 
         for expense in expenses:
             # Income is the dual of an expense: the receiver owes the split
-            # participants. Amounts are stored positive; the sign lives here.
-            sign = -1 if expense.kind == "income" else 1
+            # participants — see ledger_sign.
+            sign = ledger_sign(expense)
             for split in splits_by_expense.get(expense.id, []):
                 amount_in_target = sign * convert_split_to_currency(
                     split.amount_owed, expense, target_currency
@@ -473,7 +484,7 @@ def _accumulate_balances(
 
         for expense in expenses:
             # Same flip as the scalar mode above: income reverses direction.
-            sign = -1 if expense.kind == "income" else 1
+            sign = ledger_sign(expense)
             for split in splits_by_expense.get(expense.id, []):
                 key = (split.user_id, split.is_guest)
                 if key not in balances:
@@ -551,7 +562,7 @@ def calculate_raw_balances(
     expenses, splits_by_expense = _load_group_ledger(db, group_id)
 
     if not include_settlements:
-        expenses = [e for e in expenses if e.kind != "settlement"]
+        expenses = [e for e in expenses if e.kind != models.KIND_SETTLEMENT]
 
     return _accumulate_balances(expenses, splits_by_expense, target_currency)
 

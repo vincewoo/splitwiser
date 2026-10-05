@@ -477,6 +477,41 @@ def test_public_summary_group_total_matches_authenticated(
     assert public_body["group_total"] == auth_body["group_total"]
 
 
+def test_public_summary_excludes_income(client, auth_headers, db_session, test_user):
+    """Income ("money received") is not consumption, and the exclusion must
+    hold at the public endpoint itself, not just in the primitive."""
+    group_id, share_link_id, other = _create_shared_group_with_expense(
+        client, auth_headers, db_session, test_user
+    )
+
+    resp = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Deposit back",
+            "amount": 1000,
+            "currency": "USD",
+            "date": str(date.today()),
+            "payer_id": test_user.id,
+            "group_id": group_id,
+            "split_type": "EQUAL",
+            "kind": "income",
+            "splits": [
+                {"user_id": test_user.id, "amount_owed": 500, "is_guest": False},
+                {"user_id": other.id, "amount_owed": 500, "is_guest": False},
+            ],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    public_body = client.get(f"/groups/public/{share_link_id}/summary").json()
+
+    # Only the 24.00 expense counts; the 10.00 income neither adds to nor
+    # subtracts from the total or the chart series.
+    assert public_body["group_total"] == 2400
+    assert sum(s["total"] for s in public_body["series"]) == 2400
+
+
 def test_public_summary_non_public_group_returns_404(
     client, auth_headers, db_session, test_user
 ):

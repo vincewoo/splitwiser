@@ -12,6 +12,7 @@ import schemas
 from database import get_db
 from dependencies import get_current_user
 from utils import summary_cache
+from utils.balances import ledger_sign
 from utils.currency import fetch_historical_exchange_rate
 from utils.display import get_guest_display_name, get_public_user_display_name
 from utils.rate_limiter import summary_rate_limiter
@@ -692,7 +693,7 @@ def get_public_group_balances(
         # Income flips direction: the receiver owes the split participants.
         # Mirrors utils/balances._accumulate_balances, of which this loop is
         # a copy.
-        sign = -1 if expense.kind == "income" else 1
+        sign = ledger_sign(expense)
 
         for split in splits:
             key = (split.user_id, split.is_guest)

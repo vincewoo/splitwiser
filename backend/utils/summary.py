@@ -220,7 +220,7 @@ def calculate_consumption_summary(
     expenses: List[models.Expense] = (
         db.query(models.Expense)
         .filter(models.Expense.group_id == group_id)
-        .filter(models.Expense.kind == "expense")
+        .filter(models.Expense.kind == models.KIND_EXPENSE)
         .all()
     )
 

@@ -30,6 +30,7 @@ from utils.balances import (
     calculate_net_balances,
     calculate_raw_balances,
     convert_split_to_currency,
+    ledger_sign,
     simplify,
     used_synthesized_rate,
 )
@@ -429,9 +430,9 @@ def build_balance_sheet(
         if used_synthesized_rate(expense):
             seen["synthesized"] += 1
 
-        if expense.kind == "settlement":
+        if expense.kind == models.KIND_SETTLEMENT:
             expense_note = "settlement payment"
-        elif expense.kind == "income":
+        elif expense.kind == models.KIND_INCOME:
             expense_note = "money received"
         else:
             expense_note = ""
@@ -633,6 +634,11 @@ def build_balance_sheet(
                 note = f"{split.shares} shares"
             elif (expense.split_type or "") == "EQUAL":
                 note = f"1 of {len(expense_splits)} equal shares"
+            if expense.kind == models.KIND_INCOME:
+                # SPLIT rows print the stored (positive) amount; the flip
+                # happens on the way into the totals. Say so, or a reader
+                # summing SPLIT rows can never reach CONSUMPTION.
+                note += "; money received — sign reversed in CONSUMPTION/PAID"
 
             ledger.append(LedgerRow(
                 row_type="SPLIT",
@@ -659,7 +665,7 @@ def build_balance_sheet(
             # loops in utils/balances: the receiver "paid" a negative amount
             # and each participant "consumed" a negative share, so
             # net = paid − consumed still matches the balances endpoint.
-            sign = -1 if expense.kind == "income" else 1
+            sign = ledger_sign(expense)
             consumption[(split_key, expense_currency)] = (
                 consumption.get((split_key, expense_currency), 0) + sign * split.amount_owed
             )
@@ -668,7 +674,7 @@ def build_balance_sheet(
             )
             consumption_target[split_key] = consumption_target.get(split_key, 0) + sign * converted
             paid_target[payer_key] = paid_target.get(payer_key, 0) + sign * converted
-            if expense.kind != "settlement":
+            if expense.kind != models.KIND_SETTLEMENT:
                 # Settlements are left out of the anchor ledger; income stays
                 # in (flipped), exactly as in plan_group_settlement.
                 presettlement[split_key] = presettlement.get(split_key, 0) - sign * converted

@@ -58,7 +58,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/ThemeContext.tsx` - Dark mode with localStorage persistence
 - `frontend/src/routes/GroupPage.tsx` - Group detail: expenses, balances, spending, people
 - `frontend/src/ExpenseDetailModal.tsx` - Expense viewing/editing with notes
-- `frontend/src/AddExpenseModal.tsx` - Expense creation (5 split types)
+- `frontend/src/AddExpenseModal.tsx` - Expense creation (5 split types), plus a "Money received" (income) mode
 
 **Services & Types:**
 - `frontend/src/services/api.ts` - Centralized API client with auth handling
@@ -67,6 +67,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/db/schema.ts` - IndexedDB schema for offline storage
 - `frontend/src/types/` - TypeScript definitions (group.ts, expense.ts, balance.ts, friend.ts, summary.ts, tab.ts)
 - `frontend/src/utils/formatters.ts` - Money, date, and name formatting
+- `frontend/src/utils/expenseKind.ts` - Single source for an expense row's kind: the `ExpenseKind`/`EntryKind` types, derivation from `kind` with an `is_settlement` fallback for rows cached by stale bundles, and the per-kind helpers (`fallbackIcon`, `payerVerb`)
 - `frontend/src/utils/expenseCalculations.ts` - Frontend split calculations
 - `frontend/src/utils/tabShares.ts` - Live preview of tab shares, plus the itemized per-person breakdown behind each total; TS port of `backend/utils/tabs.py`
 - `frontend/src/utils/venmo.ts` - Venmo deeplink builder for settle up (USD only), plus the note explaining a currency it cannot send
@@ -113,7 +114,8 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Registered members can also be managed for balance aggregation
 - Refresh tokens stored hashed (SHA-256) in database with server-side revocation
 - Itemized expenses use proportional tax/tip distribution. `utils/splits.py::allocate_items` is the single implementation: the write path collapses it to one total per person, the balance sheet keeps the per-line detail including which person absorbed the remainder cents
-- A settlement is an ordinary expense with `is_settlement`, so the backend never cared whether the amount matched the plan. The settle screens let it differ: a suggested payment can be recorded for a different figure (overpaying is allowed — the payer comes out owed the excess, and the copy says so rather than promising who pays it), and a payment to somebody the plan never named can be recorded outright, which is the one thing that legitimately re-plans the group
+- An expense has a `kind`: `expense` | `settlement` | `income` (`is_settlement` survives as a compat alias, derived from `kind` on every response). Income is money received — the dual of an expense: it runs every ledger loop with the sign flipped (`utils/balances.py::ledger_sign`) and is excluded from the consumption summary. **Any new loop over expenses must handle `kind`.**
+- A settlement is an ordinary expense with `kind="settlement"`, so the backend never cared whether the amount matched the plan. The settle screens let it differ: a suggested payment can be recorded for a different figure (overpaying is allowed — the payer comes out owed the excess, and the copy says so rather than promising who pays it), and a payment to somebody the plan never named can be recorded outright, which is the one thing that legitimately re-plans the group
 - `AppDataContext.refreshGeneration` is bumped by every `refreshAll()`, and every screen-local fetch (`useGroupData`, `useExpenseFeed`, `useSettlement`, `useOpenTabs`, the person page) re-runs on it. Mutations call `refreshAll()` alone — never a local `reload()` beside it, which would fetch twice — and the initial load does not bump it. This is how an expense added from the shell's modal reaches the group page that is open behind it; see `docs/PWA.md`
 - Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback. Offered on every surface that settles a specific debt — `/settle`, a group's Simplify Debts, a person's Settle up, the overview's "Clear it in N payments" — but only for debts the signed-in user is party to, and on the off-plan sheet only when the signed-in user is the payer
 - Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close. A claimer can Venmo the host straight from the claim page — the surface where the hand-off matters most, since they often owe somebody they have no other way to pay
@@ -271,6 +273,7 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 ### Expenses
 - `POST /expenses`, `GET /expenses`, `GET /expenses/{expense_id}`, `PUT /expenses/{expense_id}`, `DELETE /expenses/{expense_id}` - Expense CRUD
 - Split types: EQUAL, EXACT, PERCENTAGE, SHARES, ITEMIZED
+- `POST`/`PUT /expenses` accept `kind` (`expense` | `settlement` | `income`). The legacy `is_settlement` alias still works; contradictions between the two are rejected (422). Income must have `amount > 0` and a non-ITEMIZED split (400). A PUT naming neither field preserves the stored kind
 - The detail response carries `tab_id` when the expense is what a closed tab
   resolved into, and only for that tab's owner — see `docs/TABS.md`
 
@@ -294,8 +297,8 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 - `GET /groups/{group_id}/balance_sheet.csv` - The group's settlement maths as a sectioned CSV: expenses with itemized lines nested under their parent, the stored splits they reconcile against, currency conversion, management folding, net balances, the simplified transactions, and a CHECKS block stating whether it all reconciles. Members only — no public share-link variant, since the sheet states everyone's full position
 
 ### Summary
-- `GET /groups/{group_id}/summary` - Per-member consumption totals, group total, time-bucketed series (authenticated members)
-- `GET /groups/public/{share_link_id}/summary` - Narrower version for public share-link viewers (group total + single-series chart only)
+- `GET /groups/{group_id}/summary` - Per-member consumption totals, group total, time-bucketed series (authenticated members; settlements and income excluded)
+- `GET /groups/public/{share_link_id}/summary` - Narrower version for public share-link viewers (group total + single-series chart only; settlements and income excluded)
 
 ### Tabs
 A tab is a one-off bill people claim their own items from via a link — no group, nobody to invite. See `docs/TABS.md`.
@@ -323,7 +326,7 @@ Public (no auth, rate-limited):
 - User: `default_currency`, `venmo_username` (no @; friends and fellow group members, plus the host's on a tab's share link — never on a group's)
 - Group: `default_currency`, `icon`, `share_link_id`, `is_public`
 - GroupMember: `managed_by_id`, `managed_by_type`
-- Expense: `exchange_rate`, `split_type`, `receipt_image_path`, `icon`, `notes`, `payer_is_guest`
+- Expense: `exchange_rate`, `split_type`, `receipt_image_path`, `icon`, `notes`, `payer_is_guest`, `kind` (`expense` | `settlement` | `income`, NOT NULL, default `'expense'`; `is_settlement` stays as the compat alias)
 - ExpenseSplit: `is_guest`
 - GuestMember: `claimed_by_id`, `managed_by_id`, `managed_by_type`
 - RefreshToken: `token_hash`, `expires_at`, `revoked`

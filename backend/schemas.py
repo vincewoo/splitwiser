@@ -2,8 +2,9 @@ import re
 from datetime import datetime
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, PrivateAttr, field_validator, model_validator
 
+from models import VALID_EXPENSE_KINDS
 from utils.currency import VALID_CURRENCIES
 
 # Venmo handles are letters, numbers, dashes and underscores. Length is checked
@@ -60,11 +61,6 @@ class User(UserBase):
     class Config:
         from_attributes = True
 
-# The three things an expense row can be. "income" is money received — the
-# sign flips at aggregation, so the receiver ends up owing the participants.
-VALID_EXPENSE_KINDS = ("expense", "settlement", "income")
-
-
 def _normalize_expense_kind(kind: Optional[str], is_settlement: bool) -> str:
     """
     Reconcile ``kind`` with the ``is_settlement`` compat alias.
@@ -76,9 +72,11 @@ def _normalize_expense_kind(kind: Optional[str], is_settlement: bool) -> str:
     default False is just a new client not bothering with the alias.
 
     Known accepted edge (documented in the plan): a stale client *editing* an
-    income entry sends no ``kind`` and ``is_settlement=False``, which
-    downgrades it to a plain expense. Stale clients cannot render income
-    anyway, and the window closes when bundles cycle.
+    income entry sends no ``kind`` but an explicit ``is_settlement=False``,
+    which downgrades it to a plain expense. Stale clients cannot render
+    income anyway, and the window closes when bundles cycle. A PUT naming
+    *neither* field preserves the stored kind instead — see
+    ``ExpenseUpdate.resolved_kind``.
     """
     if kind is None:
         return "settlement" if is_settlement else "expense"
@@ -264,16 +262,41 @@ class ExpenseUpdate(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000)
     is_settlement: bool = False  # Compat alias for kind == "settlement" (stale PWA clients)
     # Normalized from whichever field the client sent, exactly as on create.
-    # A PUT that omits both therefore writes kind="expense" — this is what
-    # fixes the old footgun where omitting is_settlement silently cleared it
-    # only on some paths, and what pins the stale-client income downgrade.
+    # Unlike create, a PUT that names neither field does NOT decide the kind:
+    # update_expense preserves the stored one (see resolved_kind below), so a
+    # stale client editing an income row cannot silently reverse its direction.
     kind: Optional[str] = None
+
+    # Which of the two fields the payload actually named, captured before the
+    # validator fills both — assigning a field adds it to model_fields_set, so
+    # the router could not tell "sent" from "derived" after normalization.
+    _sent_kind: bool = PrivateAttr(default=False)
+    _sent_is_settlement: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
     def normalize_kind(self):
+        self._sent_kind = "kind" in self.model_fields_set
+        self._sent_is_settlement = "is_settlement" in self.model_fields_set
         self.kind = _normalize_expense_kind(self.kind, self.is_settlement)
         self.is_settlement = self.kind == "settlement"
         return self
+
+    def resolved_kind(self, stored_kind: str) -> str:
+        """The kind this update means for a row currently holding ``stored_kind``.
+
+        A payload that names ``kind`` decides outright. One that names only the
+        legacy ``is_settlement`` flag decides through it — an explicit
+        ``false`` on an income row still downgrades it, which is the documented
+        legacy behavior for stale clients that toggle the settlement checkbox.
+        A payload naming neither preserves the stored kind: letting the schema
+        default decide would downgrade income to expense on every stale edit,
+        silently reversing the money's direction.
+        """
+        if self._sent_kind:
+            return self.kind or stored_kind
+        if self._sent_is_settlement:
+            return "settlement" if self.is_settlement else "expense"
+        return stored_kind
 
 class Token(BaseModel):
     access_token: str

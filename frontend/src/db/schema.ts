@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import type { ExpenseKind } from '../utils/expenseKind';
 
 // Cached user data
 export interface CachedUser {
@@ -89,7 +90,7 @@ export interface CachedExpense {
   // Dexie stores whole objects, so these always flowed through the cache;
   // typed here so readers can see them without casting.
   is_settlement?: boolean;
-  kind?: 'expense' | 'settlement' | 'income';
+  kind?: ExpenseKind;
   cached_at: number;
   is_temp: boolean;
   local_version: number;

@@ -78,7 +78,7 @@ describe('AddExpenseModal income mode', () => {
         expect(screen.getByRole('heading', { name: 'Money received' })).toBeInTheDocument();
         expect(
             screen.getByText(
-                'One person is holding money that belongs to the group — a refund, returned deposit, winnings.'
+                'One person is holding money the others have a share of — a refund, returned deposit, winnings.'
             )
         ).toBeInTheDocument();
         expect(screen.queryByText('New expense')).not.toBeInTheDocument();

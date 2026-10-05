@@ -190,12 +190,22 @@ def test_editing_an_income_entry_round_trips_the_kind(
     assert response.json()["is_settlement"] is False
 
 
-def test_stale_client_edit_downgrades_income_to_expense(
+def _group_balances(client, auth_headers, group_id):
+    return {
+        b["user_id"]: b["amount"]
+        for b in client.get(
+            f"/groups/{group_id}/balances", headers=auth_headers
+        ).json()
+    }
+
+
+def test_put_omitting_kind_and_alias_preserves_the_stored_kind(
     client, auth_headers, db_session, test_user
 ):
-    """Documented, accepted edge: a stale PWA client editing an income entry
-    sends no kind and is_settlement=false, which downgrades it to a plain
-    expense — and the balances flip back with it."""
+    """A PUT that names neither kind nor is_settlement preserves what is
+    stored. Letting the schema default decide would downgrade income to a
+    plain expense on every such edit — silently reversing the money's
+    direction, the one thing an edit must never do by omission."""
     group_id, other = _make_group(client, auth_headers, db_session)
     expense_id = client.post(
         "/expenses/",
@@ -203,15 +213,10 @@ def test_stale_client_edit_downgrades_income_to_expense(
         json=_payload(group_id, test_user.id, other.id, kind="income"),
     ).json()["id"]
 
-    def balances():
-        return {
-            b["user_id"]: b["amount"]
-            for b in client.get(
-                f"/groups/{group_id}/balances", headers=auth_headers
-            ).json()
-        }
-
-    assert balances() == {test_user.id: -1500, other.id: 1500}
+    assert _group_balances(client, auth_headers, group_id) == {
+        test_user.id: -1500,
+        other.id: 1500,
+    }
 
     response = client.put(
         f"/expenses/{expense_id}",
@@ -219,9 +224,132 @@ def test_stale_client_edit_downgrades_income_to_expense(
         json=_payload(group_id, test_user.id, other.id),  # no kind, no is_settlement
     )
     assert response.status_code == 200, response.text
+    assert response.json()["kind"] == "income"
+    assert response.json()["is_settlement"] is False
+    assert _group_balances(client, auth_headers, group_id) == {
+        test_user.id: -1500,
+        other.id: 1500,
+    }
+
+
+def test_explicit_legacy_flag_still_downgrades_income_to_expense(
+    client, auth_headers, db_session, test_user
+):
+    """Documented, accepted edge: a stale PWA client editing an income entry
+    sends no kind but an explicit is_settlement=false, which downgrades it to
+    a plain expense — and the balances flip back with it. Stale clients
+    cannot render income anyway, and the window closes when bundles cycle."""
+    group_id, other = _make_group(client, auth_headers, db_session)
+    expense_id = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json=_payload(group_id, test_user.id, other.id, kind="income"),
+    ).json()["id"]
+
+    assert _group_balances(client, auth_headers, group_id) == {
+        test_user.id: -1500,
+        other.id: 1500,
+    }
+
+    response = client.put(
+        f"/expenses/{expense_id}",
+        headers=auth_headers,
+        json=_payload(group_id, test_user.id, other.id, is_settlement=False),
+    )
+    assert response.status_code == 200, response.text
     assert response.json()["kind"] == "expense"
     assert response.json()["is_settlement"] is False
-    assert balances() == {test_user.id: 1500, other.id: -1500}
+    assert _group_balances(client, auth_headers, group_id) == {
+        test_user.id: 1500,
+        other.id: -1500,
+    }
+
+
+def test_put_can_turn_an_expense_into_income(
+    client, auth_headers, db_session, test_user
+):
+    """The plan's "expense edited to change kind: allowed" edge — an explicit
+    kind on PUT flips the row, and the balances with it."""
+    group_id, other = _make_group(client, auth_headers, db_session)
+    expense_id = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json=_payload(group_id, test_user.id, other.id),
+    ).json()["id"]
+
+    assert _group_balances(client, auth_headers, group_id) == {
+        test_user.id: 1500,
+        other.id: -1500,
+    }
+
+    response = client.put(
+        f"/expenses/{expense_id}",
+        headers=auth_headers,
+        json=_payload(group_id, test_user.id, other.id, kind="income"),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["kind"] == "income"
+    assert response.json()["is_settlement"] is False
+    assert _group_balances(client, auth_headers, group_id) == {
+        test_user.id: -1500,
+        other.id: 1500,
+    }
+
+
+def test_put_income_requires_a_positive_amount(
+    client, auth_headers, db_session, test_user
+):
+    """The income rules hold on PUT exactly as on create."""
+    group_id, other = _make_group(client, auth_headers, db_session)
+    expense_id = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json=_payload(group_id, test_user.id, other.id, kind="income"),
+    ).json()["id"]
+
+    for amount in (0, -3000):
+        response = client.put(
+            f"/expenses/{expense_id}",
+            headers=auth_headers,
+            json=_payload(
+                group_id, test_user.id, other.id, amount=amount, kind="income"
+            ),
+        )
+        assert response.status_code == 400, (amount, response.text)
+        assert "positive" in response.json()["detail"]
+
+
+def test_put_income_rejects_itemized_splits(
+    client, auth_headers, db_session, test_user
+):
+    group_id, other = _make_group(client, auth_headers, db_session)
+    expense_id = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json=_payload(group_id, test_user.id, other.id, kind="income"),
+    ).json()["id"]
+
+    response = client.put(
+        f"/expenses/{expense_id}",
+        headers=auth_headers,
+        json=_payload(
+            group_id,
+            test_user.id,
+            other.id,
+            kind="income",
+            split_type="ITEMIZED",
+            splits=[],
+            items=[
+                {
+                    "description": "Line",
+                    "price": 3000,
+                    "assignments": [{"user_id": other.id, "is_guest": False}],
+                }
+            ],
+        ),
+    )
+    assert response.status_code == 400
+    assert "itemized" in response.json()["detail"].lower()
 
 
 def test_put_with_legacy_settlement_flag_normalizes_kind(

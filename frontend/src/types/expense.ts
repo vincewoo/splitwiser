@@ -2,6 +2,7 @@
 // Re-export types from centralized locations
 export type { Friend } from './friend';
 export type { Group, GroupMember, GuestMember } from './group';
+import type { ExpenseKind } from '../utils/expenseKind';
 
 export interface Participant {
     id: number;
@@ -87,7 +88,7 @@ export interface ExpenseWithSplits {
     has_unknown_assignments?: boolean;  // True if expense has items assigned to Unknown
     is_settlement?: boolean;  // Compat alias for kind === 'settlement'
     /** Absent on rows from older server builds; derive via utils/expenseKind. */
-    kind?: 'expense' | 'settlement' | 'income';
+    kind?: ExpenseKind;
     /**
      * The tab this expense came from, when it is what a closed tab resolved
      * into. Only sent to the tab's owner — nobody else can open the board.
@@ -138,5 +139,5 @@ export interface ExpensePayload {
     notes?: string | null;
     /** Kept beside `kind` so stale servers still read the write correctly. */
     is_settlement?: boolean;
-    kind?: 'expense' | 'settlement' | 'income';
+    kind?: ExpenseKind;
 }

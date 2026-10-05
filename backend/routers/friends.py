@@ -12,6 +12,7 @@ import models
 import schemas
 from database import get_db
 from dependencies import get_current_user
+from utils.balances import ledger_sign
 from utils.email import send_friend_request_email
 from utils.validation import get_user_by_email
 
@@ -711,7 +712,7 @@ def get_friend_expenses(
         
         # Determine balance impact based on who paid. Income reverses the
         # direction: the receiver owes the split participants.
-        sign = -1 if expense.kind == "income" else 1
+        sign = ledger_sign(expense)
         payer_key = (expense.payer_id, expense.payer_is_guest)
         if payer_key in current_user_ids:
             # Current user side paid - friend side owes their split
@@ -853,7 +854,7 @@ def get_friend_balance(
 
         payer_key = (expense.payer_id, expense.payer_is_guest)
         # Income reverses direction: the receiver owes the split participants.
-        sign = -1 if expense.kind == "income" else 1
+        sign = ledger_sign(expense)
 
         if payer_key in current_user_ids:
             # Current user side paid - friend side owes their split amount

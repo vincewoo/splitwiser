@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppData } from '../contexts/AppDataContext';
 import { expensesApi } from '../services/api';
+import type { ExpenseKind } from '../utils/expenseKind';
 
 export interface FeedExpense {
     id: number;
@@ -13,7 +14,7 @@ export interface FeedExpense {
     group_id: number | null;
     icon?: string | null;
     is_settlement?: boolean;
-    kind?: 'expense' | 'settlement' | 'income';
+    kind?: ExpenseKind;
 }
 
 /**

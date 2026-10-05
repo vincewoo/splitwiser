@@ -9,7 +9,13 @@ import models
 import schemas
 from database import get_db
 from dependencies import get_current_user
-from utils.balances import calculate_net_balances, calculate_raw_balances, is_dust, plan_group_settlement
+from utils.balances import (
+    calculate_net_balances,
+    calculate_raw_balances,
+    is_dust,
+    ledger_sign,
+    plan_group_settlement,
+)
 from utils.currency import convert_currency, convert_to_usd, format_currency, get_current_exchange_rates
 from utils.display import get_participant_display_name
 from utils.validation import get_group_or_404, verify_group_membership
@@ -396,7 +402,7 @@ def get_balances(
     # the direction flips: the receiver owes the split participants.
     for expense in paid_expenses:
         splits = splits_by_expense.get(expense.id, [])
-        sign = -1 if expense.kind == "income" else 1
+        sign = ledger_sign(expense)
         for split in splits:
             if split.user_id == current_user.id and not split.is_guest:
                 continue
@@ -412,7 +418,7 @@ def get_balances(
         if expense.payer_id == current_user.id and not expense.payer_is_guest:
             continue
         if not expense.payer_is_guest:  # Only handle user payers
-            sign = -1 if expense.kind == "income" else 1
+            sign = ledger_sign(expense)
             key = (expense.payer_id, expense.currency)
             user_balances[key] = user_balances.get(key, 0) - sign * split.amount_owed
 

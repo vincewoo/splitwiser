@@ -567,8 +567,22 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     // All group members can edit/delete expenses (not just the creator)
     const canEdit = !readOnly;
 
-    /** Money received flips the labels; the kind itself is not editable here. */
+    /**
+     * Money received flips the labels; the kind itself is not editable here.
+     * This derived flag is the one source every income gate below reads — the
+     * `kind` form state exists only to be round-tripped into the payload (and
+     * toggled between expense and settlement by the checkbox).
+     */
     const income = expense ? isIncome(expense) : false;
+
+    /** One title for the heading and the dialog's aria-label alike. */
+    const title = isEditing
+        ? income
+            ? 'Edit money received'
+            : 'Edit expense'
+        : income
+          ? 'Money received details'
+          : 'Expense details';
 
     return (
         <div
@@ -606,15 +620,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             <div
                 role="dialog"
                 aria-modal="true"
-                aria-label={
-                    isEditing
-                        ? income
-                            ? 'Edit money received'
-                            : 'Edit expense'
-                        : income
-                          ? 'Money received details'
-                          : 'Expense details'
-                }
+                aria-label={title}
                 className="bg-sw-surface text-sw-text w-full md:w-[448px] max-h-[90vh] rounded-t-sw-sheet md:rounded-sw-card-lg shadow-[0_0_0_1px_var(--sw-line)] overflow-y-auto flex flex-col"
             >
                 {isLoading ? (
@@ -628,15 +634,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     <>
                         {/* Header */}
                         <div className="sticky top-0 bg-sw-surface z-10 p-4 sm:p-5 border-b border-sw-line flex justify-between items-center gap-2">
-                            <h2 className="sw-heading text-[17px]">
-                                {isEditing
-                                    ? income
-                                        ? 'Edit money received'
-                                        : 'Edit expense'
-                                    : income
-                                      ? 'Money received details'
-                                      : 'Expense details'}
-                            </h2>
+                            <h2 className="sw-heading text-[17px]">{title}</h2>
                             {canEdit && !isEditing && !showDeleteConfirm && (
                                 <div className="flex gap-2">
                                     <Button
@@ -760,7 +758,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
                                     {/* Money received is not a payment; the checkbox would
                                         silently downgrade it, so it is not offered. */}
-                                    {kind !== 'income' && (
+                                    {!income && (
                                         <div className="mb-4">
                                             <label className="flex items-center gap-2 cursor-pointer">
                                                 <input
@@ -868,7 +866,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                         <ExpenseSplitTypeSelector
                                             value={splitType}
                                             onChange={setSplitType}
-                                            allowItemized={kind !== 'income'}
+                                            allowItemized={!income}
                                         />
 
                                         {splitType === 'ITEMIZED' && (

@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from auth import get_password_hash
+from auth import create_access_token, get_password_hash
 from models import Expense, ExpenseSplit, Friendship, Group, GroupMember, GuestMember, User
 from utils.balances import (
     _detect_managed_cycles,
@@ -613,6 +613,7 @@ def test_balances_skips_subcent_conversion_residual(client, auth_headers, db_ses
         exchange_rate="1.0",
         split_type="EXACT",
         is_settlement=True,
+        kind="settlement",
     )
     db_session.add(settlement)
     db_session.commit()
@@ -709,6 +710,7 @@ def test_balances_dust_threshold_boundaries(
         exchange_rate="1.0",
         split_type="EXACT",
         is_settlement=True,
+        kind="settlement",
     )
     db_session.add(settlement)
     db_session.commit()
@@ -1043,3 +1045,339 @@ def test_simplify_includes_income_and_stays_stable_when_paid(
         (t["from_id"], t["from_is_guest"], t["to_id"], t["to_is_guest"], round(t["amount"]))
         for t in after
     ] == edges[1:]
+
+
+def _headers_for(user):
+    return {"Authorization": f"Bearer {create_access_token(data={'sub': user.email})}"}
+
+
+def _two_member_group(client, auth_headers, db_session, test_user, *, email, name):
+    """A USD group holding test_user and one freshly created member."""
+    group = Group(name="FX Group", created_by_id=test_user.id, default_currency="USD")
+    db_session.add(group)
+    db_session.commit()
+    other = User(
+        email=email,
+        hashed_password=get_password_hash("pw"),
+        full_name=name,
+        is_active=True,
+    )
+    db_session.add(other)
+    db_session.commit()
+    db_session.refresh(other)
+    db_session.add_all([
+        GroupMember(group_id=group.id, user_id=test_user.id),
+        GroupMember(group_id=group.id, user_id=other.id),
+    ])
+    db_session.commit()
+    return group, other
+
+
+def _add_fx_expense(db_session, group, payer, splits, *, amount, currency,
+                    exchange_rate, kind="expense", description="FX entry"):
+    """Insert an expense row directly so the stored historical rate is pinned
+    (the suite runs offline; a POSTed EUR expense would try to fetch one)."""
+    expense = Expense(
+        description=description,
+        amount=amount,
+        currency=currency,
+        date=str(date.today()),
+        payer_id=payer.id,
+        payer_is_guest=False,
+        group_id=group.id,
+        created_by_id=payer.id,
+        exchange_rate=exchange_rate,
+        split_type="EQUAL",
+        is_settlement=kind == "settlement",
+        kind=kind,
+    )
+    db_session.add(expense)
+    db_session.commit()
+    db_session.add_all([
+        ExpenseSplit(expense_id=expense.id, user_id=user.id, amount_owed=owed, is_guest=False)
+        for user, owed in splits
+    ])
+    db_session.commit()
+    return expense
+
+
+def test_multicurrency_income_flips_sign_at_the_stored_rate(
+    client, auth_headers, db_session, test_user
+):
+    """A EUR income in a USD group: the flip must ride the *converted* amount
+    in both ledger modes. Dropping the sign from one _accumulate_balances
+    branch, or applying it on the wrong side of the conversion, fails here."""
+    group, other = _two_member_group(
+        client, auth_headers, db_session, test_user,
+        email="fxincome@example.com", name="FX Income",
+    )
+    # test_user receives a 20.00 EUR refund, split equally; at the stored
+    # rate each half is 1000 * 1.1 = 1100 USD cents.
+    _add_fx_expense(
+        db_session, group, test_user,
+        [(test_user, 1000), (other, 1000)],
+        amount=2000, currency="EUR", exchange_rate="1.1000", kind="income",
+    )
+
+    # Multi-currency mode (no convert_to): the sign flips on the native
+    # EUR amounts.
+    balances = {
+        (b["user_id"], b["is_guest"], b["currency"]): round(b["amount"])
+        for b in client.get(f"/groups/{group.id}/balances", headers=auth_headers).json()
+    }
+    assert balances == {
+        (test_user.id, False, "EUR"): -1000,
+        (other.id, False, "EUR"): 1000,
+    }
+
+    # Scalar mode (convert_to): the flip rides the converted amount, at the
+    # rate stored on the expense.
+    balances = {
+        (b["user_id"], b["is_guest"]): round(b["amount"])
+        for b in client.get(
+            f"/groups/{group.id}/balances?convert_to=USD", headers=auth_headers
+        ).json()
+    }
+    assert balances == {(test_user.id, False): -1100, (other.id, False): 1100}
+
+    # /balances (multi-currency mode feeding the per-group row) agrees.
+    rows = [
+        b for b in client.get("/balances", headers=auth_headers).json()["balances"]
+        if b.get("group_id") == group.id
+    ]
+    assert len(rows) == 1
+    assert round(rows[0]["amount"]) == -1100
+
+
+def test_settled_then_refunded_multicurrency_leaves_no_dust(
+    client, auth_headers, db_session, test_user
+):
+    """The plan's own edge case, multi-currency flavour: settle a converted
+    EUR debt in whole USD cents, record the EUR refund as income, settle
+    that too — and the group must drop out instead of lingering at ±$0.00.
+    Same dust mechanics as test_balances_skips_subcent_conversion_residual,
+    now with the income flip in the middle."""
+    group, other = _two_member_group(
+        client, auth_headers, db_session, test_user,
+        email="fxrefund@example.com", name="FX Refund",
+    )
+
+    def group_rows():
+        res = client.get("/balances", headers=auth_headers)
+        assert res.status_code == 200
+        return [b for b in res.json()["balances"] if b.get("group_id") == group.id]
+
+    # Other pays 10.00 EUR, split equally: test_user owes 500 * 1.1174 =
+    # 558.7 USD cents, settled for the whole-cent 559 the plan quotes.
+    _add_fx_expense(
+        db_session, group, other,
+        [(test_user, 500), (other, 500)],
+        amount=1000, currency="EUR", exchange_rate="1.1174", description="Dinner",
+    )
+    _add_fx_expense(
+        db_session, group, test_user,
+        [(other, 559)],
+        amount=559, currency="USD", exchange_rate="1.0", kind="settlement",
+        description="Settle up",
+    )
+    assert group_rows() == []  # +0.3 cents of dust, dropped
+
+    # The dinner is refunded: other receives 10.00 EUR back and owes
+    # test_user their converted half — on top of the 0.3 cents of dust.
+    _add_fx_expense(
+        db_session, group, other,
+        [(test_user, 500), (other, 500)],
+        amount=1000, currency="EUR", exchange_rate="1.1174", kind="income",
+        description="Dinner refunded",
+    )
+    rows = group_rows()
+    assert len(rows) == 1
+    assert round(rows[0]["amount"]) == 559
+
+    # Other settles the refund for the same whole-cent figure: the residuals
+    # cancel and the group must vanish, not resurrect as ±$0.00.
+    _add_fx_expense(
+        db_session, group, other,
+        [(test_user, 559)],
+        amount=559, currency="USD", exchange_rate="1.0", kind="settlement",
+        description="Settle refund",
+    )
+    assert group_rows() == []
+
+
+def test_income_received_by_the_friend_flips_sign_from_both_perspectives(
+    client, auth_headers, db_session, test_user
+):
+    """The friend loops branch on who paid; the receiver-is-the-friend side
+    (the elif branches) must flip too, and the two logins must mirror."""
+    group_id, others, _ = _income_group(client, auth_headers, db_session, test_user)
+    friend = others[0]
+    db_session.add(Friendship(user_id1=test_user.id, user_id2=friend.id))
+    db_session.commit()
+    friend_headers = _headers_for(friend)
+
+    # The FRIEND receives a second refund, split between the two of them.
+    response = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Cleaning fee back",
+            "amount": 3000,
+            "currency": "USD",
+            "date": str(date.today()),
+            "payer_id": friend.id,
+            "group_id": group_id,
+            "split_type": "EQUAL",
+            "kind": "income",
+            "splits": [
+                {"user_id": test_user.id, "amount_owed": 1500, "is_guest": False},
+                {"user_id": friend.id, "amount_owed": 1500, "is_guest": False},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    # From test_user's login: the Airbnb refund said test_user owes the
+    # friend 50.00; the friend now owes 15.00 back, so net −35.00.
+    balances = client.get(f"/friends/{friend.id}/balance", headers=auth_headers).json()
+    assert balances == [{"amount": -35.0, "currency": "USD"}]
+
+    # And per row in the feed: the friend-received income is +1500 from
+    # test_user's side (they are owed), mirroring the −5000 of the one
+    # test_user received.
+    impacts = {
+        e["description"]: e["balance_impact"]
+        for e in client.get(f"/friends/{friend.id}/expenses", headers=auth_headers).json()
+    }
+    assert impacts["Cleaning fee back"] == 1500
+    assert impacts["Airbnb refund"] == -5000
+
+    # From the friend's login, every sign mirrors exactly.
+    balances = client.get(f"/friends/{test_user.id}/balance", headers=friend_headers).json()
+    assert balances == [{"amount": 35.0, "currency": "USD"}]
+    impacts = {
+        e["description"]: e["balance_impact"]
+        for e in client.get(f"/friends/{test_user.id}/expenses", headers=friend_headers).json()
+    }
+    assert impacts["Cleaning fee back"] == -1500
+    assert impacts["Airbnb refund"] == 5000
+
+
+def test_one_to_one_income_received_by_the_friend_flips_sign(
+    client, auth_headers, db_session, test_user
+):
+    """The non-group path has two legs; the payer-is-the-friend leg must
+    flip for income too, from both logins."""
+    friend = User(
+        email="oneononereceiver@example.com",
+        hashed_password=get_password_hash("pw"),
+        full_name="One On One Receiver",
+        is_active=True,
+    )
+    db_session.add(friend)
+    db_session.commit()
+    db_session.refresh(friend)
+    db_session.add(Friendship(user_id1=test_user.id, user_id2=friend.id))
+    db_session.commit()
+    friend_headers = _headers_for(friend)
+
+    response = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Ticket resale",
+            "amount": 3000,
+            "currency": "USD",
+            "date": str(date.today()),
+            "payer_id": friend.id,
+            "group_id": None,
+            "split_type": "EQUAL",
+            "kind": "income",
+            "splits": [
+                {"user_id": test_user.id, "amount_owed": 1500, "is_guest": False},
+                {"user_id": friend.id, "amount_owed": 1500, "is_guest": False},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    # test_user's login: the friend received the money, so the friend owes
+    # test_user their share.
+    balances = client.get("/balances", headers=auth_headers).json()["balances"]
+    row = next(b for b in balances if b["user_id"] == friend.id and not b.get("group_id"))
+    assert row["amount"] == 1500
+    friend_balances = client.get(f"/friends/{friend.id}/balance", headers=auth_headers).json()
+    assert friend_balances == [{"amount": 15.0, "currency": "USD"}]
+
+    # The friend's login mirrors it: they owe test_user.
+    balances = client.get("/balances", headers=friend_headers).json()["balances"]
+    row = next(b for b in balances if b["user_id"] == test_user.id and not b.get("group_id"))
+    assert row["amount"] == -1500
+    friend_balances = client.get(
+        f"/friends/{test_user.id}/balance", headers=friend_headers
+    ).json()
+    assert friend_balances == [{"amount": -15.0, "currency": "USD"}]
+
+
+def test_income_with_a_managed_guest_folds_onto_the_manager(
+    client, auth_headers, db_session, test_user
+):
+    """Folding commutes with the flip: a managed guest's flipped share lands
+    on the manager, exactly as an expense's unflipped share would."""
+    group_id = client.post(
+        "/groups/",
+        headers=auth_headers,
+        json={"name": "Managed Income", "default_currency": "USD"},
+    ).json()["id"]
+    other = User(
+        email="managedincome@example.com",
+        hashed_password=get_password_hash("pw"),
+        full_name="Managed Income Manager",
+        is_active=True,
+    )
+    db_session.add(other)
+    db_session.commit()
+    db_session.refresh(other)
+    client.post(
+        f"/groups/{group_id}/members", headers=auth_headers, json={"email": other.email}
+    )
+    guest_id = client.post(
+        f"/groups/{group_id}/guests", headers=auth_headers, json={"name": "Guest Kid"}
+    ).json()["id"]
+    assert client.post(
+        f"/groups/{group_id}/guests/{guest_id}/manage",
+        headers=auth_headers,
+        json={"user_id": other.id, "is_guest": False},
+    ).status_code == 200
+
+    # test_user receives 30.00, split three ways: raw is receiver −20.00,
+    # manager +10.00, guest +10.00 — and the guest's share folds up.
+    response = client.post(
+        "/expenses/",
+        headers=auth_headers,
+        json={
+            "description": "Deposit back",
+            "amount": 3000,
+            "currency": "USD",
+            "date": str(date.today()),
+            "payer_id": test_user.id,
+            "group_id": group_id,
+            "split_type": "EQUAL",
+            "kind": "income",
+            "splits": [
+                {"user_id": test_user.id, "amount_owed": 1000, "is_guest": False},
+                {"user_id": other.id, "amount_owed": 1000, "is_guest": False},
+                {"user_id": guest_id, "amount_owed": 1000, "is_guest": True},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    balances = {
+        (b["user_id"], b["is_guest"]): b["amount"]
+        for b in client.get(f"/groups/{group_id}/balances", headers=auth_headers).json()
+    }
+    assert balances == {
+        (test_user.id, False): -2000,
+        (other.id, False): 2000,
+    }

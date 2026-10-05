@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { IconTile, Money, TagPill } from '../ui';
 import { formatDate } from '../../utils/formatters';
 import { expenseImpact, impactLabel } from '../../utils/expenseImpact';
-import { fallbackIcon, isIncome, isSettlement } from '../../utils/expenseKind';
+import { expenseKind, fallbackIcon } from '../../utils/expenseKind';
 import type { GroupExpense } from '../../hooks/useGroupData';
 
 export interface GroupExpenseListProps {
@@ -52,8 +52,10 @@ const ExpenseRow: React.FC<{
      * Money received keeps its line: it is a real ledger event, and
      * expenseImpact already reversed the sign.
      */
-    const settlement = isSettlement(expense);
-    const income = isIncome(expense);
+    // Derived once per row; the icon fallback below reuses it too.
+    const kind = expenseKind(expense);
+    const settlement = kind === 'settlement';
+    const income = kind === 'income';
     const label = settlement ? 'none' : impactLabel(impact);
 
     const base = compact
@@ -78,7 +80,7 @@ const ExpenseRow: React.FC<{
                 tone={compact ? 'neutral' : 'surface'}
                 size={compact ? 32 : 38}
             >
-                {expense.icon || fallbackIcon(expense)}
+                {expense.icon || fallbackIcon({ kind })}
             </IconTile>
 
             <div className="flex-1 min-w-0">

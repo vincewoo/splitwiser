@@ -14,6 +14,7 @@ import { tabsApi } from '../services/api';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { useAppData } from '../contexts/AppDataContext';
 import { pinnedGroups } from '../utils/groupBalances';
+import type { EntryKind } from '../utils/expenseKind';
 import type { ShellActions } from './shellActions';
 
 /**
@@ -48,7 +49,7 @@ const AppShell: React.FC = () => {
         scanner: boolean;
         groupId: number | null;
         /** Which side of Expense | Money received the modal opens on. */
-        kind: 'expense' | 'income';
+        kind: EntryKind;
     }>({ open: false, scanner: false, groupId: null, kind: 'expense' });
 
     // "Split a bill at the table": scan the receipt, name the place, open a tab.

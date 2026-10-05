@@ -33,6 +33,9 @@ DEFAULT_DB_PATH = Path(__file__).parent.parent / "db.sqlite3"
 COLUMN_DDL = "ALTER TABLE expenses ADD COLUMN kind TEXT NOT NULL DEFAULT 'expense'"
 
 # Safe to re-run: once a row carries kind='settlement' it no longer matches.
+# TODO: when the is_settlement column is eventually dropped, retire this
+# backfill (or the whole migration) FIRST — it reads is_settlement, so leaving
+# it in start.sh would make every boot fail on the missing column.
 BACKFILL_SQL = "UPDATE expenses SET kind='settlement' WHERE is_settlement=1 AND kind='expense'"
 
 

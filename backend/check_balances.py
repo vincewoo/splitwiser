@@ -1,5 +1,6 @@
 import models
 from database import SessionLocal
+from utils.balances import ledger_sign
 
 db = SessionLocal()
 try:
@@ -17,7 +18,7 @@ try:
     for expense in expenses:
         splits = db.query(models.ExpenseSplit).filter(models.ExpenseSplit.expense_id == expense.id).all()
         # Income ("money received") flips direction, as in utils/balances.
-        sign = -1 if expense.kind == "income" else 1
+        sign = ledger_sign(expense)
 
         for split in splits:
             # Check if it's Tim or Jezmin as debtor

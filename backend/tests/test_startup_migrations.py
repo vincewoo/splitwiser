@@ -354,6 +354,11 @@ def _expenses_db(path):
                 ("Dinner", 9000, 0),
                 ("Payment", 4500, 1),
                 ("Groceries", 2300, 0),
+                # No released writer leaves is_settlement NULL (the column was
+                # added with DEFAULT 0), but a row written around that
+                # migration's own deploy window could. It must land on
+                # kind='expense', not vanish from kind-filtered SQL.
+                ("Mystery", 700, None),
             ],
         )
 
@@ -392,7 +397,27 @@ def test_expense_kind_migration_backfills_settlements(tmp_path):
         "Dinner": "expense",
         "Payment": "settlement",
         "Groceries": "expense",
+        "Mystery": "expense",
     }
+
+
+def test_expense_kind_migration_heals_an_interrupted_run(tmp_path):
+    """The column exists but the backfill never ran (a crash between the
+    ALTER and the UPDATE): the unconditional backfill heals it on next boot."""
+    db_path = tmp_path / "splitwiser.sqlite3"
+    _expenses_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "ALTER TABLE expenses ADD COLUMN kind TEXT NOT NULL DEFAULT 'expense'"
+        )
+
+    add_expense_kind(str(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        kinds = dict(connection.execute("SELECT description, kind FROM expenses"))
+
+    assert kinds["Payment"] == "settlement"
+    assert kinds["Dinner"] == "expense"
 
 
 def test_expense_kind_migration_dry_run_writes_nothing(tmp_path):

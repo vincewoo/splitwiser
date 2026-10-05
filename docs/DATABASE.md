@@ -59,7 +59,9 @@ CREATE TABLE expenses (
     exchange_rate TEXT,
     receipt_image_path TEXT,
     icon TEXT,
-    notes TEXT
+    notes TEXT,
+    is_settlement BOOLEAN DEFAULT FALSE,  -- compat alias for kind = 'settlement'
+    kind TEXT NOT NULL DEFAULT 'expense'  -- 'expense' | 'settlement' | 'income'
 );
 
 -- Expense Splits

@@ -33,6 +33,7 @@ import {
     assembleSplitsPayload,
     amountToCents,
 } from './utils/expenseTransformations';
+import type { EntryKind } from './utils/expenseKind';
 import { formatDateForInput } from './utils/formatters';
 import { formatCurrencyDisplay } from './utils/currencyHelpers';
 import { offlineExpensesApi, offlineGroupsApi } from './services/offlineApi';
@@ -57,7 +58,7 @@ interface AddExpenseModalProps {
      * The FAB sheet's "Money received" row lands here pre-toggled; the toggle
      * inside the modal still lets people switch either way.
      */
-    initialKind?: 'expense' | 'income';
+    initialKind?: EntryKind;
 }
 
 const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
@@ -93,7 +94,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
     const [notes, setNotes] = useState('');
     const [isSettlement, setIsSettlement] = useState(false);
-    const [entryKind, setEntryKind] = useState<'expense' | 'income'>(initialKind);
+    const [entryKind, setEntryKind] = useState<EntryKind>(initialKind);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [alertDialog, setAlertDialog] = useState<{
         isOpen: boolean;
@@ -269,8 +270,10 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     }, [isOpen, openScanner, initialKind, preselectedGroupId, preselectedFriendId, user?.id]);
 
     const isIncome = entryKind === 'income';
+    /** One title for the heading and the dialog's aria-label alike. */
+    const title = isIncome ? 'Money received' : 'New expense';
 
-    const handleKindChange = (next: 'expense' | 'income') => {
+    const handleKindChange = (next: EntryKind) => {
         setEntryKind(next);
         if (next === 'income') {
             // Money received has no receipt to itemize, and the settlement
@@ -278,6 +281,15 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             // contradictory kind=income + is_settlement=true the server 400s.
             if (splitType === 'ITEMIZED') setSplitType('EQUAL');
             setIsSettlement(false);
+            // A receipt scanned in expense mode describes a bill this entry no
+            // longer is — drop the receipt path, the scanned-items preview and
+            // the itemized lines so none of it rides into the income payload.
+            setReceiptImagePath(null);
+            setScannedItems([]);
+            setOcrValidationWarning(null);
+            itemizedExpense.setItemizedItems([]);
+            itemizedExpense.setTaxAmount('');
+            itemizedExpense.setTipAmount('');
         }
     };
 
@@ -788,7 +800,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             <div
                 role="dialog"
                 aria-modal="true"
-                aria-label="New expense"
+                aria-label={title}
                 className="bg-sw-surface text-sw-text w-full md:w-[448px] max-h-[92vh] rounded-t-sw-sheet md:rounded-sw-card-lg shadow-[0_-12px_40px_rgba(0,0,0,.45)] md:shadow-[0_0_0_1px_var(--sw-line)] overflow-hidden flex flex-col"
             >
                 <div className="sticky top-0 bg-sw-surface z-10 px-4 sm:px-5 py-3.5 border-b border-sw-line flex items-center gap-3">
@@ -801,7 +813,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                         <X size={22} />
                     </button>
                     <h2 className="text-base font-medium text-sw-text">
-                        {isIncome ? 'Money received' : 'New expense'}
+                        {title}
                     </h2>
                     {!isIncome && (
                         <button
@@ -834,7 +846,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     />
                     <p className="text-[12.5px] text-sw-dim mt-1.5">
                         {isIncome
-                            ? 'One person is holding money that belongs to the group — a refund, returned deposit, winnings.'
+                            ? 'One person is holding money the others have a share of — a refund, returned deposit, winnings.'
                             : 'One person paid for something; the others owe them their share.'}
                     </p>
                 </div>
