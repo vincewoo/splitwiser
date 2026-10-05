@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useAppData } from '../contexts/AppDataContext';
 import type { Group, GroupBalance } from '../types/group';
+import type { ExpenseKind } from '../utils/expenseKind';
 
 export interface GroupExpenseSplit {
     id: number;
@@ -27,6 +28,7 @@ export interface GroupExpense {
     split_type?: string;
     icon?: string | null;
     is_settlement?: boolean;
+    kind?: ExpenseKind;
     notes?: string | null;
     receipt_image_path?: string | null;
 }

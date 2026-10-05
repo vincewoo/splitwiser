@@ -5,6 +5,8 @@ import type { SplitType } from '../../types/expense';
 interface ExpenseSplitTypeSelectorProps {
     value: SplitType;
     onChange: (type: SplitType) => void;
+    /** Hide "By item" — money received has no receipt to itemize. */
+    allowItemized?: boolean;
 }
 
 /**
@@ -14,8 +16,14 @@ interface ExpenseSplitTypeSelectorProps {
 const ExpenseSplitTypeSelector: React.FC<ExpenseSplitTypeSelectorProps> = ({
     value,
     onChange,
+    allowItemized = true,
 }) => (
-    <SplitTypePills value={value} onChange={onChange} className="mb-2" />
+    <SplitTypePills
+        value={value}
+        onChange={onChange}
+        allowItemized={allowItemized}
+        className="mb-2"
+    />
 );
 
 export default ExpenseSplitTypeSelector;

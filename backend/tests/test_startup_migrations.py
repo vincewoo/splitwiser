@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 
+from migrations.add_expense_kind import run_migration as add_expense_kind
 from migrations.add_tab_offapp_payer import run_migration as add_offapp_payer
 from migrations.add_tab_participant_name_uniqueness import migrate as migrate_tab_names
 from migrations.add_venmo_username import run_migration
@@ -330,5 +331,108 @@ def test_startup_runs_offapp_payer_migration():
 
     assert (
         'python migrations/add_tab_offapp_payer.py --db-path "$DATABASE_PATH"'
+        in start_script.read_text()
+    )
+
+
+def _expenses_db(path):
+    """A schema as it stood before expenses carried a kind."""
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                description VARCHAR,
+                amount INTEGER,
+                is_settlement BOOLEAN DEFAULT 0
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO expenses (description, amount, is_settlement) VALUES (?, ?, ?)",
+            [
+                ("Dinner", 9000, 0),
+                ("Payment", 4500, 1),
+                ("Groceries", 2300, 0),
+                # No released writer leaves is_settlement NULL (the column was
+                # added with DEFAULT 0), but a row written around that
+                # migration's own deploy window could. It must land on
+                # kind='expense', not vanish from kind-filtered SQL.
+                ("Mystery", 700, None),
+            ],
+        )
+
+
+def test_expense_kind_migration_adds_column_and_is_idempotent(tmp_path):
+    db_path = tmp_path / "splitwiser.sqlite3"
+    _expenses_db(db_path)
+
+    add_expense_kind(str(db_path))
+    add_expense_kind(str(db_path))
+
+    assert "kind" in _columns(db_path, "expenses")
+    with sqlite3.connect(db_path) as connection:
+        kind_info = next(
+            row
+            for row in connection.execute("PRAGMA table_info(expenses)")
+            if row[1] == "kind"
+        )
+    # NOT NULL with a default, so SQL filters on kind never drop NULL rows.
+    assert kind_info[3] == 1
+    assert kind_info[4] == "'expense'"
+
+
+def test_expense_kind_migration_backfills_settlements(tmp_path):
+    """Existing rows keep meaning what they did: settlements stay settlements."""
+    db_path = tmp_path / "splitwiser.sqlite3"
+    _expenses_db(db_path)
+
+    add_expense_kind(str(db_path))
+    add_expense_kind(str(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        kinds = dict(connection.execute("SELECT description, kind FROM expenses"))
+
+    assert kinds == {
+        "Dinner": "expense",
+        "Payment": "settlement",
+        "Groceries": "expense",
+        "Mystery": "expense",
+    }
+
+
+def test_expense_kind_migration_heals_an_interrupted_run(tmp_path):
+    """The column exists but the backfill never ran (a crash between the
+    ALTER and the UPDATE): the unconditional backfill heals it on next boot."""
+    db_path = tmp_path / "splitwiser.sqlite3"
+    _expenses_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "ALTER TABLE expenses ADD COLUMN kind TEXT NOT NULL DEFAULT 'expense'"
+        )
+
+    add_expense_kind(str(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        kinds = dict(connection.execute("SELECT description, kind FROM expenses"))
+
+    assert kinds["Payment"] == "settlement"
+    assert kinds["Dinner"] == "expense"
+
+
+def test_expense_kind_migration_dry_run_writes_nothing(tmp_path):
+    db_path = tmp_path / "splitwiser.sqlite3"
+    _expenses_db(db_path)
+
+    add_expense_kind(str(db_path), dry_run=True)
+
+    assert "kind" not in _columns(db_path, "expenses")
+
+
+def test_startup_runs_expense_kind_migration():
+    start_script = Path(__file__).parents[2] / "start.sh"
+
+    assert (
+        'python migrations/add_expense_kind.py --db-path "$DATABASE_PATH"'
         in start_script.read_text()
     )

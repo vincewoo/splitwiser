@@ -188,9 +188,10 @@ hold what happened, not what was suggested — so every surface that records a
 plan payment can record it for a different figure.
 
 There is no settlement endpoint to change. A settlement is an ordinary
-`POST /expenses` with `is_settlement: true`, the debtor as payer and the
-creditor carrying the whole amount, and the backend has never cared whether
-that amount matches anything. The plan-stability guarantee above is what makes
+`POST /expenses` with `kind: "settlement"` (the legacy `is_settlement: true`
+still works as a compat alias), the debtor as payer and the creditor carrying
+the whole amount, and the backend has never cared whether that amount matches
+anything. The plan-stability guarantee above is what makes
 a partial payment *safe* rather than merely possible: it shrinks its own
 transaction and moves nothing else
 (`test_partial_payment_end_to_end_shrinks_only_its_own_transaction`).
@@ -279,6 +280,30 @@ plan is empty, since being square today does not stop somebody paying ahead).
 `utils/settleAmount.ts::settlementExpense` builds the expense for every path
 that records a settlement from these screens, so the four of them cannot
 disagree about what a settlement looks like.
+
+## Money Received
+
+The dual of an expense: a refund, a returned deposit, resold tickets — money
+one person is holding that the others have a share of. Stored as an ordinary
+expense row with `kind: "income"`, positive amount and positive splits; the
+sign flips inside every ledger loop (`utils/balances.py::ledger_sign`), so
+the receiver ends up owing the split participants instead of the other way
+round.
+
+- **Entry points**: the Expense/Money received toggle in AddExpenseModal (and
+  its editing twin in ExpenseDetailModal), plus a dedicated row on the FAB
+  sheet that opens the modal already in income mode. Receipt scanning and
+  ITEMIZED splits are not offered for income, and the backend holds the same
+  line (`amount > 0`, no ITEMIZED — 400 on both POST and PUT).
+- **Balance effect**: the receiver's balance goes down by the shares of
+  everyone else; each participant's goes up. Income is a real ledger event,
+  so unlike a settlement it stays in the simplify anchor ledger — recording
+  one legitimately re-plans the group.
+- **Summary & CSV**: the consumption summary (authed and public) excludes
+  income along with settlements — receiving money back is not consuming. The
+  balance-sheet CSV keeps income rows in, sign-flipped, with the EXPENSE row
+  noted "money received" and each SPLIT row noting that its sign is reversed
+  in CONSUMPTION/PAID; every CHECKS row still reconciles.
 
 ## Dark Mode
 

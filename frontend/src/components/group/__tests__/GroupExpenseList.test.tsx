@@ -50,7 +50,43 @@ const expense: GroupExpense = {
     ],
 };
 
-const payerName = (e: GroupExpense) => (e.payer_id === VINCE ? 'You paid' : 'Tim paid');
+/** Tim receives a $200 refund split equally; Vince's $50 is in Tim's hands. */
+const income: GroupExpense = {
+    id: 3,
+    description: 'Airbnb refund',
+    amount: 20000,
+    currency: 'USD',
+    date: '2026-04-17',
+    payer_id: 2,
+    payer_is_guest: false,
+    group_id: 1,
+    kind: 'income',
+    splits: [
+        {
+            id: 3,
+            expense_id: 3,
+            user_id: VINCE,
+            is_guest: false,
+            amount_owed: 5000,
+            user_name: 'Vince',
+        },
+        {
+            id: 4,
+            expense_id: 3,
+            user_id: 2,
+            is_guest: false,
+            amount_owed: 15000,
+            user_name: 'Tim',
+        },
+    ],
+};
+
+const payerName = (e: GroupExpense) =>
+    e.kind === 'income'
+        ? 'Tim received'
+        : e.payer_id === VINCE
+          ? 'You paid'
+          : 'Tim paid';
 
 describe('GroupExpenseList', () => {
     it('leaves the impact hint off a settlement', () => {
@@ -78,5 +114,38 @@ describe('GroupExpenseList', () => {
         );
 
         expect(screen.getByText(/you owe/)).toBeInTheDocument();
+    });
+
+    it('shows an income row as received, undimmed, with the sign reversed', () => {
+        const { container } = render(
+            <GroupExpenseList
+                expenses={[income]}
+                currentUserId={VINCE}
+                payerName={payerName}
+            />
+        );
+
+        // "received" copy, with the usual split summary beside it.
+        expect(screen.getByText(/Tim received · equal, 2 ways/)).toBeInTheDocument();
+        // Tim is holding Vince's $50, so Vince is up — not "you owe".
+        expect(screen.getByText(/you're owed/)).toBeInTheDocument();
+        expect(screen.queryByText(/you owe /)).not.toBeInTheDocument();
+        // Money received is news, not a dimmed settlement.
+        expect(container.querySelector('[class*="opacity-"]')).toBeNull();
+        // No icon of its own, so the income fallback shows.
+        expect(screen.getByText('💸')).toBeInTheDocument();
+    });
+
+    it('keeps the settlement row dimmed behind its bank tile', () => {
+        const { container } = render(
+            <GroupExpenseList
+                expenses={[settlement]}
+                currentUserId={VINCE}
+                payerName={payerName}
+            />
+        );
+
+        expect(screen.getByText('🏦')).toBeInTheDocument();
+        expect(container.querySelector('[class*="opacity-"]')).not.toBeNull();
     });
 });

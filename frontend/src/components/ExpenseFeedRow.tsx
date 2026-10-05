@@ -1,6 +1,7 @@
 import React from 'react';
 import { IconTile, Money } from './ui';
 import { formatDate } from '../utils/formatters';
+import { fallbackIcon, isSettlement } from '../utils/expenseKind';
 import type { FeedExpense } from '../hooks/useExpenseFeed';
 
 export interface ExpenseFeedRowProps {
@@ -33,7 +34,7 @@ const ExpenseFeedRow: React.FC<ExpenseFeedRowProps> = ({
     const inner = (
         <>
             <IconTile tone={small ? 'neutral' : 'surface'} size={small ? 30 : 38}>
-                {expense.icon || (expense.is_settlement ? '🏦' : '🧾')}
+                {expense.icon || fallbackIcon(expense)}
             </IconTile>
             <div className="flex-1 min-w-0">
                 <div
@@ -51,7 +52,8 @@ const ExpenseFeedRow: React.FC<ExpenseFeedRowProps> = ({
                 <Money
                     amount={expense.amount}
                     currency={expense.currency}
-                    tone={expense.is_settlement ? 'muted' : 'default'}
+                    // Only settlements recede; money received is news.
+                    tone={isSettlement(expense) ? 'muted' : 'default'}
                     className={small ? 'text-[13px]' : 'text-sm'}
                 />
                 <div className="text-[11.5px] text-sw-dim">

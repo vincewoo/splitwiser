@@ -20,6 +20,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { getApiUrl } from '../api';
 import { friendsApi } from '../services/api';
 import { formatDate } from '../utils/formatters';
+import { fallbackIcon, payerVerb } from '../utils/expenseKind';
 import type {
     Friend,
     FriendBalance,
@@ -126,10 +127,11 @@ const PersonPage: React.FC = () => {
     const visible = expanded ? filtered : filtered.slice(0, 10);
 
     const payerName = (expense: FriendExpenseWithSplits): string => {
-        if (expense.payer_is_guest) return 'A guest paid';
-        if (expense.payer_id === user?.id) return 'You paid';
-        if (expense.payer_id === friend?.id) return `${friend.full_name} paid`;
-        return 'Someone paid';
+        const verb = payerVerb(expense);
+        if (expense.payer_is_guest) return `A guest ${verb}`;
+        if (expense.payer_id === user?.id) return `You ${verb}`;
+        if (expense.payer_id === friend?.id) return `${friend.full_name} ${verb}`;
+        return `Someone ${verb}`;
     };
 
     if (loading && !friend) {
@@ -284,7 +286,7 @@ const PersonPage: React.FC = () => {
                                     className="flex items-center gap-3 py-[11px] border-b border-sw-line text-left hover:bg-sw-surface focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
                                 >
                                     <IconTile tone="surface" size={38}>
-                                        {expense.icon || '🧾'}
+                                        {expense.icon || fallbackIcon(expense)}
                                     </IconTile>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-1.5 min-w-0">

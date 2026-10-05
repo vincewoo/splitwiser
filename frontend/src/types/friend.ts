@@ -1,4 +1,5 @@
 // Shared types for friends and users
+import type { ExpenseKind } from '../utils/expenseKind';
 
 export interface Friend {
     id: number;
@@ -58,6 +59,8 @@ export interface FriendExpenseWithSplits {
     icon?: string | null;
     receipt_image_path?: string | null;
     notes?: string | null;
+    is_settlement?: boolean;  // Compat alias for kind === 'settlement'
+    kind?: ExpenseKind;
     group_name?: string | null;  // Name of the group if expense is part of a group
     balance_impact?: number | null;  // Balance impact in cents: positive = friend owes you, negative = you owe friend
 }

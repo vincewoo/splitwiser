@@ -10,7 +10,7 @@ import SplitDetailsInput from './components/expense/SplitDetailsInput';
 import IconSelector from './components/expense/IconSelector';
 import AddItemModal from './components/AddItemModal';
 import AlertDialog from './components/AlertDialog';
-import { Button, Notice } from './components/ui';
+import { Button, Notice, SegmentedControl } from './components/ui';
 import { useItemizedExpense } from './hooks/useItemizedExpense';
 import { useSplitDetails } from './hooks/useSplitDetails';
 import { useCurrencyPreferences } from './hooks/useCurrencyPreferences';
@@ -33,6 +33,7 @@ import {
     assembleSplitsPayload,
     amountToCents,
 } from './utils/expenseTransformations';
+import type { EntryKind } from './utils/expenseKind';
 import { formatDateForInput } from './utils/formatters';
 import { formatCurrencyDisplay } from './utils/currencyHelpers';
 import { offlineExpensesApi, offlineGroupsApi } from './services/offlineApi';
@@ -52,6 +53,12 @@ interface AddExpenseModalProps {
      * whole point of the entry.
      */
     openScanner?: boolean;
+    /**
+     * Which side of the Expense | Money received toggle the modal opens on.
+     * The FAB sheet's "Money received" row lands here pre-toggled; the toggle
+     * inside the modal still lets people switch either way.
+     */
+    initialKind?: EntryKind;
 }
 
 const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
@@ -62,7 +69,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     groups = [],
     preselectedGroupId = null,
     preselectedFriendId = null,
-    openScanner = false
+    openScanner = false,
+    initialKind = 'expense'
 }) => {
     const { user } = useAuth();
     const { isOnline: _isOnline } = useSync();
@@ -86,6 +94,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
     const [notes, setNotes] = useState('');
     const [isSettlement, setIsSettlement] = useState(false);
+    const [entryKind, setEntryKind] = useState<EntryKind>(initialKind);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [alertDialog, setAlertDialog] = useState<{
         isOpen: boolean;
@@ -241,6 +250,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setReceiptImagePath(null);
         setNotes('');
         setIsSettlement(false);
+        setEntryKind(initialKind);
         setExpenseGuests([]);
         setNewGuestName('');
         itemizedExpense.setItemizedItems([]);
@@ -257,7 +267,31 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             // on the scanner, everything else on the manual form.
             setShowScanner(openScanner);
         }
-    }, [isOpen, openScanner, preselectedGroupId, preselectedFriendId, user?.id]);
+    }, [isOpen, openScanner, initialKind, preselectedGroupId, preselectedFriendId, user?.id]);
+
+    const isIncome = entryKind === 'income';
+    /** One title for the heading and the dialog's aria-label alike. */
+    const title = isIncome ? 'Money received' : 'New expense';
+
+    const handleKindChange = (next: EntryKind) => {
+        setEntryKind(next);
+        if (next === 'income') {
+            // Money received has no receipt to itemize, and the settlement
+            // checkbox is hidden — clear it so a stale tick can't send the
+            // contradictory kind=income + is_settlement=true the server 400s.
+            if (splitType === 'ITEMIZED') setSplitType('EQUAL');
+            setIsSettlement(false);
+            // A receipt scanned in expense mode describes a bill this entry no
+            // longer is — drop the receipt path, the scanned-items preview and
+            // the itemized lines so none of it rides into the income payload.
+            setReceiptImagePath(null);
+            setScannedItems([]);
+            setOcrValidationWarning(null);
+            itemizedExpense.setItemizedItems([]);
+            itemizedExpense.setTaxAmount('');
+            itemizedExpense.setTipAmount('');
+        }
+    };
 
     const handleScannedItems = (items: { description: string, price: number }[], receiptPath?: string, validationWarning?: string | null, taxCents?: number | null, tipCents?: number | null, totalCents?: number | null) => {
         setScannedItems(items);
@@ -375,6 +409,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             return;
         }
 
+        // is_settlement mirrors kind for servers that predate the enum.
+        const payloadKind = isIncome ? 'income' : isSettlement ? 'settlement' : 'expense';
+
         const payload: ExpensePayload = {
             description,
             amount: totalAmountCents,
@@ -390,7 +427,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             icon: selectedIcon,
             receipt_image_path: receiptImagePath,
             notes: notes,
-            is_settlement: isSettlement
+            kind: payloadKind,
+            is_settlement: payloadKind === 'settlement'
         };
 
         // Add expense guests for non-group expenses
@@ -421,7 +459,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 icon: selectedIcon,
                 receipt_image_path: receiptImagePath,
                 notes: notes,
-                is_settlement: isSettlement
+                kind: payloadKind,
+                is_settlement: payloadKind === 'settlement'
             };
 
             // Add expense guests for non-group expenses
@@ -761,7 +800,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             <div
                 role="dialog"
                 aria-modal="true"
-                aria-label="New expense"
+                aria-label={title}
                 className="bg-sw-surface text-sw-text w-full md:w-[448px] max-h-[92vh] rounded-t-sw-sheet md:rounded-sw-card-lg shadow-[0_-12px_40px_rgba(0,0,0,.45)] md:shadow-[0_0_0_1px_var(--sw-line)] overflow-hidden flex flex-col"
             >
                 <div className="sticky top-0 bg-sw-surface z-10 px-4 sm:px-5 py-3.5 border-b border-sw-line flex items-center gap-3">
@@ -773,16 +812,43 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     >
                         <X size={22} />
                     </button>
-                    <h2 className="text-base font-medium text-sw-text">New expense</h2>
-                    <button
-                        type="button"
-                        onClick={() => setShowScanner(true)}
-                        aria-label="Scan a receipt"
-                        className="ml-auto text-sm text-sw-accent border border-sw-accent px-3 py-2 rounded-lg hover:bg-[color-mix(in_srgb,var(--sw-accent)_12%,transparent)] min-h-9 flex items-center gap-2"
-                    >
-                        <Scan size={18} />
-                        Scan
-                    </button>
+                    <h2 className="text-base font-medium text-sw-text">
+                        {title}
+                    </h2>
+                    {!isIncome && (
+                        <button
+                            type="button"
+                            onClick={() => setShowScanner(true)}
+                            aria-label="Scan a receipt"
+                            className="ml-auto text-sm text-sw-accent border border-sw-accent px-3 py-2 rounded-lg hover:bg-[color-mix(in_srgb,var(--sw-accent)_12%,transparent)] min-h-9 flex items-center gap-2"
+                        >
+                            <Scan size={18} />
+                            Scan
+                        </button>
+                    )}
+                </div>
+
+                {/*
+                  * Which way the money moved. The one-line caption is what
+                  * tells the two apart at a glance — static rather than a
+                  * tooltip, since there is nothing to hover on a phone.
+                  */}
+                <div className="px-4 sm:px-5 pt-3 bg-sw-surface flex-none">
+                    <SegmentedControl
+                        label="Entry type"
+                        options={[
+                            { value: 'expense', label: 'Expense' },
+                            { value: 'income', label: 'Money received' },
+                        ]}
+                        value={entryKind}
+                        onChange={handleKindChange}
+                        fill
+                    />
+                    <p className="text-[12.5px] text-sw-dim mt-1.5">
+                        {isIncome
+                            ? 'One person is holding money the others have a share of — a refund, returned deposit, winnings.'
+                            : 'One person paid for something; the others owe them their share.'}
+                    </p>
                 </div>
 
                 {/*
@@ -906,17 +972,20 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                             />
                         </div>
 
-                        <div className="mb-4">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={isSettlement}
-                                    onChange={(e) => setIsSettlement(e.target.checked)}
-                                    className="w-4 h-4 rounded accent-[var(--sw-accent)] bg-sw-sunk border-sw-line"
-                                />
-                                <span className="text-sm text-sw-muted">This is a settlement (payment)</span>
-                            </label>
-                        </div>
+                        {/* A settlement is a payment; money received is not one. */}
+                        {!isIncome && (
+                            <div className="mb-4">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={isSettlement}
+                                        onChange={(e) => setIsSettlement(e.target.checked)}
+                                        className="w-4 h-4 rounded accent-[var(--sw-accent)] bg-sw-sunk border-sw-line"
+                                    />
+                                    <span className="text-sm text-sw-muted">This is a settlement (payment)</span>
+                                </label>
+                            </div>
+                        )}
 
                         <div className="mb-4">
                             <label className="block text-sw-muted text-sm font-bold mb-2">Participants:</label>
@@ -1057,7 +1126,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
                         {getPotentialPayers().length > 1 && (
                             <div className="mb-4">
-                                <label htmlFor="payer-select" className="block text-sw-muted text-sm font-bold mb-2">Paid by:</label>
+                                <label htmlFor="payer-select" className="block text-sw-muted text-sm font-bold mb-2">
+                                    {isIncome ? 'Received by:' : 'Paid by:'}
+                                </label>
                                 <select
                                     id="payer-select"
                                     value={
@@ -1103,7 +1174,11 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
                         <div className="mb-4">
                             <label className="block text-sw-muted text-sm font-bold mb-2">Split by:</label>
-                            <ExpenseSplitTypeSelector value={splitType} onChange={setSplitType} />
+                            <ExpenseSplitTypeSelector
+                                value={splitType}
+                                onChange={setSplitType}
+                                allowItemized={!isIncome}
+                            />
 
                             {splitType === 'ITEMIZED' && (
                                 <div className="bg-sw-sunk p-3 rounded">

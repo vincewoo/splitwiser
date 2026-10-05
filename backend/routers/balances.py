@@ -9,7 +9,13 @@ import models
 import schemas
 from database import get_db
 from dependencies import get_current_user
-from utils.balances import calculate_net_balances, calculate_raw_balances, is_dust, plan_group_settlement
+from utils.balances import (
+    calculate_net_balances,
+    calculate_raw_balances,
+    is_dust,
+    ledger_sign,
+    plan_group_settlement,
+)
 from utils.currency import convert_currency, convert_to_usd, format_currency, get_current_exchange_rates
 from utils.display import get_participant_display_name
 from utils.validation import get_group_or_404, verify_group_membership
@@ -392,15 +398,17 @@ def get_balances(
         ).all()
         expenses_for_my_splits = {e.id: e for e in expenses_list}
 
-    # Analyze expenses I paid (1-to-1 only)
+    # Analyze expenses I paid (1-to-1 only). For income ("money received")
+    # the direction flips: the receiver owes the split participants.
     for expense in paid_expenses:
         splits = splits_by_expense.get(expense.id, [])
+        sign = ledger_sign(expense)
         for split in splits:
             if split.user_id == current_user.id and not split.is_guest:
                 continue
             if not split.is_guest:  # Only handle user splits, not guests
                 key = (split.user_id, expense.currency)
-                user_balances[key] = user_balances.get(key, 0) + split.amount_owed
+                user_balances[key] = user_balances.get(key, 0) + sign * split.amount_owed
 
     # Analyze expenses I owe (1-to-1 only)
     for split in my_splits:
@@ -410,8 +418,9 @@ def get_balances(
         if expense.payer_id == current_user.id and not expense.payer_is_guest:
             continue
         if not expense.payer_is_guest:  # Only handle user payers
+            sign = ledger_sign(expense)
             key = (expense.payer_id, expense.currency)
-            user_balances[key] = user_balances.get(key, 0) - split.amount_owed
+            user_balances[key] = user_balances.get(key, 0) - sign * split.amount_owed
 
     # Batch fetch users for display names
     user_ids = {uid for uid, _ in user_balances.keys()}

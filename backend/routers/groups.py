@@ -12,6 +12,7 @@ import schemas
 from database import get_db
 from dependencies import get_current_user
 from utils import summary_cache
+from utils.balances import ledger_sign
 from utils.currency import fetch_historical_exchange_rate
 from utils.display import get_guest_display_name, get_public_user_display_name
 from utils.rate_limiter import summary_rate_limiter
@@ -648,7 +649,8 @@ def get_public_group_expenses(
             "icon": expense.icon,
             "receipt_image_path": expense.receipt_image_path,
             "notes": expense.notes,
-            "is_settlement": expense.is_settlement
+            "is_settlement": expense.is_settlement,
+            "kind": expense.kind
         }
         result.append(expense_dict)
 
@@ -688,6 +690,10 @@ def get_public_group_balances(
 
     for expense in expenses:
         splits = splits_by_expense.get(expense.id, [])
+        # Income flips direction: the receiver owes the split participants.
+        # Mirrors utils/balances._accumulate_balances, of which this loop is
+        # a copy.
+        sign = ledger_sign(expense)
 
         for split in splits:
             key = (split.user_id, split.is_guest)
@@ -697,7 +703,7 @@ def get_public_group_balances(
                 net_balances[key][expense.currency] = 0
 
             # Debtor decreases balance
-            net_balances[key][expense.currency] -= split.amount_owed
+            net_balances[key][expense.currency] -= sign * split.amount_owed
 
             # Creditor (payer) increases balance
             payer_key = (expense.payer_id, expense.payer_is_guest)
@@ -705,7 +711,7 @@ def get_public_group_balances(
                 net_balances[payer_key] = {}
             if expense.currency not in net_balances[payer_key]:
                 net_balances[payer_key][expense.currency] = 0
-            net_balances[payer_key][expense.currency] += split.amount_owed
+            net_balances[payer_key][expense.currency] += sign * split.amount_owed
 
     # Get all managed guests in this group
     managed_guests = db.query(models.GuestMember).filter(
@@ -1190,5 +1196,6 @@ def get_public_expense_detail(
         icon=expense.icon,
         receipt_image_path=expense.receipt_image_path,
         notes=expense.notes,
-        is_settlement=expense.is_settlement
+        is_settlement=expense.is_settlement,
+        kind=expense.kind
     )

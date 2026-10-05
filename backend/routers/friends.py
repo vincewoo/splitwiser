@@ -12,6 +12,7 @@ import models
 import schemas
 from database import get_db
 from dependencies import get_current_user
+from utils.balances import ledger_sign
 from utils.email import send_friend_request_email
 from utils.validation import get_user_by_email
 
@@ -709,14 +710,16 @@ def get_friend_expenses(
             if (s.user_id, s.is_guest) in current_user_ids
         )
         
-        # Determine balance impact based on who paid
+        # Determine balance impact based on who paid. Income reverses the
+        # direction: the receiver owes the split participants.
+        sign = ledger_sign(expense)
         payer_key = (expense.payer_id, expense.payer_is_guest)
         if payer_key in current_user_ids:
             # Current user side paid - friend side owes their split
-            balance_impact = friend_side_owed
+            balance_impact = sign * friend_side_owed
         elif payer_key in friend_ids_set:
             # Friend side paid - current user side owes (negative)
-            balance_impact = -current_side_owed
+            balance_impact = -sign * current_side_owed
         else:
             balance_impact = 0
 
@@ -736,6 +739,8 @@ def get_friend_expenses(
             icon=expense.icon,
             receipt_image_path=expense.receipt_image_path,
             notes=expense.notes,
+            is_settlement=expense.is_settlement,
+            kind=expense.kind,
             group_name=group_name,
             balance_impact=balance_impact
         ))
@@ -848,13 +853,15 @@ def get_friend_balance(
         )
 
         payer_key = (expense.payer_id, expense.payer_is_guest)
-        
+        # Income reverses direction: the receiver owes the split participants.
+        sign = ledger_sign(expense)
+
         if payer_key in current_user_ids:
             # Current user side paid - friend side owes their split amount
-            balances[currency] += friend_side_owed / 100.0
+            balances[currency] += sign * friend_side_owed / 100.0
         elif payer_key in friend_ids:
             # Friend side paid - current user side owes their split amount
-            balances[currency] -= current_side_owed / 100.0
+            balances[currency] -= sign * current_side_owed / 100.0
 
     # Convert to list of FriendBalance objects, excluding zero balances
     result = [

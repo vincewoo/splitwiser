@@ -73,6 +73,14 @@ class Friendship(Base):
     user_id1 = Column(Integer)
     user_id2 = Column(Integer)
 
+# The three things an expense row can be. "income" is money received — the
+# dual of an expense: it runs every ledger loop with the sign flipped (see
+# utils.balances.ledger_sign), so the receiver ends up owing the participants.
+KIND_EXPENSE = "expense"
+KIND_SETTLEMENT = "settlement"
+KIND_INCOME = "income"
+VALID_EXPENSE_KINDS = (KIND_EXPENSE, KIND_SETTLEMENT, KIND_INCOME)
+
 class Expense(Base):
     __tablename__ = "expenses"
 
@@ -92,7 +100,12 @@ class Expense(Base):
     receipt_image_path = Column(String, nullable=True) # Path to stored receipt image
     icon = Column(String, nullable=True) # Optional emoji icon for categorization
     notes = Column(String, nullable=True) # Freeform text notes
-    is_settlement = Column(Boolean, default=False) # True if this is a payment/settlement
+    is_settlement = Column(Boolean, default=False) # Compat alias for kind == "settlement"; drop once stale PWA bundles cycle
+    # What the row *is*: "expense" (default), "settlement" (a payment recorded
+    # to settle up) or "income" (money received — the sign flips at
+    # aggregation, so the receiver ends up owing the split participants).
+    # NOT NULL with a server default so SQL filters on it never drop NULLs.
+    kind = Column(String, nullable=False, default=KIND_EXPENSE, server_default=KIND_EXPENSE)
 
 class ExpenseSplit(Base):
     __tablename__ = "expense_splits"

@@ -890,6 +890,7 @@ def close_tab(
         icon="🧾",
         notes=f"Closed from a tab at {tab.name}",
         is_settlement=False,
+        kind="expense",
     )
     db.add(expense)
     db.commit()

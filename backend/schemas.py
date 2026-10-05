@@ -2,8 +2,9 @@ import re
 from datetime import datetime
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, PrivateAttr, field_validator, model_validator
 
+from models import VALID_EXPENSE_KINDS
 from utils.currency import VALID_CURRENCIES
 
 # Venmo handles are letters, numbers, dashes and underscores. Length is checked
@@ -59,6 +60,35 @@ class User(UserBase):
 
     class Config:
         from_attributes = True
+
+def _normalize_expense_kind(kind: Optional[str], is_settlement: bool) -> str:
+    """
+    Reconcile ``kind`` with the ``is_settlement`` compat alias.
+
+    Stale PWA clients know nothing about ``kind`` and send only the boolean,
+    so a missing ``kind`` is derived from it. When both are sent they must
+    agree — but ``is_settlement`` defaults to False, so only an explicit
+    ``True`` can contradict anything: ``kind="settlement"`` alongside the
+    default False is just a new client not bothering with the alias.
+
+    Known accepted edge (documented in the plan): a stale client *editing* an
+    income entry sends no ``kind`` but an explicit ``is_settlement=False``,
+    which downgrades it to a plain expense. Stale clients cannot render
+    income anyway, and the window closes when bundles cycle. A PUT naming
+    *neither* field preserves the stored kind instead — see
+    ``ExpenseUpdate.resolved_kind``.
+    """
+    if kind is None:
+        return "settlement" if is_settlement else "expense"
+    if kind not in VALID_EXPENSE_KINDS:
+        raise ValueError(f"kind must be one of {', '.join(VALID_EXPENSE_KINDS)}")
+    if is_settlement and kind != "settlement":
+        raise ValueError(
+            f"kind={kind!r} contradicts is_settlement=true; "
+            "send one or the other, or make them agree"
+        )
+    return kind
+
 
 class ExpenseSplitBase(BaseModel):
     user_id: int
@@ -148,7 +178,14 @@ class ExpenseCreate(BaseModel):
     icon: Optional[str] = Field(None, max_length=10)  # Optional emoji icon
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)
-    is_settlement: bool = False  # True if this is a payment/settlement
+    is_settlement: bool = False  # Compat alias for kind == "settlement" (stale PWA clients)
+    kind: Optional[str] = None  # expense | settlement | income; missing → derived from is_settlement
+
+    @model_validator(mode="after")
+    def normalize_kind(self):
+        self.kind = _normalize_expense_kind(self.kind, self.is_settlement)
+        self.is_settlement = self.kind == "settlement"
+        return self
 
 class Expense(BaseModel):
     id: int
@@ -165,7 +202,19 @@ class Expense(BaseModel):
     icon: Optional[str] = None
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = None
-    is_settlement: bool = False
+    is_settlement: bool = False  # Compat alias, always derived from kind below
+    kind: Optional[str] = None  # expense | settlement | income
+
+    @model_validator(mode="after")
+    def derive_compat_alias(self):
+        # Construction sites that predate `kind` pass only is_settlement;
+        # derive each from the other so the two can never disagree in a
+        # response. Unknown kinds from the database pass through untouched —
+        # a read path is no place to reject stored data.
+        if self.kind is None:
+            self.kind = "settlement" if self.is_settlement else "expense"
+        self.is_settlement = self.kind == "settlement"
+        return self
 
     class Config:
         from_attributes = True
@@ -211,7 +260,43 @@ class ExpenseUpdate(BaseModel):
     icon: Optional[str] = Field(None, max_length=10)  # Optional emoji icon
     receipt_image_path: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)
-    is_settlement: bool = False
+    is_settlement: bool = False  # Compat alias for kind == "settlement" (stale PWA clients)
+    # Normalized from whichever field the client sent, exactly as on create.
+    # Unlike create, a PUT that names neither field does NOT decide the kind:
+    # update_expense preserves the stored one (see resolved_kind below), so a
+    # stale client editing an income row cannot silently reverse its direction.
+    kind: Optional[str] = None
+
+    # Which of the two fields the payload actually named, captured before the
+    # validator fills both — assigning a field adds it to model_fields_set, so
+    # the router could not tell "sent" from "derived" after normalization.
+    _sent_kind: bool = PrivateAttr(default=False)
+    _sent_is_settlement: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="after")
+    def normalize_kind(self):
+        self._sent_kind = "kind" in self.model_fields_set
+        self._sent_is_settlement = "is_settlement" in self.model_fields_set
+        self.kind = _normalize_expense_kind(self.kind, self.is_settlement)
+        self.is_settlement = self.kind == "settlement"
+        return self
+
+    def resolved_kind(self, stored_kind: str) -> str:
+        """The kind this update means for a row currently holding ``stored_kind``.
+
+        A payload that names ``kind`` decides outright. One that names only the
+        legacy ``is_settlement`` flag decides through it — an explicit
+        ``false`` on an income row still downgrades it, which is the documented
+        legacy behavior for stale clients that toggle the settlement checkbox.
+        A payload naming neither preserves the stored kind: letting the schema
+        default decide would downgrade income to expense on every stale edit,
+        silently reversing the money's direction.
+        """
+        if self._sent_kind:
+            return self.kind or stored_kind
+        if self._sent_is_settlement:
+            return "settlement" if self.is_settlement else "expense"
+        return stored_kind
 
 class Token(BaseModel):
     access_token: str

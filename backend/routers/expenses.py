@@ -38,6 +38,29 @@ _MAX_EXPENSE_PAST = timedelta(days=365 * 100)
 _MAX_EXPENSE_FUTURE = timedelta(days=365)
 
 
+def validate_income_kind(kind: str, amount: int, split_type: str) -> None:
+    """
+    The two constraints the UI also enforces for "Money received".
+
+    Income stores positive amounts and flips sign at aggregation, so a
+    non-positive amount has no meaning. ITEMIZED is not offered for income in
+    v1 (tax/tip allocation in reverse would be a worse version of EXACT), so
+    the backend holds the same line as the hidden pill.
+    """
+    if kind != models.KIND_INCOME:
+        return
+    if amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Money received must have a positive amount",
+        )
+    if split_type == "ITEMIZED":
+        raise HTTPException(
+            status_code=400,
+            detail="Money received does not support itemized splits",
+        )
+
+
 def validate_date_range(raw_date: str) -> None:
     """
     Enforce ``today - 100 years <= parsed_date <= today + 1 year``.
@@ -92,6 +115,8 @@ def create_expense(
     # an unbounded date blows up the Summary endpoint's bucket series.
     validate_date_range(expense.date)
 
+    validate_income_kind(expense.kind, expense.amount, expense.split_type)
+
     # Fetch and cache the historical exchange rate for this expense
     exchange_rate = get_exchange_rate_for_expense(expense.date, expense.currency)
 
@@ -111,7 +136,10 @@ def create_expense(
         icon=expense.icon,
         receipt_image_path=expense.receipt_image_path,
         notes=expense.notes,
-        is_settlement=expense.is_settlement
+        # The schema validator has already normalized kind against the
+        # is_settlement compat alias, so the two agree by construction.
+        is_settlement=expense.is_settlement,
+        kind=expense.kind
     )
     db.add(db_expense)
     db.flush()  # Get expense ID without committing
@@ -568,6 +596,7 @@ def get_expense(
         receipt_image_path=expense.receipt_image_path,
         notes=expense.notes,
         is_settlement=expense.is_settlement,
+        kind=expense.kind,
         tab_id=tab.id if tab else None
     )
 
@@ -686,6 +715,13 @@ def update_expense(
     if expense_update.split_type == "ITEMIZED" and expense_update.items:
         validate_item_split_details(expense_update.items)
 
+    # Which kind this update means for the stored row: a payload that names
+    # kind (or the legacy is_settlement flag) decides; one that names neither
+    # preserves what is stored, so a stale client's edit cannot silently
+    # downgrade an income row and reverse the money's direction.
+    new_kind = expense_update.resolved_kind(expense.kind)
+    validate_income_kind(new_kind, expense_update.amount, expense_update.split_type)
+
     # Update expense fields
     # Normalize the date first for accurate comparison, then clamp to the
     # acceptable range so callers can't stamp an out-of-bounds date via PUT.
@@ -706,7 +742,11 @@ def update_expense(
     expense.split_type = expense_update.split_type or "EQUAL"
     expense.icon = expense_update.icon
     expense.notes = expense_update.notes
-    expense.is_settlement = expense_update.is_settlement
+    # new_kind came from whichever field the client sent — or from the stored
+    # row when it sent neither; write both columns so the compat alias can
+    # never drift from the kind that drives the ledger maths.
+    expense.is_settlement = new_kind == models.KIND_SETTLEMENT
+    expense.kind = new_kind
     if expense_update.receipt_image_path is not None:
         expense.receipt_image_path = expense_update.receipt_image_path
 
@@ -1090,6 +1130,7 @@ def get_group_expenses(
             "receipt_image_path": expense.receipt_image_path,
             "notes": expense.notes,
             "is_settlement": expense.is_settlement,
+            "kind": expense.kind,
             "has_unknown_assignments": expense.id in expenses_with_unassigned
         }
         result.append(expense_dict)
