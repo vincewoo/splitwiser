@@ -13,7 +13,8 @@ import type { OpenTabDetails, PendingTab } from '../components/tab/OpenTabSheet'
 import { tabsApi } from '../services/api';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { useAppData } from '../contexts/AppDataContext';
-import { pinnedGroups } from '../utils/groupBalances';
+import { netForGroup, pinnedGroups } from '../utils/groupBalances';
+import { mostRecentActiveGroups } from '../utils/groupSort';
 import type { EntryKind } from '../utils/expenseKind';
 import type { ShellActions } from './shellActions';
 
@@ -119,26 +120,31 @@ const AppShell: React.FC = () => {
         [groups, balances]
     );
 
-    // "Pick up where you left off" — the groups you have most at stake in.
-    // Open tabs will join this strip once the tab flow exists.
+    // "Pick up where you left off" — the groups you most recently added an
+    // expense to (latest_expense_id recency), NOT the ones with the largest
+    // balance: a dormant group you're owed a lot by is the rail's business,
+    // and it used to squat here for months. Open tabs will join this strip
+    // once the tab flow exists.
     //
     // The caption is the group's standing balance rather than a member count:
     // /groups returns groups without their members, so a count here would
     // always read "0 people".
     const resumeTargets: ResumeTarget[] = useMemo(
         () =>
-            pinnedGroups(groups, balances, 2).map(({ group, net }) => ({
-                key: `group-${group.id}`,
-                label: group.name,
-                caption:
-                    net && net.amount !== 0
-                        ? net.amount > 0
-                            ? 'you are owed'
-                            : 'you owe'
-                        : 'all square',
-                icon: group.icon || '👥',
-                onSelect: () => navigate(`/groups/${group.id}`),
-            })),
+            mostRecentActiveGroups(groups, 2)
+                .map((group) => ({ group, net: netForGroup(balances, group.id) }))
+                .map(({ group, net }) => ({
+                    key: `group-${group.id}`,
+                    label: group.name,
+                    caption:
+                        net && net.amount !== 0
+                            ? net.amount > 0
+                                ? 'you are owed'
+                                : 'you owe'
+                            : 'all square',
+                    icon: group.icon || '👥',
+                    onSelect: () => navigate(`/groups/${group.id}`),
+                })),
         [groups, balances, navigate]
     );
 
