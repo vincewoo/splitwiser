@@ -9,6 +9,8 @@ import { useOutletContext } from 'react-router-dom';
  */
 export interface ShellActions {
     openAddExpense: () => void;
+    /** The add-expense modal pre-toggled to "Money received". */
+    openAddIncome: () => void;
     openSettleUp: () => void;
     /** Account, help, theme and sign-out. */
     openProfile: () => void;

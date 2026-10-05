@@ -13,6 +13,7 @@ export interface FeedExpense {
     group_id: number | null;
     icon?: string | null;
     is_settlement?: boolean;
+    kind?: 'expense' | 'settlement' | 'income';
 }
 
 /**

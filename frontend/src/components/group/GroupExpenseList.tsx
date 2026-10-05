@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { IconTile, Money, TagPill } from '../ui';
 import { formatDate } from '../../utils/formatters';
 import { expenseImpact, impactLabel } from '../../utils/expenseImpact';
+import { fallbackIcon, isIncome, isSettlement } from '../../utils/expenseKind';
 import type { GroupExpense } from '../../hooks/useGroupData';
 
 export interface GroupExpenseListProps {
@@ -47,8 +48,13 @@ const ExpenseRow: React.FC<{
      * through makes the person being paid look like the one taking it on —
      * "Tim pays Vince … you owe $465" to Vince, who was just paid. The row
      * already says who paid whom, and the amount is the transfer itself.
+     *
+     * Money received keeps its line: it is a real ledger event, and
+     * expenseImpact already reversed the sign.
      */
-    const label = expense.is_settlement ? 'none' : impactLabel(impact);
+    const settlement = isSettlement(expense);
+    const income = isIncome(expense);
+    const label = settlement ? 'none' : impactLabel(impact);
 
     const base = compact
         ? 'flex items-center gap-3 px-2.5 py-[11px] rounded-sw-row w-full text-left'
@@ -60,7 +66,7 @@ const ExpenseRow: React.FC<{
             : onSelect
               ? 'hover:bg-sw-surface'
               : ''
-    } ${expense.is_settlement ? 'opacity-[0.72]' : ''} ${
+    } ${settlement ? 'opacity-[0.72]' : ''} ${
         onSelect
             ? 'focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2'
             : ''
@@ -72,7 +78,7 @@ const ExpenseRow: React.FC<{
                 tone={compact ? 'neutral' : 'surface'}
                 size={compact ? 32 : 38}
             >
-                {expense.icon || (expense.is_settlement ? '🏦' : '🧾')}
+                {expense.icon || fallbackIcon(expense)}
             </IconTile>
 
             <div className="flex-1 min-w-0">
@@ -91,7 +97,7 @@ const ExpenseRow: React.FC<{
                 <div
                     className={`${compact ? 'text-[11.5px]' : 'text-xs'} text-sw-dim truncate`}
                 >
-                    {expense.is_settlement
+                    {settlement
                         ? payerName(expense)
                         : `${payerName(expense)} · ${splitSummary(expense)}`}
                 </div>
@@ -110,7 +116,13 @@ const ExpenseRow: React.FC<{
                             <span
                                 className={impact.amount > 0 ? 'text-sw-pos' : 'text-sw-neg'}
                             >
-                                {label === 'lent' ? 'you lent ' : 'you owe '}
+                                {/* Nobody lent anything on an income row —
+                                    the receiver is simply holding your share. */}
+                                {label === 'lent'
+                                    ? income
+                                        ? "you're owed "
+                                        : 'you lent '
+                                    : 'you owe '}
                                 <Money
                                     amount={Math.abs(impact.amount)}
                                     currency={expense.currency}

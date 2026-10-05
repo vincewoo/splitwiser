@@ -1,6 +1,7 @@
 import React from 'react';
 import {
     CurrencyDollarSimple,
+    HandCoins,
     Scan,
     Handshake,
     CaretRight,
@@ -24,6 +25,8 @@ export interface FabSheetProps {
     open: boolean;
     onClose: () => void;
     onAddExpense: () => void;
+    /** Opens the add-expense modal pre-toggled to "Money received". */
+    onAddIncome: () => void;
     onSplitBill: () => void;
     onSettleUp: () => void;
     /**
@@ -37,14 +40,15 @@ export interface FabSheetProps {
 }
 
 /**
- * The sheet behind the FAB. Three peer actions — "Split a bill at the table"
- * sits alongside "Add an expense" rather than buried inside it — plus a strip
- * for resuming whatever was already in progress.
+ * The sheet behind the FAB. Peer actions — "Split a bill at the table" and
+ * "Money received" sit alongside "Add an expense" rather than buried inside
+ * it — plus a strip for resuming whatever was already in progress.
  */
 const FabSheet: React.FC<FabSheetProps> = ({
     open,
     onClose,
     onAddExpense,
+    onAddIncome,
     onSplitBill,
     onSettleUp,
     resumeTargets = [],
@@ -87,6 +91,19 @@ const FabSheet: React.FC<FabSheetProps> = ({
                     </span>
                 }
                 trailing={<CaretRight size={17} className="text-sw-accent" />}
+            />
+
+            <Row
+                variant="card"
+                onClick={run(onAddIncome)}
+                leading={
+                    <IconTile tone="neutral">
+                        <HandCoins size={21} />
+                    </IconTile>
+                }
+                title={<span className="text-[15px]">Money received</span>}
+                subtitle="A refund or deposit someone's holding for the group"
+                trailing={<CaretRight size={17} className="text-sw-dim" />}
             />
 
             <Row

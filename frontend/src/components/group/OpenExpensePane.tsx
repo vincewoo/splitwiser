@@ -3,6 +3,7 @@ import { PencilSimple, Trash } from '@phosphor-icons/react';
 import { Avatar, Button, IconTile, Money, TagPill } from '../ui';
 import ReceiptViewer from '../ReceiptViewer';
 import { formatDate } from '../../utils/formatters';
+import { fallbackIcon, isIncome } from '../../utils/expenseKind';
 import type { GroupExpense } from '../../hooks/useGroupData';
 
 export interface OpenExpensePaneProps {
@@ -21,6 +22,14 @@ const SPLIT_LABEL: Record<string, string> = {
     PERCENTAGE: 'Split by percentage',
     SHARES: 'Split by shares',
     ITEMIZED: 'Split by items',
+};
+
+/** Money received is shared out, not split up — same shapes, reversed flow. */
+const SHARE_LABEL: Record<string, string> = {
+    EQUAL: 'Shared equally',
+    EXACT: 'Shared by exact amounts',
+    PERCENTAGE: 'Shared by percentage',
+    SHARES: 'Shared by shares',
 };
 
 /**
@@ -67,7 +76,7 @@ const OpenExpensePane: React.FC<OpenExpensePaneProps> = ({
 
         <div className="flex items-center gap-3 mb-3.5">
             <IconTile tone="neutral" size={44}>
-                {expense.icon || (expense.is_settlement ? '🏦' : '🧾')}
+                {expense.icon || fallbackIcon(expense)}
             </IconTile>
             <div className="min-w-0">
                 <div className="text-[17px] font-medium truncate">
@@ -105,8 +114,9 @@ const OpenExpensePane: React.FC<OpenExpensePaneProps> = ({
         {expense.splits?.length > 0 && (
             <div className="bg-sw-surface rounded-sw-row px-3.5 py-3 shadow-[0_0_0_1px_var(--sw-line)]">
                 <div className="text-xs text-sw-muted mb-2.5">
-                    {SPLIT_LABEL[expense.split_type ?? 'EQUAL'] ?? 'Split'} between{' '}
-                    {expense.splits.length}
+                    {isIncome(expense)
+                        ? `${SHARE_LABEL[expense.split_type ?? 'EQUAL'] ?? 'Shared'} among ${expense.splits.length}`
+                        : `${SPLIT_LABEL[expense.split_type ?? 'EQUAL'] ?? 'Split'} between ${expense.splits.length}`}
                 </div>
                 <div className="flex flex-col gap-[7px]">
                     {expense.splits.map((split) => {

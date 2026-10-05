@@ -1,3 +1,5 @@
+import { isIncome } from './expenseKind';
+
 export interface ImpactSplit {
     user_id: number;
     is_guest: boolean;
@@ -9,6 +11,8 @@ export interface ImpactExpense {
     payer_id: number;
     payer_is_guest?: boolean;
     splits?: ImpactSplit[];
+    kind?: string | null;
+    is_settlement?: boolean;
 }
 
 export interface ExpenseImpact {
@@ -52,9 +56,12 @@ export function expenseImpact(
     if (!iPaid && !inSplits) return { amount: 0, involved: false };
 
     // Paid the bill: up by the whole amount less your own share. Otherwise down
-    // by your share.
+    // by your share. Money received is the exact dual — the "payer" is holding
+    // the group's money and the splits say whose it is — so its impact is the
+    // same figure with the sign reversed.
+    const sign = isIncome(expense) ? -1 : 1;
     return {
-        amount: iPaid ? expense.amount - myShare : -myShare,
+        amount: sign * (iPaid ? expense.amount - myShare : -myShare),
         involved: true,
     };
 }

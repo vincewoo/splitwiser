@@ -85,7 +85,9 @@ export interface ExpenseWithSplits {
     exchange_rate?: string | null;
     exchange_rate_target_currency?: string | null;  // Currency that exchange_rate is relative to
     has_unknown_assignments?: boolean;  // True if expense has items assigned to Unknown
-    is_settlement?: boolean;  // True if this is a payment/settlement
+    is_settlement?: boolean;  // Compat alias for kind === 'settlement'
+    /** Absent on rows from older server builds; derive via utils/expenseKind. */
+    kind?: 'expense' | 'settlement' | 'income';
     /**
      * The tab this expense came from, when it is what a closed tab resolved
      * into. Only sent to the tab's owner — nobody else can open the board.
@@ -134,5 +136,7 @@ export interface ExpensePayload {
     icon?: string | null;
     receipt_image_path?: string | null;
     notes?: string | null;
+    /** Kept beside `kind` so stale servers still read the write correctly. */
     is_settlement?: boolean;
+    kind?: 'expense' | 'settlement' | 'income';
 }

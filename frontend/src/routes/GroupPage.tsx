@@ -40,6 +40,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { api } from '../services/api';
 import { useBalanceSheetExport } from '../hooks/useBalanceSheetExport';
 import { netForGroup } from '../utils/groupBalances';
+import { isSettlement, payerVerb } from '../utils/expenseKind';
 import type { GroupExpense } from '../hooks/useGroupData';
 
 type ExpenseFilter = 'all' | 'expenses' | 'settlements' | 'mine';
@@ -109,13 +110,14 @@ const GroupPage: React.FC = () => {
 
     const payerName = useCallback(
         (expense: GroupExpense): string => {
+            const verb = payerVerb(expense);
             if (expense.payer_is_guest) {
                 const guest = group?.guests?.find((g) => g.id === expense.payer_id);
-                return guest ? `${guest.name} paid` : 'A guest paid';
+                return guest ? `${guest.name} ${verb}` : `A guest ${verb}`;
             }
-            if (expense.payer_id === user?.id) return 'You paid';
+            if (expense.payer_id === user?.id) return `You ${verb}`;
             const member = group?.members?.find((m) => m.user_id === expense.payer_id);
-            return member ? `${member.full_name} paid` : 'Someone paid';
+            return member ? `${member.full_name} ${verb}` : `Someone ${verb}`;
         },
         [group, user?.id]
     );
@@ -123,9 +125,11 @@ const GroupPage: React.FC = () => {
     const filtered = useMemo(() => {
         switch (filter) {
             case 'expenses':
-                return expenses.filter((e) => !e.is_settlement);
+                // Money received lives with the expenses: it is a ledger
+                // event, not a payment, so only settlements are set apart.
+                return expenses.filter((e) => !isSettlement(e));
             case 'settlements':
-                return expenses.filter((e) => e.is_settlement);
+                return expenses.filter((e) => isSettlement(e));
             case 'mine':
                 return expenses.filter(
                     (e) =>

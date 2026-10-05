@@ -86,6 +86,10 @@ export interface CachedExpense {
   notes?: string;
   receipt_image_path?: string;
   exchange_rate?: string;
+  // Dexie stores whole objects, so these always flowed through the cache;
+  // typed here so readers can see them without casting.
+  is_settlement?: boolean;
+  kind?: 'expense' | 'settlement' | 'income';
   cached_at: number;
   is_temp: boolean;
   local_version: number;

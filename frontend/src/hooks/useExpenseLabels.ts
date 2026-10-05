@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useAppData } from '../contexts/AppDataContext';
 import { useAuth } from '../AuthContext';
+import { payerVerb } from '../utils/expenseKind';
 import type { FeedExpense } from './useExpenseFeed';
 
 /**
@@ -24,10 +25,11 @@ export function useExpenseLabels() {
 
     const payerName = useCallback(
         (expense: FeedExpense): string => {
-            if (expense.payer_is_guest) return 'A guest paid';
-            if (expense.payer_id === user?.id) return 'You paid';
+            const verb = payerVerb(expense);
+            if (expense.payer_is_guest) return `A guest ${verb}`;
+            if (expense.payer_id === user?.id) return `You ${verb}`;
             const name = friendNames.get(expense.payer_id);
-            return name ? `${name} paid` : 'Someone paid';
+            return name ? `${name} ${verb}` : `Someone ${verb}`;
         },
         [friendNames, user?.id]
     );

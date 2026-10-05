@@ -27,6 +27,7 @@ export interface GroupExpense {
     split_type?: string;
     icon?: string | null;
     is_settlement?: boolean;
+    kind?: 'expense' | 'settlement' | 'income';
     notes?: string | null;
     receipt_image_path?: string | null;
 }

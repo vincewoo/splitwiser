@@ -58,6 +58,8 @@ export interface FriendExpenseWithSplits {
     icon?: string | null;
     receipt_image_path?: string | null;
     notes?: string | null;
+    is_settlement?: boolean;  // Compat alias for kind === 'settlement'
+    kind?: 'expense' | 'settlement' | 'income';
     group_name?: string | null;  // Name of the group if expense is part of a group
     balance_impact?: number | null;  // Balance impact in cents: positive = friend owes you, negative = you owe friend
 }
