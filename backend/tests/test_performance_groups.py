@@ -93,3 +93,58 @@ def test_get_group_performance(client: TestClient, db_session: Session, query_co
     # Before optimization, this would be > N + 5.
 
     assert query_counter.count < 10, f"Query count too high: {query_counter.count}. Should be constant and < 10."
+
+def test_list_groups_performance(client: TestClient, db_session: Session, query_counter):
+    """GET /groups/ must stay at a constant query count regardless of how
+    many groups (and expenses) the user has — the latest_expense_id marker is
+    fetched with ONE grouped MAX(id) query, and a refactor to a per-group
+    lookup would be a silent N+1 on the app shell's hottest endpoint."""
+    from datetime import date
+
+    from models import Expense
+
+    password = "password123"
+    hashed_password = get_password_hash(password)
+    user = User(email="list@example.com", hashed_password=hashed_password, full_name="List User")
+    db_session.add(user)
+    db_session.commit()
+
+    response = client.post("/token", data={"username": "list@example.com", "password": password})
+    assert response.status_code == 200
+    headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+    # Several groups, each with a few expenses.
+    N = 8
+    for i in range(N):
+        group = Group(name=f"Group {i}", created_by_id=user.id)
+        db_session.add(group)
+        db_session.commit()
+        db_session.add(GroupMember(group_id=group.id, user_id=user.id))
+        for j in range(3):
+            db_session.add(Expense(
+                description=f"Expense {i}-{j}",
+                amount=1000,
+                currency="USD",
+                date=str(date.today()),
+                payer_id=user.id,
+                payer_is_guest=False,
+                group_id=group.id,
+                created_by_id=user.id,
+                split_type="EQUAL",
+            ))
+        db_session.commit()
+
+    query_counter.count = 0
+
+    response = client.get("/groups/", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == N
+    assert all(g["latest_expense_id"] is not None for g in body)
+
+    # Expected queries:
+    # 1. Get current user (Auth)
+    # 2. Groups joined through membership
+    # 3. Grouped MAX(expense id) over those groups
+    # Total ~3, independent of N.
+    assert query_counter.count < 6, f"Query count too high: {query_counter.count}. Should be constant and < 6."

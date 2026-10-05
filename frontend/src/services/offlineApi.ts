@@ -400,8 +400,14 @@ export const offlineGroupsApi = {
       try {
         const group = await groupsApi.getById(groupId);
 
+        // The detail response doesn't carry latest_expense_id (only the list
+        // endpoint does) — keep the cached marker rather than clobbering it,
+        // so the offline group list can still sort by recent activity.
+        const existing = await db.groups.get(groupId);
+
         await db.groups.put({
           ...group,
+          latest_expense_id: group.latest_expense_id ?? existing?.latest_expense_id ?? null,
           cached_at: Date.now(),
           is_temp: false
         });

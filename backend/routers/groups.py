@@ -45,19 +45,19 @@ def create_group(
     return db_group
 
 
-@router.get("", response_model=list[schemas.Group])
+@router.get("", response_model=list[schemas.GroupListItem])
 def read_groups(
     current_user: Annotated[models.User, Depends(get_current_user)], 
     db: Session = Depends(get_db)
 ):
     # Get groups where user is a member
     user_groups = db.query(models.Group).join(
-        models.GroupMember,
+        models.GroupMember, 
         models.Group.id == models.GroupMember.group_id
     ).filter(models.GroupMember.user_id == current_user.id).all()
 
     # Attach each group's highest expense id so clients can order by most
-    # recent activity (see schemas.Group.latest_expense_id).
+    # recent activity (see schemas.GroupListItem.latest_expense_id).
     group_ids = [g.id for g in user_groups]
     latest_by_group: dict[int, int] = {}
     if group_ids:
@@ -68,12 +68,12 @@ def read_groups(
             .all()
         )
 
-    result = []
-    for g in user_groups:
-        item = schemas.Group.model_validate(g)
-        item.latest_expense_id = latest_by_group.get(g.id)
-        result.append(item)
-    return result
+    return [
+        schemas.GroupListItem.model_validate(g).model_copy(
+            update={"latest_expense_id": latest_by_group.get(g.id)}
+        )
+        for g in user_groups
+    ]
 
 
 @router.get("/{group_id}", response_model=schemas.GroupWithMembers)

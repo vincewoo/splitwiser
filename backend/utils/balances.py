@@ -11,6 +11,11 @@ from utils.currency import convert_currency, convert_to_usd
 logger = logging.getLogger(__name__)
 
 
+def is_dust(cents: float) -> bool:
+    """A balance that rounds to zero whole cents — conversion residue, not a real debt."""
+    return round(cents) == 0
+
+
 def convert_split_to_currency(
     amount: float,
     expense: "models.Expense",

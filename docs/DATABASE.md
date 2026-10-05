@@ -131,7 +131,7 @@ CREATE TABLE refresh_tokens (
 - Friend expenses and balances: Batch loading implemented
 
 ### Optimized Endpoints
-- `GET /groups` - Group listing. Name, currency and icon only — **no `members`, no `guests`, not even a count.** Anything needing the roster must call `GET /groups/{group_id}`.
+- `GET /groups` - Group listing. Name, currency, icon and `latest_expense_id` (the group's highest expense id, settlements included — a most-recent-activity marker for sorting; only this endpoint carries it) — **no `members`, no `guests`, not even a count.** Anything needing the roster must call `GET /groups/{group_id}`.
 - `GET /groups/{group_id}` - Group details with all relations
 - `GET /groups/{group_id}/balances` - Balance calculations
 - `GET /expenses` - Expense listing with participant details

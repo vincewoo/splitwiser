@@ -9,7 +9,7 @@ import models
 import schemas
 from database import get_db
 from dependencies import get_current_user
-from utils.balances import calculate_net_balances, calculate_raw_balances, plan_group_settlement
+from utils.balances import calculate_net_balances, calculate_raw_balances, is_dust, plan_group_settlement
 from utils.currency import convert_currency, convert_to_usd, format_currency, get_current_exchange_rates
 from utils.display import get_participant_display_name
 from utils.validation import get_group_or_404, verify_group_membership
@@ -207,7 +207,10 @@ def get_group_balances(
                 manager_breakdown_converted[breakdown_key][member_name] += int(total_amount)
 
         for (participant_id, is_guest), amount in net_balances.items():
-            if amount == 0:
+            # Amounts are in cents: a member whose net rounds to zero cents is
+            # settled — sub-cent conversion dust must drop out here exactly as
+            # an exact zero does, so the group page agrees with the home list.
+            if is_dust(amount):
                 continue
 
             if is_guest:
@@ -245,7 +248,9 @@ def get_group_balances(
                 name = (user.full_name or user.email) if user else "Unknown User"
 
             for currency, amount in currencies.items():
-                if amount != 0:
+                # Same dust rule as the single-currency branch: a per-currency
+                # net that rounds to zero cents is omitted like an exact zero.
+                if not is_dust(amount):
                     managed_guests_list = []
                     breakdown_key = (participant_id, is_guest, currency)
                     if breakdown_key in manager_guest_breakdown:
@@ -323,17 +328,21 @@ def get_balances(
         user_key = (current_user.id, False)  # (user_id, is_guest=False)
         user_balance = net_balances.get(user_key, 0)
         
+        # Determine display currency
+        display_currency = convert_to if convert_to else group_default_currency
+
+        # Convert BEFORE the dust check: a balance worth whole cents in the
+        # group's currency can still land under half a cent in the display
+        # currency (e.g. a 1-yen balance viewed in USD), and would render as
+        # -$0.00. The decision has to be made on the amount the client will
+        # actually show.
+        if convert_to and convert_to != group_default_currency:
+            user_balance = convert_amount(user_balance, group_default_currency, convert_to)
+
         # Amounts are in cents: skip anything that rounds to zero cents, such as
         # sub-cent conversion dust left behind by settling a multi-currency
         # group, which would otherwise display as -$0.00.
-        if abs(round(user_balance)) >= 1:
-            # Determine display currency
-            display_currency = convert_to if convert_to else group_default_currency
-            
-            # Convert if needed
-            if convert_to and convert_to != group_default_currency:
-                user_balance = convert_amount(user_balance, group_default_currency, convert_to)
-            
+        if not is_dust(user_balance):
             result["balances"].append(schemas.Balance(
                 user_id=0,
                 full_name=group.name,

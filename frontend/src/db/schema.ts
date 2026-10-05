@@ -39,6 +39,9 @@ export interface CachedGroup {
   icon?: string;
   share_link_id?: string;
   is_public: boolean;
+  // Most-recent-activity marker from the group-list response; the detail
+  // response doesn't carry it, so cache writes must not clobber it.
+  latest_expense_id?: number | null;
   members: GroupMember[];
   guests: GuestMember[];
   cached_at: number;
