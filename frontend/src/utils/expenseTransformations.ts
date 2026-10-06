@@ -131,6 +131,11 @@ export const extractItemizedDataFromExpense = (
         description: item.description,
         price: item.price,
         is_tax_tip: false,
+        // Carry the stored per-item split through, or a save from edit mode
+        // silently flattens every SHARES/PERCENT/EXACT item back to EQUAL —
+        // the PUT path recreates items from exactly what we hand it.
+        split_type: item.split_type || 'EQUAL',
+        split_details: item.split_details,
         assignments: item.assignments.map(a => {
             if (a.expense_guest_id != null) {
                 return {

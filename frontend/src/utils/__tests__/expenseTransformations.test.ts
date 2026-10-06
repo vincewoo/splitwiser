@@ -213,6 +213,31 @@ describe('extractSplitDetailsFromExpense', () => {
 // ── extractItemizedDataFromExpense ──────────────────────────────────
 
 describe('extractItemizedDataFromExpense', () => {
+    it('preserves each item\'s split_type and split_details', () => {
+        // Regression: edit mode used to drop these, so any save from the
+        // detail modal flattened SHARES/PERCENT/EXACT items back to EQUAL.
+        const items: ExpenseItemDetail[] = [
+            makeItemDetail({
+                description: 'Kid Burger',
+                price: 2400,
+                split_type: 'SHARES',
+                split_details: {
+                    user_1: { shares: 2 },
+                    guest_7: { shares: 1 },
+                },
+            }),
+            makeItemDetail({ description: 'Side Fries', price: 800 }),
+        ];
+        const result = extractItemizedDataFromExpense(items);
+        expect(result.items[0].split_type).toBe('SHARES');
+        expect(result.items[0].split_details).toEqual({
+            user_1: { shares: 2 },
+            guest_7: { shares: 1 },
+        });
+        // An item stored without a split_type reads as EQUAL.
+        expect(result.items[1].split_type).toBe('EQUAL');
+    });
+
     it('separates regular items from tax/tip items', () => {
         const items: ExpenseItemDetail[] = [
             makeItemDetail({ description: 'Burger', price: 1200, is_tax_tip: false }),
