@@ -496,7 +496,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     setAlertDialog({
                         isOpen: true,
                         title: 'Error',
-                        message: 'Failed to update expense',
+                        message: result.error || 'Failed to update expense',
                         type: 'error'
                     });
                 }
@@ -521,7 +521,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 setAlertDialog({
                     isOpen: true,
                     title: 'Error',
-                    message: 'Failed to update expense',
+                    message: result.error || 'Failed to update expense',
                     type: 'error'
                 });
             }

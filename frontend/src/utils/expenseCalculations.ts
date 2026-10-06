@@ -190,9 +190,28 @@ export interface PersonItemBreakdown {
  * rather than recomputed here.
  */
 export const calculatePersonItemBreakdown = (
-    person: { user_id: number; is_guest: boolean },
+    person: { user_id: number; is_guest: boolean; expense_guest_id?: number },
     items: ExpenseItemDetail[]
 ): PersonItemBreakdown => {
+    // An expense guest is matched by guest id, never user_id: a hydrated
+    // expense-guest assignment carries user_id = the guest's id, which can
+    // equal a real user's id on the same item. The detail key mirrors the
+    // backend's get_assignment_key.
+    const matchesPerson = (a: { user_id?: number; is_guest: boolean; expense_guest_id?: number }) => {
+        if (person.expense_guest_id != null) {
+            return a.expense_guest_id === person.expense_guest_id;
+        }
+        return a.expense_guest_id == null
+            && a.user_id === person.user_id
+            && a.is_guest === person.is_guest;
+    };
+    const detailKey = (a: { user_id?: number; is_guest: boolean; expense_guest_id?: number }) =>
+        a.expense_guest_id != null
+            ? `expense_guest_${a.expense_guest_id}`
+            : a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
+    const personKey = person.expense_guest_id != null
+        ? `expense_guest_${person.expense_guest_id}`
+        : person.is_guest ? `guest_${person.user_id}` : `user_${person.user_id}`;
     // Partition items
     const regularItems = items.filter(i => !i.is_tax_tip);
     const taxItems = items.filter(i => i.is_tax_tip && i.description.toLowerCase().includes('tax') && !i.description.toLowerCase().includes('tip'));
@@ -203,14 +222,11 @@ export const calculatePersonItemBreakdown = (
     const personItems: PersonItemShare[] = [];
     let subtotal = 0;
     regularItems.forEach(item => {
-        const isAssigned = item.assignments.some(
-            a => a.user_id === person.user_id && a.is_guest === person.is_guest
-        );
+        const isAssigned = item.assignments.some(matchesPerson);
         if (isAssigned) {
             // Check if item has custom split type
             const itemSplitType = item.split_type || 'EQUAL';
             const itemSplitDetails = item.split_details || {};
-            const personKey = person.is_guest ? `guest_${person.user_id}` : `user_${person.user_id}`;
 
             const isShared = item.assignments.length > 1;
             const sharedWith = item.assignments.length - 1;
@@ -242,8 +258,7 @@ export const calculatePersonItemBreakdown = (
                 // Calculate based on shares
                 let totalShares = 0;
                 item.assignments.forEach(a => {
-                    const key = a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
-                    const detail = itemSplitDetails[key];
+                    const detail = itemSplitDetails[detailKey(a)];
                     totalShares += detail?.shares || 1;
                 });
 

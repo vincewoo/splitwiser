@@ -561,3 +561,50 @@ describe('non-numeric text never reaches an amount', () => {
         expect(splits[1].amount_owed).toBe(10000);
     });
 });
+
+describe('calculatePersonItemBreakdown — expense guests', () => {
+    // Expense guest #1's id deliberately collides with user #1's id: the
+    // hydrated guest assignment carries user_id = 1 too, so only the
+    // expense_guest_id may be used to tell them apart.
+    const sharedItem: ExpenseItemDetail = {
+        id: 1,
+        expense_id: 100,
+        description: 'Pasta',
+        price: 1000,
+        is_tax_tip: false,
+        assignments: [
+            { user_id: 1, is_guest: false, user_name: 'User One' },
+            { user_id: 1, is_guest: false, expense_guest_id: 1, user_name: 'Walk-in' },
+        ],
+        split_type: 'SHARES',
+        split_details: {
+            user_1: { shares: 1 },
+            expense_guest_1: { shares: 3 },
+        },
+    };
+
+    it('attributes an expense guest their SHARES entry by guest key', () => {
+        const guest = calculatePersonItemBreakdown(
+            { user_id: 1, is_guest: false, expense_guest_id: 1 },
+            [sharedItem]
+        );
+        expect(guest.items[0].shareAmount).toBe(750);
+    });
+
+    it('does not hand the colliding real user the guest entry', () => {
+        const user = calculatePersonItemBreakdown({ user_id: 1, is_guest: false }, [sharedItem]);
+        expect(user.items[0].shareAmount).toBe(250);
+    });
+
+    it('excludes an unassigned user even when a guest assignment carries their user_id', () => {
+        const guestOnlyItem: ExpenseItemDetail = {
+            ...sharedItem,
+            id: 2,
+            assignments: [
+                { user_id: 1, is_guest: false, expense_guest_id: 1, user_name: 'Walk-in' },
+            ],
+        };
+        const user = calculatePersonItemBreakdown({ user_id: 1, is_guest: false }, [guestOnlyItem]);
+        expect(user.items).toHaveLength(0);
+    });
+});
