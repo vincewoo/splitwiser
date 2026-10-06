@@ -38,6 +38,57 @@ export const buildParticipantKey = (
     id: number,
 ): string => `${type}_${id}`;
 
+// ── Per-item split_details keys ─────────────────────────────────────
+//
+// A DIFFERENT keyspace from buildParticipantKey above: that one keys the
+// expense-level splitDetails form state ("expenseguest_3"), while item
+// split_details are persisted and read back by the backend, whose
+// get_assignment_key spells expense guests "expense_guest_{id}" — with a
+// temp id taking precedence before the guest row exists. These two helpers
+// must mirror backend/utils/splits.py::get_assignment_key exactly, or an
+// expense guest's amounts are silently dropped (and "user_{expenseGuestId}"
+// can collide with a real user's key on the same item).
+
+type ItemAssignmentLike = {
+    user_id?: number;
+    is_guest?: boolean;
+    expense_guest_id?: number;
+    temp_guest_id?: string;
+};
+
+/** The split_details key for an item assignment, matching the backend. */
+export const itemDetailKeyForAssignment = (a: ItemAssignmentLike): string => {
+    if (a.temp_guest_id != null) return `expense_guest_${a.temp_guest_id}`;
+    if (a.expense_guest_id != null) return `expense_guest_${a.expense_guest_id}`;
+    return a.is_guest ? `guest_${a.user_id}` : `user_${a.user_id}`;
+};
+
+/** The split_details key for a participant, matching the backend. */
+export const itemDetailKeyForParticipant = (p: Participant): string => {
+    if (p.isExpenseGuest) return `expense_guest_${p.tempId ?? p.id}`;
+    return p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
+};
+
+/**
+ * Whether an item assignment is this participant's. Expense guests are
+ * matched by temp or real guest id, never by user_id — a hydrated
+ * expense-guest assignment carries user_id = the guest's id, which can
+ * equal a real user's id on the same item.
+ */
+export const assignmentIsParticipant = (
+    a: ItemAssignmentLike,
+    p: Participant,
+): boolean => {
+    if (p.isExpenseGuest) {
+        return (
+            (a.temp_guest_id != null && a.temp_guest_id === p.tempId) ||
+            (a.expense_guest_id != null && a.expense_guest_id === p.id)
+        );
+    }
+    if (a.temp_guest_id != null || a.expense_guest_id != null) return false;
+    return a.user_id === p.id && (a.is_guest ?? false) === (p.isGuest ?? false);
+};
+
 // ── Extract participant keys from an existing expense ───────────────
 
 /**
@@ -131,6 +182,15 @@ export const extractItemizedDataFromExpense = (
         description: item.description,
         price: item.price,
         is_tax_tip: false,
+        // Carry the stored per-item split through, or a save from edit mode
+        // silently flattens every SHARES/PERCENT/EXACT item back to EQUAL —
+        // the PUT path recreates items from exactly what we hand it. (Splits
+        // already flattened by edits made before this existed stay flattened;
+        // the data was rewritten server-side at that save.) Deep-copied so the
+        // editable form never shares the map with the fetched expense —
+        // updateSplitDetail writes would otherwise survive Cancel.
+        split_type: item.split_type || 'EQUAL',
+        split_details: item.split_details ? structuredClone(item.split_details) : undefined,
         assignments: item.assignments.map(a => {
             if (a.expense_guest_id != null) {
                 return {

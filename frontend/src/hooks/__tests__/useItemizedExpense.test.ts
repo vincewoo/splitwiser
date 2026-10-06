@@ -284,3 +284,189 @@ describe('useItemizedExpense', () => {
         expect(result.current.getSubtotalCents()).toBe(3500);
     });
 });
+
+describe('useItemizedExpense — split detail reconciliation', () => {
+    const carol: Participant = { id: 3, name: 'Carol', isGuest: false };
+    const freshGuest: Participant = { id: 0, name: 'Fresh', isGuest: false, isExpenseGuest: true, tempId: 'g1' };
+
+    const setupItem = (hook: { current: ReturnType<typeof useItemizedExpense> }) => {
+        act(() => {
+            hook.current.addManualItem('Platter', 3000);
+        });
+        act(() => {
+            hook.current.toggleItemAssignment(0, alice);
+        });
+        act(() => {
+            hook.current.toggleItemAssignment(0, bob);
+        });
+        act(() => {
+            hook.current.toggleItemAssignment(0, carol);
+        });
+    };
+
+    it('seeds PERCENT to exactly 100 across three people', () => {
+        const { result } = renderHook(() => useItemizedExpense());
+        setupItem(result);
+        act(() => {
+            result.current.changeSplitType(0, 'PERCENT');
+        });
+        const details = result.current.itemizedItems[0].split_details!;
+        const values = Object.values(details).map(d => d.percentage!);
+        expect(values.reduce((a, b) => a + b, 0)).toBe(100);
+        expect(values.sort()).toEqual([33, 33, 34]);
+    });
+
+    it('seeds EXACT to exactly the item price', () => {
+        const { result } = renderHook(() => useItemizedExpense());
+        setupItem(result);
+        act(() => {
+            result.current.changeSplitType(0, 'EXACT');
+        });
+        const details = result.current.itemizedItems[0].split_details!;
+        const values = Object.values(details).map(d => d.amount!);
+        expect(values.reduce((a, b) => a + b, 0)).toBe(3000);
+    });
+
+    it('reseeds PERCENT to a valid sum when an assignee is removed', () => {
+        const { result } = renderHook(() => useItemizedExpense());
+        setupItem(result);
+        act(() => {
+            result.current.changeSplitType(0, 'PERCENT');
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, carol); // remove
+        });
+        const item = result.current.itemizedItems[0];
+        const details = item.split_details!;
+        expect(Object.keys(details).sort()).toEqual(['user_1', 'user_2']);
+        const total = Object.values(details).reduce((a, d) => a + d.percentage!, 0);
+        expect(total).toBe(100);
+    });
+
+    it('keeps existing shares and defaults a newcomer to 1', () => {
+        const { result: r } = renderHook(() => useItemizedExpense());
+        act(() => {
+            r.current.addManualItem('Platter', 3000);
+        });
+        act(() => {
+            r.current.toggleItemAssignment(0, alice);
+        });
+        act(() => {
+            r.current.toggleItemAssignment(0, bob);
+        });
+        act(() => {
+            r.current.changeSplitType(0, 'SHARES');
+        });
+        act(() => {
+            r.current.updateSplitDetail(0, 'user_1', { shares: 4 });
+        });
+        act(() => {
+            r.current.toggleItemAssignment(0, carol); // add
+        });
+        const details = r.current.itemizedItems[0].split_details!;
+        expect(details.user_1.shares).toBe(4);
+        expect(details.user_3.shares).toBe(1);
+    });
+
+    it('prunes a removed assignee from SHARES details', () => {
+        const { result } = renderHook(() => useItemizedExpense());
+        setupItem(result);
+        act(() => {
+            result.current.changeSplitType(0, 'SHARES');
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, bob); // remove
+        });
+        const details = result.current.itemizedItems[0].split_details!;
+        expect(Object.keys(details).sort()).toEqual(['user_1', 'user_3']);
+    });
+
+    it('never reuses a wrong-kind detail when switching split type', () => {
+        const { result } = renderHook(() => useItemizedExpense());
+        setupItem(result);
+        act(() => {
+            result.current.changeSplitType(0, 'SHARES');
+        });
+        act(() => {
+            result.current.updateSplitDetail(0, 'user_1', { shares: 5 });
+        });
+        act(() => {
+            result.current.changeSplitType(0, 'EXACT');
+        });
+        const details = result.current.itemizedItems[0].split_details!;
+        // A {shares: 5} entry must not survive as an EXACT entry with no amount.
+        const amounts = Object.values(details).map(d => d.amount!);
+        expect(amounts.every(a => typeof a === 'number')).toBe(true);
+        expect(amounts.reduce((a, b) => a + b, 0)).toBe(3000);
+    });
+
+    it('drops back to EQUAL when only one assignee remains', () => {
+        const { result } = renderHook(() => useItemizedExpense());
+        act(() => {
+            result.current.addManualItem('Platter', 3000);
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, alice);
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, bob);
+        });
+        act(() => {
+            result.current.changeSplitType(0, 'SHARES');
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, bob); // remove → one left
+        });
+        const item = result.current.itemizedItems[0];
+        expect(item.split_type).toBe('EQUAL');
+        expect(item.split_details).toBeUndefined();
+    });
+
+    it('keys an unsaved expense guest by temp id end to end', () => {
+        const { result } = renderHook(() => useItemizedExpense());
+        act(() => {
+            result.current.addManualItem('Platter', 3000);
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, alice);
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, freshGuest);
+        });
+        const assignments = result.current.itemizedItems[0].assignments;
+        expect(assignments[1]).toEqual({ is_guest: false, temp_guest_id: 'g1' });
+        act(() => {
+            result.current.changeSplitType(0, 'SHARES');
+        });
+        const details = result.current.itemizedItems[0].split_details!;
+        expect(Object.keys(details).sort()).toEqual(['expense_guest_g1', 'user_1']);
+        // Toggling again removes the guest, not everyone with id 0.
+        act(() => {
+            result.current.toggleItemAssignment(0, freshGuest);
+        });
+        expect(result.current.itemizedItems[0].assignments).toHaveLength(1);
+    });
+
+    it('updateSplitDetail does not mutate the previous render state', () => {
+        const { result } = renderHook(() => useItemizedExpense());
+        act(() => {
+            result.current.addManualItem('Platter', 3000);
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, alice);
+        });
+        act(() => {
+            result.current.toggleItemAssignment(0, bob);
+        });
+        act(() => {
+            result.current.changeSplitType(0, 'SHARES');
+        });
+        const before = result.current.itemizedItems;
+        const beforeDetails = before[0].split_details;
+        act(() => {
+            result.current.updateSplitDetail(0, 'user_1', { shares: 9 });
+        });
+        expect(beforeDetails!.user_1.shares).toBe(1);
+        expect(result.current.itemizedItems[0].split_details!.user_1.shares).toBe(9);
+    });
+});

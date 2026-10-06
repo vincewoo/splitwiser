@@ -17,6 +17,9 @@ import {
     assembleSplitsPayload,
     amountToCents,
     centsToDisplayAmount,
+    itemDetailKeyForAssignment,
+    itemDetailKeyForParticipant,
+    assignmentIsParticipant,
 } from '../expenseTransformations';
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -213,6 +216,31 @@ describe('extractSplitDetailsFromExpense', () => {
 // ── extractItemizedDataFromExpense ──────────────────────────────────
 
 describe('extractItemizedDataFromExpense', () => {
+    it('preserves each item\'s split_type and split_details', () => {
+        // Regression: edit mode used to drop these, so any save from the
+        // detail modal flattened SHARES/PERCENT/EXACT items back to EQUAL.
+        const items: ExpenseItemDetail[] = [
+            makeItemDetail({
+                description: 'Kid Burger',
+                price: 2400,
+                split_type: 'SHARES',
+                split_details: {
+                    user_1: { shares: 2 },
+                    guest_7: { shares: 1 },
+                },
+            }),
+            makeItemDetail({ description: 'Side Fries', price: 800 }),
+        ];
+        const result = extractItemizedDataFromExpense(items);
+        expect(result.items[0].split_type).toBe('SHARES');
+        expect(result.items[0].split_details).toEqual({
+            user_1: { shares: 2 },
+            guest_7: { shares: 1 },
+        });
+        // An item stored without a split_type reads as EQUAL.
+        expect(result.items[1].split_type).toBe('EQUAL');
+    });
+
     it('separates regular items from tax/tip items', () => {
         const items: ExpenseItemDetail[] = [
             makeItemDetail({ description: 'Burger', price: 1200, is_tax_tip: false }),
@@ -678,5 +706,89 @@ describe('Round-trip tests', () => {
         expect(result.error).toBeUndefined();
         expect(result.splits[0].amount_owed).toBe(600);
         expect(result.splits[1].amount_owed).toBe(300);
+    });
+});
+
+// ── Item split_details keys ─────────────────────────────────────────
+
+describe('itemDetailKeyForAssignment / itemDetailKeyForParticipant', () => {
+    it('mirrors the backend key scheme, temp id taking precedence', () => {
+        expect(itemDetailKeyForAssignment({ user_id: 5, is_guest: false })).toBe('user_5');
+        expect(itemDetailKeyForAssignment({ user_id: 5, is_guest: true })).toBe('guest_5');
+        expect(itemDetailKeyForAssignment({ user_id: 5, is_guest: false, expense_guest_id: 5 }))
+            .toBe('expense_guest_5');
+        expect(itemDetailKeyForAssignment({ is_guest: false, temp_guest_id: 'g1' }))
+            .toBe('expense_guest_g1');
+    });
+
+    it('keys an expense-guest participant by temp id before creation, real id after', () => {
+        const fresh: Participant = { id: 0, name: 'G', isGuest: false, isExpenseGuest: true, tempId: 'g1' };
+        const saved: Participant = { id: 7, name: 'G', isGuest: false, isExpenseGuest: true };
+        expect(itemDetailKeyForParticipant(fresh)).toBe('expense_guest_g1');
+        expect(itemDetailKeyForParticipant(saved)).toBe('expense_guest_7');
+        expect(itemDetailKeyForParticipant({ id: 7, name: 'U', isGuest: false })).toBe('user_7');
+    });
+});
+
+describe('assignmentIsParticipant', () => {
+    it('never matches a hydrated expense-guest assignment to the real user with the same id', () => {
+        // Expense guest #7 hydrates as {user_id: 7, is_guest: false,
+        // expense_guest_id: 7} — user #7 must not claim it, and vice versa.
+        const egAssignment = { user_id: 7, is_guest: false, expense_guest_id: 7 };
+        const user7: Participant = { id: 7, name: 'User Seven', isGuest: false };
+        const guest7: Participant = { id: 7, name: 'Guest', isGuest: false, isExpenseGuest: true };
+        expect(assignmentIsParticipant(egAssignment, user7)).toBe(false);
+        expect(assignmentIsParticipant(egAssignment, guest7)).toBe(true);
+        expect(assignmentIsParticipant({ user_id: 7, is_guest: false }, user7)).toBe(true);
+        expect(assignmentIsParticipant({ user_id: 7, is_guest: false }, guest7)).toBe(false);
+    });
+
+    it('matches unsaved expense guests by temp id', () => {
+        const fresh: Participant = { id: 0, name: 'G', isGuest: false, isExpenseGuest: true, tempId: 'g1' };
+        expect(assignmentIsParticipant({ is_guest: false, temp_guest_id: 'g1' }, fresh)).toBe(true);
+        expect(assignmentIsParticipant({ is_guest: false, temp_guest_id: 'g2' }, fresh)).toBe(false);
+    });
+});
+
+// ── Hydration aliasing and round trip ───────────────────────────────
+
+describe('extractItemizedDataFromExpense — aliasing and round trip', () => {
+    it('deep-copies split_details so form edits never reach the fetched expense', () => {
+        const source = makeItemDetail({
+            description: 'Kid Burger',
+            price: 2400,
+            split_type: 'SHARES',
+            split_details: { user_1: { shares: 2 }, user_2: { shares: 1 } },
+        });
+        const result = extractItemizedDataFromExpense([source]);
+        result.items[0].split_details!.user_1.shares = 99;
+        expect(source.split_details!.user_1.shares).toBe(2);
+    });
+
+    it('hydrates an EQUAL item with no split_details at all', () => {
+        const result = extractItemizedDataFromExpense([
+            makeItemDetail({ description: 'Fries', price: 800 }),
+        ]);
+        expect(result.items[0].split_details).toBeUndefined();
+    });
+
+    it('round-trips split_type and split_details into the payload items', () => {
+        // Pins the full edit-mode persistence contract: hydration →
+        // assembleItemizedPayload → PUT body. A regression in either half
+        // re-flattens saved splits.
+        const result = extractItemizedDataFromExpense([
+            makeItemDetail({
+                description: 'Kid Burger',
+                price: 2400,
+                split_type: 'SHARES',
+                split_details: { user_1: { shares: 2 }, guest_3: { shares: 1 } },
+            }),
+        ]);
+        const { items } = assembleItemizedPayload(result.items, '', '');
+        expect(items[0].split_type).toBe('SHARES');
+        expect(items[0].split_details).toEqual({
+            user_1: { shares: 2 },
+            guest_3: { shares: 1 },
+        });
     });
 });

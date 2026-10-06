@@ -496,7 +496,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     setAlertDialog({
                         isOpen: true,
                         title: 'Error',
-                        message: 'Failed to update expense',
+                        message: result.error || 'Failed to update expense',
                         type: 'error'
                     });
                 }
@@ -521,7 +521,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 setAlertDialog({
                     isOpen: true,
                     title: 'Error',
-                    message: 'Failed to update expense',
+                    message: result.error || 'Failed to update expense',
                     type: 'error'
                 });
             }
@@ -889,6 +889,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                     onToggleAssignment={itemizedExpense.toggleItemAssignment}
                                                     onRemoveItem={itemizedExpense.removeItem}
                                                     onOpenSelector={itemizedExpense.setEditingItemIndex}
+                                                    onChangeSplitType={itemizedExpense.changeSplitType}
+                                                    onUpdateSplitDetail={itemizedExpense.updateSplitDetail}
                                                     getParticipantName={getParticipantName}
                                                     currentUserId={currentUserId}
                                                 />

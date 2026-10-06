@@ -13,15 +13,58 @@ import type { ExpensePayload } from '../types/expense';
 // Offline-Aware Expenses API
 // ============================================================================
 
+/**
+ * Pull the human-readable detail out of a FastAPI error response, so the
+ * modal can show "Item 2: Percentages (80%) don't total 100%" instead of a
+ * generic failure. Pydantic 422s carry a list of {loc, msg} objects; plain
+ * HTTPExceptions carry a string.
+ */
+const readApiErrorDetail = async (response: Response): Promise<string> => {
+    const fallback = `Request failed (${response.status})`;
+    try {
+        const body = await response.json();
+        const detail = body?.detail;
+        if (typeof detail === 'string') return detail;
+        if (Array.isArray(detail) && detail.length > 0) {
+            const msgs = detail
+                .map((d: { msg?: string }) => d?.msg)
+                .filter((m: string | undefined): m is string => typeof m === 'string');
+            if (msgs.length > 0) return msgs.join('; ');
+        }
+    } catch {
+        // Non-JSON body — fall through to the generic message.
+    }
+    return fallback;
+};
+
+export interface ExpenseMutationResult {
+    success: boolean;
+    offline: boolean;
+    /** Present on success: the server row, or the locally-cached stand-in. */
+    data?: unknown;
+    /** Present when the server rejected the payload (4xx). */
+    error?: string;
+}
+
 export const offlineExpensesApi = {
   /**
    * Create an expense - works offline
    */
-  create: async (expenseData: ExpensePayload) => {
+  create: async (expenseData: ExpensePayload): Promise<ExpenseMutationResult> => {
     if (navigator.onLine) {
-      // Online: Normal API call
+      // Online: Normal API call. Only a network-level failure (or a 5xx the
+      // server might recover from) falls through to the offline queue — a
+      // 4xx means the server read the payload and rejected it, so retrying
+      // the identical payload from the queue could never succeed; it would
+      // just sit there failing while the UI had reported success.
+      let response: Response | null = null;
       try {
-        const response = await expensesApi.create(expenseData);
+        response = await expensesApi.create(expenseData);
+      } catch (error) {
+        console.error('Online expense creation failed:', error);
+        // Network failure — fall through to offline mode
+      }
+      if (response) {
         if (response.ok) {
           const expense = await response.json();
 
@@ -35,10 +78,11 @@ export const offlineExpensesApi = {
 
           return { success: true, data: expense, offline: false };
         }
-        throw new Error(`Failed to create expense: ${response.status}`);
-      } catch (error) {
-        console.error('Online expense creation failed:', error);
-        // Fall through to offline mode
+        if (response.status < 500) {
+          return { success: false, offline: false, error: await readApiErrorDetail(response) };
+        }
+        console.error(`Online expense creation failed: ${response.status}`);
+        // 5xx — fall through to offline mode so sync can retry
       }
     }
 
@@ -74,11 +118,19 @@ export const offlineExpensesApi = {
   /**
    * Update an expense - works offline
    */
-  update: async (expenseId: number | string, expenseData: ExpensePayload) => {
+  update: async (expenseId: number | string, expenseData: ExpensePayload): Promise<ExpenseMutationResult> => {
     if (navigator.onLine && typeof expenseId === 'number') {
-      // Online: Normal API call
+      // Online: Normal API call. Same policy as create: a 4xx is a final
+      // answer and surfaces to the caller; only network failures and 5xx
+      // fall back to the offline queue, where a retry can actually succeed.
+      let response: Response | null = null;
       try {
-        const response = await expensesApi.update(expenseId, expenseData);
+        response = await expensesApi.update(expenseId, expenseData);
+      } catch (error) {
+        console.error('Online expense update failed:', error);
+        // Network failure — fall through to offline mode
+      }
+      if (response) {
         if (response.ok) {
           const expense = await response.json();
 
@@ -92,10 +144,11 @@ export const offlineExpensesApi = {
 
           return { success: true, data: expense, offline: false };
         }
-        throw new Error(`Failed to update expense: ${response.status}`);
-      } catch (error) {
-        console.error('Online expense update failed:', error);
-        // Fall through to offline mode
+        if (response.status < 500) {
+          return { success: false, offline: false, error: await readApiErrorDetail(response) };
+        }
+        console.error(`Online expense update failed: ${response.status}`);
+        // 5xx — fall through to offline mode so sync can retry
       }
     }
 

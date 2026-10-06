@@ -3,7 +3,7 @@
 import json
 import os
 from datetime import date, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -89,6 +89,31 @@ def validate_date_range(raw_date: str) -> None:
             status_code=400,
             detail="Expense date is too far in the future (max 1 year).",
         )
+
+
+def serialize_item_split_details(item, temp_id_to_expense_guest) -> Optional[str]:
+    """Serialize an item's split_details to JSON for storage, remapping
+    ``expense_guest_{temp_id}`` keys onto the real guest ids.
+
+    At create time the client only knows its temp ids, so non-equal details
+    for an ad-hoc expense guest arrive keyed ``expense_guest_{temp}`` —
+    which is also how validation and allocation read them, via
+    ``get_assignment_key``'s temp-id precedence. Stored rows, however, are
+    read back with real ``expense_guest_id``s, so persisting the temp keys
+    would orphan the details on the next edit. Keys that already carry a
+    real id (the edit flow) pass through untouched.
+    """
+    if not getattr(item, 'split_details', None):
+        return None
+    details = {}
+    for key, value in item.split_details.items():
+        if key.startswith("expense_guest_"):
+            suffix = key[len("expense_guest_"):]
+            expense_guest = temp_id_to_expense_guest.get(suffix)
+            if expense_guest is not None:
+                key = f"expense_guest_{expense_guest.id}"
+        details[key] = value.model_dump() if hasattr(value, 'model_dump') else value
+    return json.dumps(details)
 
 
 @router.post("/expenses", response_model=schemas.Expense)
@@ -265,17 +290,7 @@ def create_expense(
     # Store items if ITEMIZED
     if expense.split_type == "ITEMIZED" and expense.items:
         for item in expense.items:
-            # Serialize split_details to JSON if present
-            split_details_json = None
-            if hasattr(item, 'split_details') and item.split_details:
-                # Convert ItemSplitDetail objects to dict if needed
-                split_details_dict = {}
-                for key, value in item.split_details.items():
-                    if hasattr(value, 'dict'):
-                        split_details_dict[key] = value.dict()
-                    else:
-                        split_details_dict[key] = value
-                split_details_json = json.dumps(split_details_dict)
+            split_details_json = serialize_item_split_details(item, temp_id_to_expense_guest)
 
             db_item = models.ExpenseItem(
                 expense_id=db_expense.id,
@@ -799,17 +814,7 @@ def update_expense(
     # Create new items if ITEMIZED
     if expense_update.split_type == "ITEMIZED" and expense_update.items:
         for item in expense_update.items:
-            # Serialize split_details to JSON if present
-            split_details_json = None
-            if hasattr(item, 'split_details') and item.split_details:
-                # Convert ItemSplitDetail objects to dict if needed
-                split_details_dict = {}
-                for key, value in item.split_details.items():
-                    if hasattr(value, 'dict'):
-                        split_details_dict[key] = value.dict()
-                    else:
-                        split_details_dict[key] = value
-                split_details_json = json.dumps(split_details_dict)
+            split_details_json = serialize_item_split_details(item, temp_id_to_expense_guest)
 
             db_item = models.ExpenseItem(
                 expense_id=expense_id,

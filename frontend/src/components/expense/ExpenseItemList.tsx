@@ -2,6 +2,10 @@ import React from 'react';
 import { CaretRight, X } from '@phosphor-icons/react';
 import type { ExpenseItem, Participant } from '../../types/expense';
 import { shouldUseCompactMode, getAssignmentDisplayText, sortParticipants } from '../../utils/participantHelpers';
+import {
+    assignmentIsParticipant,
+    itemDetailKeyForParticipant,
+} from '../../utils/expenseTransformations';
 import { SegmentedControl } from '../ui';
 
 /** The per-item split methods. Narrower than the expense-level `SplitType` —
@@ -25,8 +29,11 @@ interface ExpenseItemListProps {
     onToggleAssignment: (itemIdx: number, participant: Participant) => void;
     onRemoveItem: (idx: number) => void;
     onOpenSelector: (idx: number) => void;
-    onChangeSplitType?: (itemIdx: number, splitType: 'EQUAL' | 'EXACT' | 'PERCENT' | 'SHARES') => void;
-    onUpdateSplitDetail?: (itemIdx: number, participantKey: string, details: { amount?: number; percentage?: number; shares?: number }) => void;
+    // Required on purpose: these were once optional and invoked with ?., and
+    // the edit-mode mount silently omitted them — the pills rendered but did
+    // nothing. Requiring them makes that regression a compile error.
+    onChangeSplitType: (itemIdx: number, splitType: 'EQUAL' | 'EXACT' | 'PERCENT' | 'SHARES') => void;
+    onUpdateSplitDetail: (itemIdx: number, participantKey: string, details: { amount?: number; percentage?: number; shares?: number }) => void;
     currency?: string; // Make it optional since it's not used
     getParticipantName: (p: Participant) => string;
     currentUserId?: number;
@@ -105,12 +112,9 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                         <div className="flex flex-wrap gap-2">
                             {participants.map(p => {
                                 // Check if participant is assigned to this item
-                                const isAssigned = item.assignments.some(a => {
-                                    if (p.isExpenseGuest) {
-                                        return a.expense_guest_id === p.id;
-                                    }
-                                    return a.user_id === p.id && a.is_guest === p.isGuest;
-                                });
+                                const isAssigned = item.assignments.some(a =>
+                                    assignmentIsParticipant(a, p)
+                                );
 
                                 return (
                                     <button
@@ -142,7 +146,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                     size="sm"
                                     options={SPLIT_OPTIONS}
                                     value={(item.split_type || 'EQUAL') as ItemSplitType}
-                                    onChange={(splitType) => onChangeSplitType?.(idx, splitType)}
+                                    onChange={(splitType) => onChangeSplitType(idx, splitType)}
                                 />
                             </div>
 
@@ -153,14 +157,14 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                         // Get participants from assignments and sort them
                                         const assignedParticipants = item.assignments
                                             .map(assignment => participants.find(
-                                                p => p.id === assignment.user_id && p.isGuest === assignment.is_guest
+                                                p => assignmentIsParticipant(assignment, p)
                                             ))
                                             .filter((p): p is Participant => p !== undefined);
 
                                         const sortedParticipants = sortParticipants(assignedParticipants, currentUserId);
 
                                         return sortedParticipants.map(participant => {
-                                            const participantKey = participant.isGuest ? `guest_${participant.id}` : `user_${participant.id}`;
+                                            const participantKey = itemDetailKeyForParticipant(participant);
                                             const splitDetail = item.split_details?.[participantKey];
 
                                             return (
@@ -178,7 +182,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                                             value={(splitDetail?.amount || 0) / 100}
                                                             onChange={(e) => {
                                                                 const amount = Math.round(parseFloat(e.target.value || '0') * 100);
-                                                                onUpdateSplitDetail?.(idx, participantKey, { amount });
+                                                                onUpdateSplitDetail(idx, participantKey, { amount });
                                                             }}
                                                             className={`${SPLIT_INPUT_CLASS} w-20`}
                                                         />
@@ -195,7 +199,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                                             value={splitDetail?.percentage || 0}
                                                             onChange={(e) => {
                                                                 const percentage = parseFloat(e.target.value || '0');
-                                                                onUpdateSplitDetail?.(idx, participantKey, { percentage });
+                                                                onUpdateSplitDetail(idx, participantKey, { percentage });
                                                             }}
                                                             className={`${SPLIT_INPUT_CLASS} w-16`}
                                                         />
@@ -211,7 +215,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
                                                         value={splitDetail?.shares || 1}
                                                         onChange={(e) => {
                                                             const shares = parseInt(e.target.value || '1');
-                                                            onUpdateSplitDetail?.(idx, participantKey, { shares: Math.max(1, shares) });
+                                                            onUpdateSplitDetail(idx, participantKey, { shares: Math.max(1, shares) });
                                                         }}
                                                         className={`${SPLIT_INPUT_CLASS} w-16`}
                                                     />
