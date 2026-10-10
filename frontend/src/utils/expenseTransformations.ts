@@ -284,7 +284,7 @@ export const assembleSplitsPayload = (
     participants: Participant[],
     splitDetails: Record<string, string | number>,
     totalAmountCents: number,
-): { splits: SplitResult[]; error?: string } => {
+): { splits: SplitResult[]; error?: string; exactSumCents?: number } => {
     // Filter out expense guests — they're handled separately on the backend
     const regularParticipants = participants.filter(p => !p.isExpenseGuest);
 

@@ -34,6 +34,8 @@ import {
     calculateItemizedTotal,
     calculatePersonItemBreakdown
 } from './utils/expenseCalculations';
+import type { SplitResult } from './utils/expenseCalculations';
+import { getExactTotalAdjustment } from './utils/exactTotalAdjustment';
 import {
     extractParticipantKeysFromExpense,
     extractSplitDetailsFromExpense,
@@ -136,6 +138,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         message: string;
         type: 'alert' | 'confirm' | 'success' | 'error';
         onConfirm?: () => void;
+        destructive?: boolean;
+        confirmText?: string;
+        cancelText?: string;
     }>({
         isOpen: false,
         title: '',
@@ -434,6 +439,28 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         // Calculate splits (assembleSplitsPayload filters out expense guests internally)
         const splitResult = assembleSplitsPayload(splitType, allParticipants, splitDetails, totalAmountCents);
         if (splitResult.error) {
+            // An EXACT mismatch is recoverable: the typed amounts are usually
+            // the figures the user trusts, so offer to adopt their sum as the
+            // total instead of dead-ending on the error.
+            const adjustment = getExactTotalAdjustment(splitType, splitResult, totalAmountCents, currency);
+            if (adjustment) {
+                setAlertDialog({
+                    isOpen: true,
+                    title: adjustment.title,
+                    message: adjustment.message,
+                    type: 'confirm',
+                    destructive: false,
+                    confirmText: adjustment.confirmText,
+                    cancelText: adjustment.cancelText,
+                    onConfirm: () => {
+                        // The field shows the adopted total too, so a failed
+                        // save leaves the form stating the figure being saved.
+                        setAmount(centsToDisplayAmount(adjustment.newTotalCents));
+                        void submitUpdate(adjustment.newTotalCents, splitResult.splits);
+                    },
+                });
+                return;
+            }
             setAlertDialog({
                 isOpen: true,
                 title: 'Invalid Split',
@@ -443,6 +470,15 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             return;
         }
 
+        await submitUpdate(totalAmountCents, splitResult.splits);
+    };
+
+    /**
+     * The save itself, past validation. The total is a parameter rather than
+     * re-read from the amount field so the adjust-total confirm can save the
+     * summed figure in the same tap that accepts it.
+     */
+    const submitUpdate = async (totalAmountCents: number, splits: SplitResult[]) => {
         const payload: ExpensePayload = {
             description,
             amount: totalAmountCents,
@@ -450,7 +486,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             date: expenseDate,
             payer_id: payerId,
             payer_is_guest: payerIsGuest,
-            splits: splitResult.splits,
+            splits,
             split_type: splitType,
             icon: selectedIcon,
             notes,
@@ -476,7 +512,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     payer_is_guest: payerIsGuest,
                     split_type: 'ITEMIZED',
                     items: allItems,
-                    splits: splitResult.splits,
+                    splits,
                     icon: selectedIcon,
                     notes,
                     kind,
@@ -1346,6 +1382,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     title={alertDialog.title}
                     message={alertDialog.message}
                     type={alertDialog.type}
+                    destructive={alertDialog.destructive}
+                    confirmText={alertDialog.confirmText}
+                    cancelText={alertDialog.cancelText}
                 />
             </div>
 
