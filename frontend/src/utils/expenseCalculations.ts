@@ -48,7 +48,7 @@ export const calculateExactSplit = (
     totalAmountCents: number,
     participants: Participant[],
     splitDetails: { [key: string]: string | number }
-): { splits: SplitResult[]; error?: string } => {
+): { splits: SplitResult[]; error?: string; exactSumCents?: number } => {
     const splits = participants.map(p => {
         const key = p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
         return {
@@ -62,7 +62,10 @@ export const calculateExactSplit = (
     if (Math.abs(sum - totalAmountCents) > 1) {
         return {
             splits,
-            error: `Amounts do not sum to total. Total: ${totalAmountCents / 100}, Sum: ${sum / 100}`
+            error: `Amounts do not sum to total. Total: ${totalAmountCents / 100}, Sum: ${sum / 100}`,
+            // Already integer cents, so a caller adopting it as the new total
+            // gets splits that reconcile to the cent with no re-rounding.
+            exactSumCents: sum
         };
     }
 

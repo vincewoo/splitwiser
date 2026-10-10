@@ -28,10 +28,13 @@ import {
 import {
     calculateItemizedTotal
 } from './utils/expenseCalculations';
+import type { SplitResult } from './utils/expenseCalculations';
+import { getExactTotalAdjustment } from './utils/exactTotalAdjustment';
 import {
     assembleItemizedPayload,
     assembleSplitsPayload,
     amountToCents,
+    centsToDisplayAmount,
 } from './utils/expenseTransformations';
 import type { EntryKind } from './utils/expenseKind';
 import { formatDateForInput } from './utils/formatters';
@@ -102,6 +105,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         message: string;
         type: 'alert' | 'confirm' | 'success' | 'error';
         onConfirm?: () => void;
+        destructive?: boolean;
+        confirmText?: string;
+        cancelText?: string;
     }>({
         isOpen: false,
         title: '',
@@ -377,38 +383,12 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         return getParticipantNameUtil(p, user?.id);
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-
-        // Saving before the roster lands would post a group expense split
-        // entirely to the submitter, because nobody else is selectable yet.
-        if (rosterLoading || rosterFailed) {
-            setAlertDialog({
-                isOpen: true,
-                title: rosterFailed ? "Couldn't load members" : 'Still loading members',
-                message: rosterFailed
-                    ? "This group's members haven't loaded, so the expense would be split to you alone. Try loading them again first."
-                    : "Give the group's members a moment to load so you can choose who to split with.",
-                type: 'error'
-            });
-            return;
-        }
-
-        const totalAmountCents = amountToCents(amount);
-        const participants = getAllParticipants();
-
-        // Calculate splits (assembleSplitsPayload filters out expense guests internally)
-        const splitResult = assembleSplitsPayload(splitType, participants, splitDetails, totalAmountCents);
-        if (splitResult.error) {
-            setAlertDialog({
-                isOpen: true,
-                title: 'Invalid Split',
-                message: splitResult.error,
-                type: 'error'
-            });
-            return;
-        }
-
+    /**
+     * The save itself, past validation. The total is a parameter rather than
+     * re-read from the amount field so the adjust-total confirm can save the
+     * summed figure in the same tap that accepts it.
+     */
+    const submitExpense = async (totalAmountCents: number, splits: SplitResult[]) => {
         // is_settlement mirrors kind for servers that predate the enum.
         const payloadKind = isIncome ? 'income' : isSettlement ? 'settlement' : 'expense';
 
@@ -423,7 +403,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             payer_temp_guest_id: payerTempGuestId,
             group_id: selectedGroupId,
             split_type: splitType,
-            splits: splitResult.splits,
+            splits,
             icon: selectedIcon,
             receipt_image_path: receiptImagePath,
             notes: notes,
@@ -455,7 +435,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 group_id: selectedGroupId,
                 split_type: 'ITEMIZED',
                 items: allItems,
-                splits: splitResult.splits,
+                splits,
                 icon: selectedIcon,
                 receipt_image_path: receiptImagePath,
                 notes: notes,
@@ -522,6 +502,63 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        // Saving before the roster lands would post a group expense split
+        // entirely to the submitter, because nobody else is selectable yet.
+        if (rosterLoading || rosterFailed) {
+            setAlertDialog({
+                isOpen: true,
+                title: rosterFailed ? "Couldn't load members" : 'Still loading members',
+                message: rosterFailed
+                    ? "This group's members haven't loaded, so the expense would be split to you alone. Try loading them again first."
+                    : "Give the group's members a moment to load so you can choose who to split with.",
+                type: 'error'
+            });
+            return;
+        }
+
+        const totalAmountCents = amountToCents(amount);
+        const participants = getAllParticipants();
+
+        // Calculate splits (assembleSplitsPayload filters out expense guests internally)
+        const splitResult = assembleSplitsPayload(splitType, participants, splitDetails, totalAmountCents);
+        if (splitResult.error) {
+            // An EXACT mismatch is recoverable: the typed amounts are usually
+            // the figures the user trusts, so offer to adopt their sum as the
+            // total instead of dead-ending on the error.
+            const adjustment = getExactTotalAdjustment(splitType, splitResult, totalAmountCents, currency);
+            if (adjustment) {
+                setAlertDialog({
+                    isOpen: true,
+                    title: adjustment.title,
+                    message: adjustment.message,
+                    type: 'confirm',
+                    destructive: false,
+                    confirmText: adjustment.confirmText,
+                    cancelText: adjustment.cancelText,
+                    onConfirm: () => {
+                        // The field shows the adopted total too, so a failed
+                        // save leaves the form stating the figure being saved.
+                        setAmount(centsToDisplayAmount(adjustment.newTotalCents));
+                        void submitExpense(adjustment.newTotalCents, splitResult.splits);
+                    },
+                });
+                return;
+            }
+            setAlertDialog({
+                isOpen: true,
+                title: 'Invalid Split',
+                message: splitResult.error,
+                type: 'error'
+            });
+            return;
+        }
+
+        await submitExpense(totalAmountCents, splitResult.splits);
     };
 
     /**
@@ -1344,6 +1381,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     title={alertDialog.title}
                     message={alertDialog.message}
                     type={alertDialog.type}
+                    destructive={alertDialog.destructive}
+                    confirmText={alertDialog.confirmText}
+                    cancelText={alertDialog.cancelText}
                 />
             </div>
         </div>

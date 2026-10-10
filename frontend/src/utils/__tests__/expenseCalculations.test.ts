@@ -65,6 +65,26 @@ describe('calculateExactSplit', () => {
         expect(result.error).toContain('do not sum to total');
     });
 
+    it('reports the integer-cent sum on mismatch, for the adjust-total offer', () => {
+        const splitDetails = { user_1: 3, user_2: 4 };
+        const result = calculateExactSplit(1000, [user1, user2], splitDetails);
+        expect(result.exactSumCents).toBe(700);
+    });
+
+    it('reports a sum already rounded per entry, not re-rounded from floats', () => {
+        // 10.10 + 20.20 round to 1010 + 2020 cents individually; summing the
+        // raw floats first (30.299999...) and rounding once could differ.
+        const splitDetails = { user_1: 10.10, user_2: 20.20 };
+        const result = calculateExactSplit(5000, [user1, user2], splitDetails);
+        expect(result.exactSumCents).toBe(3030);
+    });
+
+    it('omits the sum when the amounts reconcile', () => {
+        const splitDetails = { user_1: 6, user_2: 4 };
+        const result = calculateExactSplit(1000, [user1, user2], splitDetails);
+        expect(result.exactSumCents).toBeUndefined();
+    });
+
     it('tolerates a 1-cent discrepancy', () => {
         // Total is 999 cents. Split details: 5.00 + 4.99 = 9.99 = 999 cents.
         // But let's test the tolerance edge: total 1000, sum 999 => diff = 1, within tolerance
