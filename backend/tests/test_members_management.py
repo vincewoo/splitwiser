@@ -578,3 +578,28 @@ class TestManageMember:
                                headers=headers_for(outsider),
                                json={"user_id": test_user.id, "is_guest": False})
         assert response.status_code == 403
+
+    def test_a_claimed_guest_cannot_be_the_manager(
+        self, client, auth_headers, group_id, member
+    ):
+        manager = add_guest(client, auth_headers, group_id, "Manager")
+        client.post(f"/groups/{group_id}/guests/{manager['id']}/claim",
+                    headers=headers_for(member))
+
+        response = client.post(f"/groups/{group_id}/members/{member.id}/manage",
+                               headers=auth_headers,
+                               json={"user_id": manager["id"], "is_guest": True})
+        assert response.status_code == 400
+        assert "already claimed" in response.json()["detail"]
+
+    def test_manager_guest_must_be_in_the_same_group(
+        self, client, auth_headers, group_id, member
+    ):
+        other = client.post("/groups/", headers=auth_headers,
+                            json={"name": "Other", "default_currency": "USD"}).json()
+        foreign_manager = add_guest(client, auth_headers, other["id"], "Foreign")
+
+        response = client.post(f"/groups/{group_id}/members/{member.id}/manage",
+                               headers=auth_headers,
+                               json={"user_id": foreign_manager["id"], "is_guest": True})
+        assert response.status_code == 400

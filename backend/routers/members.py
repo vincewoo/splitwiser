@@ -267,6 +267,30 @@ def merge_guest_into_member(
     }
 
 
+def _resolve_manager(db: Session, group_id: int, request: schemas.ManageGuestRequest) -> str | None:
+    """Verify the requested manager is in the group and return its display name."""
+    if request.is_guest:
+        # Manager is a guest - verify it exists and is in this group
+        manager_guest = db.query(models.GuestMember).filter(
+            models.GuestMember.id == request.user_id,
+            models.GuestMember.group_id == group_id,
+            models.GuestMember.claimed_by_id == None  # Cannot use claimed guests as managers
+        ).first()
+        if not manager_guest:
+            raise HTTPException(status_code=400, detail="Manager guest not found or already claimed")
+        return manager_guest.name
+
+    # Manager is a user - verify they are a group member
+    manager_membership = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == request.user_id
+    ).first()
+    if not manager_membership:
+        raise HTTPException(status_code=400, detail="Manager must be a group member")
+    manager = db.query(models.User).filter(models.User.id == request.user_id).first()
+    return manager.full_name or manager.email if manager else None
+
+
 @router.post("/guests/{guest_id}/manage")
 def manage_guest(
     group_id: int,
@@ -296,27 +320,7 @@ def manage_guest(
     if request.is_guest and request.user_id == guest_id:
         raise HTTPException(status_code=400, detail="Guest cannot manage itself")
 
-    # Verify manager exists and is in the group
-    if request.is_guest:
-        # Manager is a guest - verify it exists and is in this group
-        manager_guest = db.query(models.GuestMember).filter(
-            models.GuestMember.id == request.user_id,
-            models.GuestMember.group_id == group_id,
-            models.GuestMember.claimed_by_id == None  # Cannot use claimed guests as managers
-        ).first()
-        if not manager_guest:
-            raise HTTPException(status_code=400, detail="Manager guest not found or already claimed")
-        managed_by_name = manager_guest.name
-    else:
-        # Manager is a user - verify they are a group member
-        manager_membership = db.query(models.GroupMember).filter(
-            models.GroupMember.group_id == group_id,
-            models.GroupMember.user_id == request.user_id
-        ).first()
-        if not manager_membership:
-            raise HTTPException(status_code=400, detail="Manager must be a group member")
-        manager = db.query(models.User).filter(models.User.id == request.user_id).first()
-        managed_by_name = manager.full_name or manager.email if manager else None
+    managed_by_name = _resolve_manager(db, group_id, request)
 
     # Update guest's manager
     guest.managed_by_id = request.user_id
@@ -391,27 +395,7 @@ def manage_member(
     if not request.is_guest and request.user_id == member_user_id:
         raise HTTPException(status_code=400, detail="Member cannot manage themselves")
 
-    # Verify manager exists and is in the group
-    if request.is_guest:
-        # Manager is a guest - verify it exists and is in this group
-        manager_guest = db.query(models.GuestMember).filter(
-            models.GuestMember.id == request.user_id,
-            models.GuestMember.group_id == group_id,
-            models.GuestMember.claimed_by_id == None  # Cannot use claimed guests as managers
-        ).first()
-        if not manager_guest:
-            raise HTTPException(status_code=400, detail="Manager guest not found or already claimed")
-        managed_by_name = manager_guest.name
-    else:
-        # Manager is a user - verify they are a group member
-        manager_membership = db.query(models.GroupMember).filter(
-            models.GroupMember.group_id == group_id,
-            models.GroupMember.user_id == request.user_id
-        ).first()
-        if not manager_membership:
-            raise HTTPException(status_code=400, detail="Manager must be a group member")
-        manager = db.query(models.User).filter(models.User.id == request.user_id).first()
-        managed_by_name = manager.full_name or manager.email if manager else None
+    managed_by_name = _resolve_manager(db, group_id, request)
 
     # Update member's manager
     member.managed_by_id = request.user_id
