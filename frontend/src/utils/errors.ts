@@ -16,13 +16,3 @@ export function getErrorMessage(error: unknown): string | undefined {
     }
     return undefined;
 }
-
-/** The `name` of a caught value (e.g. "AbortError"), or undefined. */
-export function getErrorName(error: unknown): string | undefined {
-    if (error instanceof Error) return error.name;
-    if (typeof error === 'object' && error !== null && 'name' in error) {
-        const name = (error as { name?: unknown }).name;
-        if (typeof name === 'string') return name;
-    }
-    return undefined;
-}
