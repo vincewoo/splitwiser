@@ -1381,3 +1381,49 @@ def test_income_with_a_managed_guest_folds_onto_the_manager(
         (test_user.id, False): -2000,
         (other.id, False): 2000,
     }
+
+
+def test_multi_currency_fold_follows_a_guest_member_user_chain(db_session, monkeypatch):
+    """A guest managed by a managed member reaches the top of the chain in one
+    multi-currency pass: guest -> 20 -> 30, merging per-currency amounts level
+    by level. A snapshot-style fold (or members before guests) would strand the
+    guest's USD and EUR on 20 instead of 30."""
+    group = _make_group(db_session)
+
+    db_session.add_all([
+        GroupMember(group_id=group.id, user_id=10),
+        GroupMember(
+            group_id=group.id,
+            user_id=20,
+            managed_by_id=30,
+            managed_by_type="user",
+        ),
+        GroupMember(group_id=group.id, user_id=30),
+    ])
+    guest = GuestMember(
+        group_id=group.id,
+        name="Chain Guest",
+        created_by_id=1,
+        managed_by_id=20,
+        managed_by_type="user",
+    )
+    db_session.add(guest)
+    db_session.commit()
+    db_session.refresh(guest)
+
+    raw = {
+        (guest.id, True): {"USD": 1000, "EUR": 500},
+        (20, False): {"USD": -2000},
+        (30, False): {"EUR": 300},
+        (10, False): {"USD": 1000, "EUR": -800},
+    }
+    # Fresh copies per call, so the fold can never alias the fixture dicts.
+    monkeypatch.setattr(
+        "utils.balances.calculate_raw_balances",
+        lambda *args, **kwargs: {key: dict(value) for key, value in raw.items()},
+    )
+
+    assert calculate_net_balances(db_session, group.id) == {
+        (30, False): {"USD": -1000, "EUR": 800},
+        (10, False): {"USD": 1000, "EUR": -800},
+    }

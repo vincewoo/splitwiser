@@ -1,7 +1,7 @@
 """Balance calculation utilities with management relationship aggregation."""
 
 import logging
-from typing import Dict, Iterable, List, Optional, Set, Tuple, Union, overload
+from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple, Union, overload
 
 from sqlalchemy.orm import Session
 
@@ -168,46 +168,67 @@ def _detect_managed_cycles(
     return in_cycle
 
 
-def _fold_managed_relationships(
+def _managed_pairs(
+    managed_guests: List["models.GuestMember"],
+    managed_members: List["models.GroupMember"],
+    cyclic_keys: "Set[Tuple[int, bool]] | frozenset[Tuple[int, bool]]",
+) -> Iterator[Tuple[Tuple[int, bool], Tuple[int, bool]]]:
+    """
+    Yield ``(source_key, manager_key)`` for every foldable managed entity.
+
+    Guests are yielded first, in list order, then members. Two skip rules
+    apply to both: a claimed guest that still has ``managed_by_id`` is skipped
+    (with the data-integrity warning), and any entity whose source or manager
+    key is in ``cyclic_keys`` is skipped.
+
+    This is the single walk every fold and every breakdown uses, so they all
+    agree on who folds into whom.
+    """
+    for guest in managed_guests:
+        # Defensive check: claimed guests should not have managed_by set
+        # This would cause double-counting since the user inherits the management relationship
+        if guest.claimed_by_id and guest.managed_by_id:
+            logger.warning(
+                "Data integrity issue: Claimed guest id=%s has managed_by_id=%s set. "
+                "This should be None. Skipping aggregation to prevent double-counting.",
+                guest.id,
+                guest.managed_by_id,
+            )
+            continue
+
+        source_key = _managed_key_for_guest(guest)
+        manager_key = (guest.managed_by_id, guest.managed_by_type == 'guest')
+
+        # Cycle-aware: don't fold participants whose chain loops back.
+        if source_key in cyclic_keys or manager_key in cyclic_keys:
+            continue
+
+        yield source_key, manager_key
+
+    for member in managed_members:
+        source_key = (member.user_id, False)
+        manager_key = (member.managed_by_id, member.managed_by_type == 'guest')
+
+        # Cycle-aware: don't fold participants whose chain loops back.
+        if source_key in cyclic_keys or manager_key in cyclic_keys:
+            continue
+
+        yield source_key, manager_key
+
+
+def _group_managed_pairs(
     db: Session,
     group_id: int,
-    totals: Dict[Tuple[int, bool], float],
-    *,
     managed_guests: Optional[List["models.GuestMember"]] = None,
     managed_members: Optional[List["models.GroupMember"]] = None,
-) -> None:
-    """
-    Fold managed guests and managed members into their managers in-place.
-
-    Scoped to the scalar case: ``totals`` is a dict keyed by ``(user_id, is_guest)``
-    with scalar numeric (int/float) values. For each managed guest or managed member
-    found in the group, the entry is added to the manager's entry and then removed
-    from ``totals``.
-
-    The multi-currency (dict-of-dicts) folding path in ``calculate_net_balances``
-    deliberately stays inline and does NOT use this helper.
-
-    Args:
-        db: Database session.
-        group_id: ID of the group whose managed relationships should be folded.
-        totals: Mutable dict mapping ``(user_id, is_guest)`` to a scalar amount.
-            Mutated in place — folded entries are deleted, manager entries are
-            incremented (and created if missing when iterating in an order that
-            produces them).
-        managed_guests: Already-fetched managed ``GuestMember`` rows for the
-            group, when the caller has them. Fetched here otherwise.
-        managed_members: The same for managed ``GroupMember`` rows. Callers
-            folding two ledgers for one group pass both, so the rows are read
-            once rather than once per fold.
-    """
-    # Aggregate managed guests with their managers
+) -> List[Tuple[Tuple[int, bool], Tuple[int, bool]]]:
+    """Fetch the group's managed rows, detect cycles, return the fold pairs."""
     if managed_guests is None:
         managed_guests = db.query(models.GuestMember).filter(
             models.GuestMember.group_id == group_id,
             models.GuestMember.managed_by_id != None
         ).all()
 
-    # Aggregate managed members with their managers
     if managed_members is None:
         managed_members = db.query(models.GroupMember).filter(
             models.GroupMember.group_id == group_id,
@@ -227,42 +248,54 @@ def _fold_managed_relationships(
             sorted(cyclic_keys),
         )
 
-    for guest in managed_guests:
-        # Defensive check: claimed guests should not have managed_by set
-        # This would cause double-counting since the user inherits the management relationship
-        if guest.claimed_by_id and guest.managed_by_id:
-            logger.warning(
-                "Data integrity issue: Claimed guest id=%s has managed_by_id=%s set. "
-                "This should be None. Skipping aggregation to prevent double-counting.",
-                guest.id,
-                guest.managed_by_id,
-            )
-            continue
+    return list(_managed_pairs(managed_guests, managed_members, cyclic_keys))
 
-        guest_key = _managed_key_for_guest(guest)
-        manager_is_guest = (guest.managed_by_type == 'guest')
-        manager_key = (guest.managed_by_id, manager_is_guest)
 
-        # Cycle-aware: don't fold participants whose chain loops back.
-        if guest_key in cyclic_keys or manager_key in cyclic_keys:
-            continue
+def _fold_pairs(
+    totals: Dict[Tuple[int, bool], float],
+    pairs: Iterable[Tuple[Tuple[int, bool], Tuple[int, bool]]],
+) -> None:
+    """Apply ``pairs`` to ``totals`` in order, deleting each source key."""
+    for source_key, manager_key in pairs:
+        if source_key in totals:
+            totals[manager_key] = totals.get(manager_key, 0) + totals[source_key]
+            del totals[source_key]
 
-        if guest_key in totals:
-            totals[manager_key] = totals.get(manager_key, 0) + totals[guest_key]
-            del totals[guest_key]
 
-    for managed_member in managed_members:
-        member_key = (managed_member.user_id, False)
-        manager_is_guest = (managed_member.managed_by_type == 'guest')
-        manager_key = (managed_member.managed_by_id, manager_is_guest)
+def _fold_managed_relationships(
+    db: Session,
+    group_id: int,
+    totals: Dict[Tuple[int, bool], float],
+    *,
+    managed_guests: Optional[List["models.GuestMember"]] = None,
+    managed_members: Optional[List["models.GroupMember"]] = None,
+) -> None:
+    """
+    Fold managed guests and managed members into their managers in-place.
 
-        # Cycle-aware: don't fold participants whose chain loops back.
-        if member_key in cyclic_keys or manager_key in cyclic_keys:
-            continue
+    Scoped to the scalar case: ``totals`` is a dict keyed by ``(user_id, is_guest)``
+    with scalar numeric (int/float) values. For each managed guest or managed member
+    found in the group, the entry is added to the manager's entry and then removed
+    from ``totals``. The walk itself lives in :func:`_group_managed_pairs` and
+    :func:`_fold_pairs`, shared with every other fold.
 
-        if member_key in totals:
-            totals[manager_key] = totals.get(manager_key, 0) + totals[member_key]
-            del totals[member_key]
+    Args:
+        db: Database session.
+        group_id: ID of the group whose managed relationships should be folded.
+        totals: Mutable dict mapping ``(user_id, is_guest)`` to a scalar amount.
+            Mutated in place — folded entries are deleted, manager entries are
+            incremented (and created if missing when iterating in an order that
+            produces them).
+        managed_guests: Already-fetched managed ``GuestMember`` rows for the
+            group, when the caller has them. Fetched here otherwise.
+        managed_members: The same for managed ``GroupMember`` rows. Callers
+            folding two ledgers for one group pass both, so the rows are read
+            once rather than once per fold.
+    """
+    _fold_pairs(
+        totals,
+        _group_managed_pairs(db, group_id, managed_guests, managed_members),
+    )
 
 
 def simplify(
@@ -621,79 +654,14 @@ def calculate_net_balances(
         # so the upcoming consumption-summary primitive can reuse the same logic.
         _fold_managed_relationships(db, group_id, net_balances)
     else:
-        # Multi-currency mode — kept inline; the helper is scoped to scalar values.
-        # Aggregate managed guests with their managers
-        managed_guests = db.query(models.GuestMember).filter(
-            models.GuestMember.group_id == group_id,
-            models.GuestMember.managed_by_id != None
-        ).all()
-
-        # Aggregate managed members with their managers
-        managed_members = db.query(models.GroupMember).filter(
-            models.GroupMember.group_id == group_id,
-            models.GroupMember.managed_by_id != None
-        ).all()
-
-        # Detect managed_by cycles and skip folding cyclic participants so
-        # amounts aren't silently dropped onto a deleted key.
-        cyclic_keys = _detect_managed_cycles(managed_guests, managed_members)
-        if cyclic_keys:
-            logger.warning(
-                "Managed_by cycle detected for group_id=%s, keys involved=%s; "
-                "skipping fold to prevent silent data loss.",
-                group_id,
-                sorted(cyclic_keys),
-            )
-
-        for guest in managed_guests:
-            # Defensive check: claimed guests should not have managed_by set
-            # This would cause double-counting since the user inherits the management relationship
-            if guest.claimed_by_id and guest.managed_by_id:
-                logger.warning(
-                    "Data integrity issue: Claimed guest id=%s has managed_by_id=%s set. "
-                    "This should be None. Skipping aggregation to prevent double-counting.",
-                    guest.id,
-                    guest.managed_by_id,
-                )
+        # Multi-currency mode — same walk, merging each source's {currency: amount}
+        # dict into the manager's.
+        for source_key, manager_key in _group_managed_pairs(db, group_id):
+            if source_key not in net_balances:
                 continue
-
-            guest_key = _managed_key_for_guest(guest)
-            manager_is_guest = (guest.managed_by_type == 'guest')
-            manager_key = (guest.managed_by_id, manager_is_guest)
-
-            # Cycle-aware: don't fold participants whose chain loops back.
-            if guest_key in cyclic_keys or manager_key in cyclic_keys:
-                continue
-
-            if guest_key in net_balances:
-                # Multi-currency mode - aggregate per currency
-                if manager_key not in net_balances:
-                    net_balances[manager_key] = {}
-                for currency, amount in net_balances[guest_key].items():
-                    if currency not in net_balances[manager_key]:
-                        net_balances[manager_key][currency] = 0
-                    net_balances[manager_key][currency] += amount
-
-                del net_balances[guest_key]
-
-        for managed_member in managed_members:
-            member_key = (managed_member.user_id, False)
-            manager_is_guest = (managed_member.managed_by_type == 'guest')
-            manager_key = (managed_member.managed_by_id, manager_is_guest)
-
-            # Cycle-aware: don't fold participants whose chain loops back.
-            if member_key in cyclic_keys or manager_key in cyclic_keys:
-                continue
-
-            if member_key in net_balances:
-                # Multi-currency mode - aggregate per currency
-                if manager_key not in net_balances:
-                    net_balances[manager_key] = {}
-                for currency, amount in net_balances[member_key].items():
-                    if currency not in net_balances[manager_key]:
-                        net_balances[manager_key][currency] = 0
-                    net_balances[manager_key][currency] += amount
-
-                del net_balances[member_key]
+            manager_balances = net_balances.setdefault(manager_key, {})
+            for currency, amount in net_balances[source_key].items():
+                manager_balances[currency] = manager_balances.get(currency, 0) + amount
+            del net_balances[source_key]
 
     return net_balances
