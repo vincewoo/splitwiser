@@ -35,8 +35,9 @@ emit_fail() {
 
 # <stage> <what is missing> <command that creates it>
 fail_missing() {
-    printf '%s; %s\n' "$2" "$3" > "$WORK/missing"
-    emit_fail "$1" "$WORK/missing"
+    FAILED=1
+    out "$1: FAIL"
+    out "FAIL $2; $3"
 }
 
 USAGE="usage: gate.sh --files <path...> [--no-tests] [--related] | --full"
@@ -97,6 +98,9 @@ if [ "$FULL" = 1 ]; then
     TS=1
 fi
 
+NM=1
+[ -d "$ROOT/frontend/node_modules" ] || NM=0
+
 # 1. lint(py)
 if [ "$PY" = 1 ]; then
     if [ ! -x "$ROOT/backend/venv/bin/ruff" ]; then
@@ -128,7 +132,7 @@ fi
 # 3. lint(ts)
 if [ "$TS" = 0 ]; then
     out "lint(ts): skipped (no ts target)"
-elif [ ! -d "$ROOT/frontend/node_modules" ]; then
+elif [ "$NM" = 0 ]; then
     fail_missing "lint(ts)" "frontend/node_modules" "cd frontend && npm install"
 elif (cd "$ROOT/frontend" && env -u NODE_ENV npm run lint:ci) > "$WORK/lint_ts" 2>&1; then
     out "lint(ts): ok"
@@ -139,7 +143,7 @@ fi
 # 4. build(ts) -- the only stage that type-checks; --no-tests does not skip it.
 if [ "$TS" = 0 ]; then
     out "build(ts): skipped (no ts target)"
-elif [ ! -d "$ROOT/frontend/node_modules" ]; then
+elif [ "$NM" = 0 ]; then
     fail_missing "build(ts)" "frontend/node_modules" "cd frontend && npm install"
 elif (cd "$ROOT/frontend" && env -u NODE_ENV npm run build) > "$WORK/build_ts" 2>&1; then
     out "build(ts): ok"
@@ -152,18 +156,16 @@ if [ "$TS" = 0 ]; then
     out "tests(ts): skipped (no ts target)"
 elif [ "$NO_TESTS" = 1 ]; then
     out "tests(ts): skipped (--no-tests)"
-elif [ ! -d "$ROOT/frontend/node_modules" ]; then
+elif [ "$NM" = 0 ]; then
     fail_missing "tests(ts)" "frontend/node_modules" "cd frontend && npm install"
-elif [ "$RELATED" = 1 ] && [ "$FULL" = 0 ]; then
-    if (cd "$ROOT/frontend" && env -u NODE_ENV npx vitest related --run $TS_REL) > "$WORK/tests_ts" 2>&1; then
+else
+    TS_CMD="npm run test"
+    [ "$RELATED" = 1 ] && [ "$FULL" = 0 ] && TS_CMD="npx vitest related --run $TS_REL"
+    if (cd "$ROOT/frontend" && env -u NODE_ENV $TS_CMD) > "$WORK/tests_ts" 2>&1; then
         out "tests(ts): ok"
     else
         emit_fail "tests(ts)" "$WORK/tests_ts"
     fi
-elif (cd "$ROOT/frontend" && env -u NODE_ENV npm run test) > "$WORK/tests_ts" 2>&1; then
-    out "tests(ts): ok"
-else
-    emit_fail "tests(ts)" "$WORK/tests_ts"
 fi
 
 if [ "$FAILED" = 0 ]; then
