@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Money, Sheet } from '../ui';
 import TipPercentages from './TipPercentages';
-import { sanitizeAmountInput } from '../../utils/amountInput';
+import { centsToOptionalInput, inputToCentsOrZero, sanitizeAmountInput } from '../../utils/amountInput';
 import { formatMoney } from '../../utils/formatters';
 import {
     RECONCILE_TOLERANCE_CENTS,
@@ -39,14 +39,6 @@ export interface OpenTabSheetProps {
     currency?: string;
 }
 
-const centsToInput = (cents: number): string =>
-    cents > 0 ? (cents / 100).toFixed(2) : '';
-
-const inputToCents = (value: string): number => {
-    const parsed = Math.round(parseFloat(value || '0') * 100);
-    return Number.isFinite(parsed) ? parsed : 0;
-};
-
 /**
  * Name the place and settle the tip, then open the tab.
  *
@@ -67,12 +59,12 @@ const OpenTabSheet: React.FC<OpenTabSheetProps> = ({
 
     const [name, setName] = useState('');
     // Whatever the scan did find is the starting point, not a floor.
-    const [tip, setTip] = useState(() => centsToInput(scannedTip));
+    const [tip, setTip] = useState(() => centsToOptionalInput(scannedTip));
 
     const items = pending.items;
     const subtotal = items.reduce((sum, item) => sum + item.price, 0);
     const tax = pending.tax ?? 0;
-    const tipCents = inputToCents(tip);
+    const tipCents = inputToCentsOrZero(tip);
     const total = subtotal + tax + tipCents;
 
     /*
@@ -155,7 +147,7 @@ const OpenTabSheet: React.FC<OpenTabSheetProps> = ({
                 <TipPercentages
                     subtotal={subtotal}
                     tip={tipCents}
-                    onPick={(cents) => setTip(centsToInput(cents))}
+                    onPick={(cents) => setTip(centsToOptionalInput(cents))}
                 />
 
                 <p className="text-[11.5px] text-sw-dim">
@@ -175,7 +167,7 @@ const OpenTabSheet: React.FC<OpenTabSheetProps> = ({
                         </p>
                         <Button
                             variant="secondary"
-                            onClick={() => setTip(centsToInput(tipCents + unaccounted))}
+                            onClick={() => setTip(centsToOptionalInput(tipCents + unaccounted))}
                             className="min-h-[38px] text-[12.5px]"
                         >
                             Add {formatMoney(unaccounted, currency)} to the tip

@@ -7,6 +7,7 @@ import AlertDialog from './components/AlertDialog';
 import VenmoButton from './components/VenmoButton';
 import { buildVenmoLinks, venmoUnavailableNote } from './utils/venmo';
 import type { Friend } from './types/friend';
+import { getAllCurrencyCodes } from './utils/currencyHelpers';
 
 interface SettleUpModalProps {
     isOpen: boolean;
@@ -15,8 +16,6 @@ interface SettleUpModalProps {
     friends: Friend[];
     preselectedFriendId?: number | null;
 }
-
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'CNY', 'HKD', 'CHF'];
 
 /**
  * A direct payment to one person, outside any group.
@@ -193,7 +192,7 @@ const SettleUpModal: React.FC<SettleUpModalProps> = ({
                             onChange={(event) => setCurrency(event.target.value)}
                             className="px-2.5 py-2 rounded-lg bg-sw-sunk text-sw-text border border-sw-line focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
                         >
-                            {CURRENCIES.map((code) => (
+                            {getAllCurrencyCodes().map((code) => (
                                 <option key={code} value={code}>
                                     {code}
                                 </option>

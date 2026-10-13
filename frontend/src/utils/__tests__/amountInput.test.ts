@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { amountToCents, sanitizeAmountInput } from '../amountInput';
+import { amountToCents, centsToOptionalInput, inputToCentsOrZero, sanitizeAmountInput } from '../amountInput';
 
 /** Type a whole sequence one character at a time, as the field receives it. */
 const type = (keys: string, from = ''): string =>
@@ -88,5 +88,33 @@ describe('amountToCents', () => {
 
     it('treats a trailing decimal point as its whole part', () => {
         expect(amountToCents('12.')).toBe(1200);
+    });
+});
+
+describe('centsToOptionalInput', () => {
+    it('is empty for nothing and for a credit', () => {
+        expect(centsToOptionalInput(0)).toBe('');
+        expect(centsToOptionalInput(-5)).toBe('');
+    });
+
+    it('formats a positive figure to two decimals', () => {
+        expect(centsToOptionalInput(5)).toBe('0.05');
+        expect(centsToOptionalInput(1250)).toBe('12.50');
+    });
+});
+
+describe('inputToCentsOrZero', () => {
+    it('reads an empty field as zero', () => {
+        expect(inputToCentsOrZero('')).toBe(0);
+    });
+
+    it('rounds a typed amount to cents', () => {
+        expect(inputToCentsOrZero('12.5')).toBe(1250);
+        expect(inputToCentsOrZero('0.015')).toBe(2);
+    });
+
+    it('reads anything unparseable as zero', () => {
+        expect(inputToCentsOrZero('abc')).toBe(0);
+        expect(inputToCentsOrZero('.')).toBe(0);
     });
 });
