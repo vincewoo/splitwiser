@@ -11,7 +11,7 @@ import {
     WarningCircle,
     X,
 } from '@phosphor-icons/react';
-import { getApiUrl } from './api';
+import { fetchWithAuth, getApiUrl } from './api';
 import { useSync } from './contexts/SyncContext';
 import { compressImage } from './utils/imageCompression';
 import { Button } from './components/ui';
@@ -248,10 +248,8 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
             const formData = new FormData();
             formData.append('file', uploadFile);
 
-            const token = localStorage.getItem('token');
-            const response = await fetch(getApiUrl('ocr/scan-receipt'), {
+            const response = await fetchWithAuth(getApiUrl('ocr/scan-receipt'), {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
                 body: formData,
             });
 

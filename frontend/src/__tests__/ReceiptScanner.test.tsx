@@ -117,6 +117,39 @@ describe('ReceiptScanner upload', () => {
         expect(mockCompressImage).toHaveBeenCalledTimes(1);
         expect(mockCompressImage).toHaveBeenCalledWith(pngFile, 1920, 1);
     });
+
+    it('refreshes an expired token and retries the scan once', async () => {
+        localStorage.setItem('refreshToken', 'test-refresh');
+
+        fetchMock
+            .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ access_token: 'new-token' }),
+            })
+            .mockResolvedValueOnce({ ok: true, status: 200, json: async () => scanResult });
+
+        const onItemsDetected = vi.fn();
+        render(<ReceiptScanner onItemsDetected={onItemsDetected} onClose={() => {}} />);
+
+        const pdfFile = new File(['%PDF-1.4 fake'], 'receipt.pdf', {
+            type: 'application/pdf',
+        });
+        selectFile(getFileInput(), pdfFile);
+
+        fireEvent.click(screen.getByRole('button', { name: /read this receipt/i }));
+
+        await waitFor(() =>
+            expect(screen.getByText(/Tap any line to fix it/i)).toBeInTheDocument()
+        );
+
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(String(fetchMock.mock.calls[1][0])).toContain('auth/refresh');
+        const [retryUrl, retryOptions] = fetchMock.mock.calls[2];
+        expect(String(retryUrl)).toContain('ocr/scan-receipt');
+        expect(retryOptions.headers.Authorization).toBe('Bearer new-token');
+    });
 });
 
 describe('ReceiptScanner tax and tip editing', () => {
