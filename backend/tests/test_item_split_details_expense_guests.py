@@ -127,3 +127,104 @@ def test_update_passes_real_guest_id_keys_through(client, auth_headers, test_use
     assert details["expense_guests"][0]["amount_owed"] == 500
     item = next(i for i in details["items"] if not i["is_tax_tip"])
     assert item["split_details"][f"expense_guest_{guest_id}"]["shares"] == 1
+
+def test_update_exact_item_split_with_saved_expense_guest(client, auth_headers, test_user):
+    create = _base_payload(
+        test_user,
+        items=[
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "split_type": "EQUAL",
+                "assignments": [
+                    {"user_id": test_user.id, "is_guest": False},
+                    {"temp_guest_id": "g1"},
+                ],
+            },
+        ],
+        expense_guests=[{"temp_id": "g1", "name": "Ad-hoc Guest"}],
+    )
+    created = client.post("/expenses", headers=auth_headers, json=create)
+    assert created.status_code == 200
+    expense_id = created.json()["id"]
+    details = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()
+    guest_id = details["expense_guests"][0]["id"]
+
+    # Edit flow: assignments and details reference the real guest id.
+    update = {
+        **create,
+        "expense_guests": [],
+        "items": [
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "split_type": "EXACT",
+                "split_details": {
+                    f"user_{test_user.id}": {"amount": 300},
+                    f"expense_guest_{guest_id}": {"amount": 700},
+                },
+                "assignments": [
+                    {"user_id": test_user.id, "is_guest": False},
+                    {"expense_guest_id": guest_id, "is_guest": False},
+                ],
+            },
+        ],
+    }
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 200
+
+    details = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()
+    assert details["expense_guests"][0]["amount_owed"] == 700
+
+
+def test_update_percent_item_split_with_saved_expense_guest(client, auth_headers, test_user):
+    create = _base_payload(
+        test_user,
+        items=[
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "split_type": "EQUAL",
+                "assignments": [
+                    {"user_id": test_user.id, "is_guest": False},
+                    {"temp_guest_id": "g1"},
+                ],
+            },
+        ],
+        expense_guests=[{"temp_id": "g1", "name": "Ad-hoc Guest"}],
+    )
+    created = client.post("/expenses", headers=auth_headers, json=create)
+    assert created.status_code == 200
+    expense_id = created.json()["id"]
+    details = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()
+    guest_id = details["expense_guests"][0]["id"]
+
+    # Edit flow: assignments and details reference the real guest id.
+    update = {
+        **create,
+        "expense_guests": [],
+        "items": [
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "split_type": "PERCENT",
+                "split_details": {
+                    f"user_{test_user.id}": {"percentage": 30},
+                    f"expense_guest_{guest_id}": {"percentage": 70},
+                },
+                "assignments": [
+                    {"user_id": test_user.id, "is_guest": False},
+                    {"expense_guest_id": guest_id, "is_guest": False},
+                ],
+            },
+        ],
+    }
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 200
+
+    details = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()
+    assert details["expense_guests"][0]["amount_owed"] == 700

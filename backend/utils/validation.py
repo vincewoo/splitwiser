@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 import models
 import schemas
+from utils.splits import get_assignment_key
 
 
 def get_user_by_email(db: Session, email: str):
@@ -163,16 +164,6 @@ def validate_expense_participants(
                         elif current_user_id and assignment.user_id != current_user_id:
                             if not is_friend(db, current_user_id, assignment.user_id):
                                 raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} is not a friend")
-
-
-def get_assignment_key(assignment: schemas.ItemAssignment) -> str:
-    """Get a unique key for an assignment (user, group guest, or expense guest)."""
-    if assignment.temp_guest_id:
-        return f"expense_guest_{assignment.temp_guest_id}"
-    elif assignment.is_guest:
-        return f"guest_{assignment.user_id}"
-    else:
-        return f"user_{assignment.user_id}"
 
 
 def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
