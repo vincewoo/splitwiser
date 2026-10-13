@@ -647,3 +647,31 @@ class TestValidateItemSplitDetails:
                 }),
             ])
         assert exc.value.detail.startswith("Item 2:")
+
+
+    def test_shares_missing_for_an_assignee_count_as_one(self):
+        validate_item_split_details([
+            build_item(1000, TWO_USERS, "SHARES", {
+                "user_1": schemas.ItemSplitDetail(shares=3),
+            })
+        ])
+
+    def test_exact_amount_missing_for_an_assignee_counts_as_zero(self):
+        validate_item_split_details([
+            build_item(1000, TWO_USERS, "EXACT", {
+                "user_1": schemas.ItemSplitDetail(amount=1000),
+            })
+        ])
+
+    def test_split_details_given_as_plain_dicts_are_read(self):
+        item = build_item(1000, TWO_USERS, "EXACT")
+        item.split_details = {"user_1": {"amount": 600}, "user_2": {"amount": 400}}
+        assert isinstance(item.split_details["user_1"], dict)
+        validate_item_split_details([item])
+
+        rejected = build_item(1000, TWO_USERS, "EXACT")
+        rejected.split_details = {"user_1": {"amount": 600}, "user_2": {"amount": 300}}
+        with pytest.raises(HTTPException) as exc:
+            validate_item_split_details([rejected])
+        assert exc.value.status_code == 400
+        assert "don't match item price" in exc.value.detail

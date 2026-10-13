@@ -166,6 +166,15 @@ def validate_expense_participants(
                                 raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} is not a friend")
 
 
+def _detail_field(detail: object, name: str, default: float) -> float:
+    """Read one field from a split-detail entry, which may be a dict or a model."""
+    if isinstance(detail, dict):
+        value = detail.get(name)
+    else:
+        value = getattr(detail, name, None)
+    return default if value is None else value
+
+
 def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
     """Validate that item split details are valid for their split types."""
     for item_idx, item in enumerate(items):
@@ -191,14 +200,7 @@ def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
             total_amount = 0
             for assignment in item.assignments:
                 key = get_assignment_key(assignment)
-                detail = split_details.get(key, {})
-                # Handle both dict and ItemSplitDetail object
-                if hasattr(detail, 'amount'):
-                    amount = detail.amount or 0
-                elif isinstance(detail, dict):
-                    amount = detail.get('amount', 0)
-                else:
-                    amount = 0
+                amount = _detail_field(split_details.get(key), 'amount', 0)
                 total_amount += amount
 
             # Allow small discrepancy for rounding
@@ -213,14 +215,7 @@ def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
             total_percentage = 0
             for assignment in item.assignments:
                 key = get_assignment_key(assignment)
-                detail = split_details.get(key, {})
-                # Handle both dict and ItemSplitDetail object
-                if hasattr(detail, 'percentage'):
-                    percentage = detail.percentage or 0
-                elif isinstance(detail, dict):
-                    percentage = detail.get('percentage', 0)
-                else:
-                    percentage = 0
+                percentage = _detail_field(split_details.get(key), 'percentage', 0)
                 total_percentage += percentage
 
             # Allow small discrepancy for rounding
@@ -235,14 +230,7 @@ def validate_item_split_details(items: list[schemas.ExpenseItemCreate]) -> None:
             total_shares = 0
             for assignment in item.assignments:
                 key = get_assignment_key(assignment)
-                detail = split_details.get(key, {})
-                # Handle both dict and ItemSplitDetail object
-                if hasattr(detail, 'shares'):
-                    shares = detail.shares if detail.shares is not None else 1
-                elif isinstance(detail, dict):
-                    shares = detail.get('shares', 1)
-                else:
-                    shares = 1
+                shares = _detail_field(split_details.get(key), 'shares', 1)
                 if shares < 1:
                     raise HTTPException(
                         status_code=400,
