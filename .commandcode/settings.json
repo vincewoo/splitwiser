@@ -1,0 +1,136 @@
+{
+  "skills": [
+    ".claude/skills"
+  ],
+  "permissions": {
+    "defaultMode": "auto-accept",
+    "allow": [
+      "Edit(/specs/**)",
+      "Edit(/.adw/**)",
+      "Edit(/adw/**)",
+      "Edit(/lib/**)",
+      "Edit(/src/**)",
+      "Edit(/tools/**)",
+      "Shell(git:*)",
+      "Shell(sh tools/adw/gate.sh:*)",
+      "Shell(sh *gate.sh:*)",
+      "Shell(bash tools/adw/gate.sh:*)",
+      "Shell(bash *gate.sh:*)",
+      "Shell(python3 tools/adw/audit_pack.py:*)",
+      "Shell(python3 *audit_pack.py:*)",
+      "Shell(python3 adw/core/adw_hub.py:*)",
+      "Shell(python3 tools/adw/adw_hub.py:*)",
+      "Shell(python3 *adw_hub.py:*)",
+      "Shell(adw:*)",
+      "Shell(sh adw/bin/adw_audit_run.sh:*)",
+      "Shell(sh adw/bin/adw_worker_run.sh:*)",
+      "Shell(sh adw/bin/adw_research_run.sh:*)",
+      "Shell(sh *adw_audit_run.sh:*)",
+      "Shell(sh *adw_worker_run.sh:*)",
+      "Shell(sh *adw_research_run.sh:*)",
+      "Shell(sh *orch_session.sh:*)",
+      "Shell(python3 -m unittest discover -s adw/tests:*)",
+      "Shell(pnpm:*)",
+      "Shell(ps:*)",
+      "Shell(pgrep:*)",
+      "Shell(pstree:*)",
+      "Shell(sleep:*)",
+      "Shell(tmux:*)",
+      "Shell(kill:*)",
+      "Shell(rm:*)",
+      "Shell(tail:*)",
+      "Shell(ls:*)",
+      "Shell(stat:*)",
+      "Shell(cat:*)",
+      "Shell(grep:*)",
+      "Shell(sed:*)",
+      "Shell(mkdir:*)",
+      "Shell(cp:*)",
+      "Shell(mv:*)",
+      "Shell(tar:*)",
+      "Shell(wc:*)",
+      "Shell(date:*)",
+      "Shell(chmod:*)",
+      "Shell(diff:*)",
+      "Shell(python3:*)",
+      "Shell(python:*)",
+      "Shell(echo:*)",
+      "Shell(find:*)",
+      "Shell(which:*)",
+      "Shell(readlink:*)",
+      "Shell(env:*)",
+      "Shell(head:*)",
+      "Shell(awk:*)",
+      "Shell(sort:*)",
+      "Shell(cut:*)",
+      "Shell(tr:*)",
+      "Shell(uniq:*)",
+      "Shell(xargs:*)",
+      "Shell(printf:*)",
+      "Shell(basename:*)",
+      "Shell(dirname:*)",
+      "Shell(realpath:*)",
+      "Shell(du:*)",
+      "Shell(df:*)",
+      "Shell(touch:*)",
+      "Shell(sha256sum:*)",
+      "Shell(md5sum:*)",
+      "Shell(jq:*)",
+      "Shell(node:*)",
+      "Shell(npm:*)",
+      "Shell(npx:*)",
+      "Shell(git commit:*)"
+    ],
+    "ask": [
+      "Shell(git pull:*)",
+      "Edit(/AGENTS.md)",
+      "Edit(/.claude/skills/**)"
+    ],
+    "deny": [
+      "Shell(git push --force*)",
+      "Shell(git reset --hard*)",
+      "Shell(rm -r*)",
+      "Shell(rm -R*)",
+      "Shell(rm -fr*)",
+      "Shell(rm -fR*)",
+      "Shell(rm --recursive*)",
+      "Shell(rm * -r*)",
+      "Shell(rm * -R*)",
+      "Shell(git clean -*)",
+      "Shell(git push*)",
+      "Shell(git merge*)",
+      "Shell(git checkout*)",
+      "Shell(git switch*)",
+      "Shell(git rebase*)",
+      "Shell(tmux kill-server*)",
+      "Shell(tmux kill-session*)",
+      "Shell(tmux -f * kill-server*)",
+      "Shell(tmux -f * kill-session*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "adw orch-hook",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "shell|write|edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.commandcode/hooks/log-tools.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
