@@ -4,30 +4,6 @@
  */
 
 /**
- * Get the dimensions of an image file
- */
-export async function getImageDimensions(
-  file: File
-): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
-
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve({ width: img.width, height: img.height });
-    };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error('Failed to load image'));
-    };
-
-    img.src = objectUrl;
-  });
-}
-
-/**
  * Calculate new dimensions while preserving aspect ratio
  */
 export function calculateNewDimensions(
@@ -55,44 +31,44 @@ export function calculateNewDimensions(
 }
 
 /**
- * Convert a File to a data URL
+ * Load an image file into an HTMLImageElement, revoking the object URL once done.
  */
-export function fileToDataURL(file: File): Promise<string> {
+function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
 
-    reader.onload = (e) => {
-      if (e.target?.result && typeof e.target.result === 'string') {
-        resolve(e.target.result);
-      } else {
-        reject(new Error('Failed to read file as data URL'));
-      }
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(img);
     };
 
-    reader.onerror = () => {
-      reject(new Error('FileReader error'));
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Failed to load image'));
     };
 
-    reader.readAsDataURL(file);
+    img.src = objectUrl;
   });
 }
 
 /**
- * Convert a data URL to a File object
+ * Encode a canvas as a JPEG blob at the given quality.
  */
-export function dataURLToFile(dataURL: string, filename: string): File {
-  const arr = dataURL.split(',');
-  const mimeMatch = arr[0].match(/:(.*?);/);
-  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n);
-  }
-
-  return new File([u8arr], filename, { type: mime });
+function encodeJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Failed to encode image'));
+        }
+      },
+      'image/jpeg',
+      quality
+    );
+  });
 }
 
 /**
@@ -113,13 +89,13 @@ export async function compressImage(
       throw new Error('File must be an image');
     }
 
-    // Get original dimensions
-    const { width, height } = await getImageDimensions(file);
+    // Load the image once: the same element is measured and then drawn.
+    const img = await loadImage(file);
 
     // Calculate new dimensions
     const { width: newWidth, height: newHeight } = calculateNewDimensions(
-      width,
-      height,
+      img.width,
+      img.height,
       maxDimension
     );
 
@@ -133,50 +109,25 @@ export async function compressImage(
       throw new Error('Failed to get canvas context');
     }
 
-    // Load image into canvas
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
-
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        resolve();
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(objectUrl);
-        reject(new Error('Failed to load image'));
-      };
-      img.src = objectUrl;
-    });
-
-    // Draw image on canvas
     ctx.drawImage(img, 0, 0, newWidth, newHeight);
 
     // Compress with quality adjustment to meet size target
     const maxSizeBytes = maxSizeMB * 1024 * 1024;
     let quality = 0.9;
-    let compressedDataURL: string;
-    let compressedFile: File;
+    let blob: Blob;
 
     // Binary search for optimal quality
     let minQuality = 0.1;
     let maxQuality = 0.9;
 
     while (true) {
-      compressedDataURL = canvas.toDataURL('image/jpeg', quality);
-      compressedFile = dataURLToFile(
-        compressedDataURL,
-        file.name.replace(/\.[^/.]+$/, '.jpg')
-      );
+      blob = await encodeJpeg(canvas, quality);
 
-      if (compressedFile.size > maxSizeBytes && quality > minQuality) {
+      if (blob.size > maxSizeBytes && quality > minQuality) {
         // File too large, reduce quality
         maxQuality = quality;
         quality = (minQuality + quality) / 2;
-      } else if (
-        compressedFile.size < maxSizeBytes * 0.8 &&
-        quality < maxQuality
-      ) {
+      } else if (blob.size < maxSizeBytes * 0.8 && quality < maxQuality) {
         // File could be larger, increase quality
         minQuality = quality;
         quality = (quality + maxQuality) / 2;
@@ -192,15 +143,13 @@ export async function compressImage(
     }
 
     // If still too large, use minimum quality
-    if (compressedFile.size > maxSizeBytes) {
-      compressedDataURL = canvas.toDataURL('image/jpeg', 0.1);
-      compressedFile = dataURLToFile(
-        compressedDataURL,
-        file.name.replace(/\.[^/.]+$/, '.jpg')
-      );
+    if (blob.size > maxSizeBytes) {
+      blob = await encodeJpeg(canvas, 0.1);
     }
 
-    return compressedFile;
+    return new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+      type: 'image/jpeg',
+    });
   } catch (error) {
     console.error('Image compression failed:', error);
     throw error;
