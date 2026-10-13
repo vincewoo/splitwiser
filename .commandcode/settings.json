@@ -11,6 +11,8 @@
       "Edit(/lib/**)",
       "Edit(/src/**)",
       "Edit(/tools/**)",
+      "Edit(/backend/**)",
+      "Edit(/frontend/**)",
       "Shell(git:*)",
       "Shell(sh tools/adw/gate.sh:*)",
       "Shell(sh *gate.sh:*)",

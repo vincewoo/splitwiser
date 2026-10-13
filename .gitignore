@@ -30,3 +30,6 @@ credentials.json
 
 # ADW local state and runtime artifacts
 .adw/
+
+# Command Code worker state, recreated on every worker run
+.commandcode/taste/
