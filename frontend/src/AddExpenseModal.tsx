@@ -645,47 +645,6 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         return participants;
     };
 
-    const getCurrentlySelectedParticipants = (): Participant[] => {
-        const selected: Participant[] = [];
-
-        // Only include current user if selected
-        if (currentUserSelected) {
-            selected.push({ id: user!.id, name: 'You', isGuest: false });
-        }
-
-        selectedFriendIds.forEach(fid => {
-            const friend = friends.find(f => f.id === fid);
-            if (friend) {
-                selected.push({ id: friend.id, name: friend.full_name, isGuest: false });
-            } else if (selectedGroup) {
-                // Group members may not be in the friends list
-                const member = selectedGroup.members?.find(m => m.user_id === fid);
-                if (member) {
-                    selected.push({ id: member.user_id, name: member.full_name, isGuest: false });
-                }
-            }
-        });
-        selectedGuestIds.forEach(gid => {
-            const guest = groupGuests.find(g => g.id === gid);
-            if (guest) {
-                selected.push({ id: guest.id, name: guest.name, isGuest: true });
-            }
-        });
-        // Include expense guests (for non-group expenses) - they're always selected when added
-        if (!selectedGroupId) {
-            expenseGuests.forEach(eg => {
-                selected.push({
-                    id: 0,
-                    name: eg.name,
-                    isGuest: false,
-                    isExpenseGuest: true,
-                    tempId: eg.temp_id
-                });
-            });
-        }
-        return selected;
-    };
-
     const handleMainParticipantSelectorConfirm = (selectedParticipants: Participant[]) => {
         setSelectedFriendIds([]);
         setSelectedGuestIds([]);
@@ -810,7 +769,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     isOpen={true}
                     onClose={() => setShowParticipantSelector(false)}
                     participants={getAvailableParticipants()}
-                    selectedParticipants={getCurrentlySelectedParticipants()}
+                    selectedParticipants={getAllParticipants()}
                     onConfirm={handleMainParticipantSelectorConfirm}
                     itemDescription="Select people for this expense"
                 />

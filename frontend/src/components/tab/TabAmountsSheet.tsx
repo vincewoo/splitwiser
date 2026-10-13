@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Money, Sheet } from '../ui';
 import TipPercentages from './TipPercentages';
-import { sanitizeAmountInput } from '../../utils/amountInput';
+import { centsToOptionalInput, inputToCentsOrZero, sanitizeAmountInput } from '../../utils/amountInput';
 
 export interface TabAmountsSheetProps {
     /** Sum of the tab's lines, in cents — what the percentages are taken on. */
@@ -14,14 +14,6 @@ export interface TabAmountsSheetProps {
     busy?: boolean;
     error?: string | null;
 }
-
-const centsToInput = (cents: number): string =>
-    cents > 0 ? (cents / 100).toFixed(2) : '';
-
-const inputToCents = (value: string): number => {
-    const parsed = Math.round(parseFloat(value || '0') * 100);
-    return Number.isFinite(parsed) ? parsed : 0;
-};
 
 /**
  * Correcting the tax and the tip on a tab that is already open.
@@ -46,11 +38,11 @@ const TabAmountsSheet: React.FC<TabAmountsSheetProps> = ({
     busy = false,
     error = null,
 }) => {
-    const [taxInput, setTaxInput] = useState(() => centsToInput(tax));
-    const [tipInput, setTipInput] = useState(() => centsToInput(tip));
+    const [taxInput, setTaxInput] = useState(() => centsToOptionalInput(tax));
+    const [tipInput, setTipInput] = useState(() => centsToOptionalInput(tip));
 
-    const taxCents = inputToCents(taxInput);
-    const tipCents = inputToCents(tipInput);
+    const taxCents = inputToCentsOrZero(taxInput);
+    const tipCents = inputToCentsOrZero(tipInput);
     const total = subtotal + taxCents + tipCents;
 
     const field = (
@@ -85,7 +77,7 @@ const TabAmountsSheet: React.FC<TabAmountsSheetProps> = ({
                 <TipPercentages
                     subtotal={subtotal}
                     tip={tipCents}
-                    onPick={(cents) => setTipInput(centsToInput(cents))}
+                    onPick={(cents) => setTipInput(centsToOptionalInput(cents))}
                 />
 
                 <p className="text-[11.5px] text-sw-dim">

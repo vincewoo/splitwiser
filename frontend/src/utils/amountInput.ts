@@ -57,3 +57,23 @@ export function amountToCents(current: string): number | null {
     if (!Number.isFinite(value) || value <= 0) return null;
     return Math.round(value * 100);
 }
+
+/**
+ * Seed an optional money field from cents: empty string for nothing (or a
+ * credit), otherwise a fixed two-decimal figure. Distinct from the
+ * centsToInput in settleAmount.ts, which renders zero as a zero figure; a tax
+ * or tip field starting at zero reads as a value the user chose.
+ */
+export function centsToOptionalInput(cents: number): string {
+    return cents > 0 ? (cents / 100).toFixed(2) : '';
+}
+
+/**
+ * The cents a free-typed money field holds, defaulting to zero. Unlike
+ * amountToCents, an empty or unparseable field is 0 rather than null: tax and
+ * tip legitimately sit at nothing.
+ */
+export function inputToCentsOrZero(value: string): number {
+    const parsed = Math.round(parseFloat(value || '0') * 100);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
