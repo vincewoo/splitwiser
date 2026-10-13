@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { getApiUrl } from './api';
+import { refreshAccessToken } from './services/api';
 
 interface User {
   id: number;
@@ -15,36 +16,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType>(null!);
-
-// Token refresh utility
-export const refreshAccessToken = async (): Promise<string | null> => {
-  const refreshToken = localStorage.getItem('refreshToken');
-  if (!refreshToken) return null;
-
-  try {
-    const response = await fetch(getApiUrl('auth/refresh'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ refresh_token: refreshToken })
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      localStorage.setItem('token', data.access_token);
-      return data.access_token;
-    } else {
-      // Refresh token expired or invalid
-      localStorage.removeItem('token');
-      localStorage.removeItem('refreshToken');
-      return null;
-    }
-  } catch (error) {
-    console.error('Token refresh failed:', error);
-    return null;
-  }
-};
 
 // Fetch user with automatic token refresh on 401
 const fetchUserWithRefresh = async (): Promise<User | null> => {

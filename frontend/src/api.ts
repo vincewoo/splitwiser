@@ -1,5 +1,5 @@
 // API configuration with automatic token refresh
-import { refreshAccessToken } from './AuthContext';
+import { refreshAccessToken } from './services/api';
 import { API_BASE_URL } from './config';
 
 // Helper to get full API URL for a path

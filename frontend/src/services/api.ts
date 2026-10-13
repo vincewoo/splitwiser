@@ -15,7 +15,7 @@ const getToken = (): string | null => {
 /**
  * Refresh the access token using the refresh token
  */
-const refreshAccessToken = async (): Promise<string | null> => {
+export const refreshAccessToken = async (): Promise<string | null> => {
     const refreshToken = localStorage.getItem('refreshToken');
     if (!refreshToken) return null;
 
@@ -101,36 +101,6 @@ export const filenameFromDisposition = (header: string | null): string | null =>
 };
 
 // ============================================================================
-// Authentication API
-// ============================================================================
-
-export const authApi = {
-    login: async (email: string, password: string) => {
-        const response = await fetch(`${API_BASE_URL}/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password }),
-        });
-        return response;
-    },
-
-    register: async (fullName: string, email: string, password: string) => {
-        const response = await fetch(`${API_BASE_URL}/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ full_name: fullName, email, password }),
-        });
-        return response;
-    },
-
-    getCurrentUser: async () => {
-        const response = await apiFetch('/me');
-        if (!response.ok) throw new Error('Failed to fetch current user');
-        return response.json();
-    },
-};
-
-// ============================================================================
 // Friends API
 // ============================================================================
 
@@ -213,12 +183,6 @@ export const friendsApi = {
             method: 'DELETE',
         });
         return response;
-    },
-
-    getStatus: async (userId: number) => {
-        const response = await apiFetch(`/friends/status/${userId}`);
-        if (!response.ok) throw new Error('Failed to fetch friendship status');
-        return response.json();
     },
 };
 
@@ -827,20 +791,6 @@ export const publicTabsApi = {
 };
 
 // ============================================================================
-// Receipt Scanning API
-// ============================================================================
-
-export const receiptsApi = {
-    scan: async (imageData: string) => {
-        const response = await apiFetch('/scan-receipt', {
-            method: 'POST',
-            body: JSON.stringify({ image: imageData }),
-        });
-        return response;
-    },
-};
-
-// ============================================================================
 // Profile Management API
 // ============================================================================
 
@@ -929,12 +879,10 @@ export const profileApi = {
 
 // Export a consolidated API object
 export const api = {
-    auth: authApi,
     friends: friendsApi,
     groups: groupsApi,
     expenses: expensesApi,
     balances: balancesApi,
-    receipts: receiptsApi,
     profile: profileApi,
 };
 
