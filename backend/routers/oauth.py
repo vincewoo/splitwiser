@@ -9,7 +9,6 @@ import auth
 import models
 import schemas
 from database import get_db
-from dependencies import get_current_user
 from oauth.google import GoogleOAuthError, verify_google_token
 from utils.rate_limiter import auth_rate_limiter
 
@@ -114,80 +113,6 @@ def google_authenticate(
         claimed_group_id=claimed_group_id,
         account_linked=account_linked
     )
-
-
-@router.post("/link", dependencies=[Depends(auth_rate_limiter)])
-def link_google_account(
-    request: schemas.GoogleLinkRequest,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Link Google account to existing authenticated user.
-    User must be logged in with email/password.
-    """
-    if current_user.google_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google account already linked"
-        )
-
-    try:
-        google_info = verify_google_token(request.id_token)
-    except GoogleOAuthError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid Google token: {e!s}"
-        ) from e
-
-    google_id = google_info['google_id']
-
-    # Check if this Google account is already linked to another user
-    existing = db.query(models.User).filter(models.User.google_id == google_id).first()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This Google account is already linked to another user"
-        )
-
-    # Link the account
-    current_user.google_id = google_id
-    current_user.google_picture = google_info['picture']
-    current_user.auth_provider = "both"
-
-    db.commit()
-
-    return {"message": "Google account linked successfully"}
-
-
-@router.delete("/unlink", dependencies=[Depends(auth_rate_limiter)])
-def unlink_google_account(
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Unlink Google account from user.
-    Requires user to have a password set (cannot be OAuth-only).
-    """
-    if not current_user.google_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No Google account linked"
-        )
-
-    if not current_user.hashed_password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot unlink Google account without a password. Please set a password first."
-        )
-
-    current_user.google_id = None
-    current_user.google_picture = None
-    current_user.auth_provider = "local"
-
-    db.commit()
-
-    return {"message": "Google account unlinked successfully"}
 
 
 def _claim_guest_for_user(db: Session, user: models.User, guest_id: int, share_link_id: str) -> int | None:

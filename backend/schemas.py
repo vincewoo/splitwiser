@@ -373,15 +373,6 @@ class FriendRequestResponse(BaseModel):
         from_attributes = True
 
 
-class FriendshipStatus(BaseModel):
-    """Status of relationship between current user and another user."""
-    user_id: int
-    full_name: str
-    email: str
-    status: str  # "friends", "pending_incoming", "pending_outgoing", "none"
-    request_id: Optional[int] = None  # If pending, the request ID
-
-
 class PendingRequestCount(BaseModel):
     """Count of pending incoming friend requests."""
     count: int
@@ -715,16 +706,6 @@ class GoogleAuthResponse(BaseModel):
     is_new_user: bool  # True if a new account was created
     claimed_group_id: Optional[int] = None
     account_linked: bool = False  # True if Google was linked to existing account
-
-
-class GoogleLinkRequest(BaseModel):
-    """Request to link Google account to existing user."""
-    id_token: str
-
-
-class SetPasswordRequest(BaseModel):
-    """Request to set password for OAuth-only users."""
-    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 # ---------------------------------------------------------------------------
