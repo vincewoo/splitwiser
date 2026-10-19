@@ -36,15 +36,16 @@ export interface FabSheetProps {
     resumeTargets?: ResumeTarget[];
     /** Context line under "Add an expense", e.g. the last-used group. */
     addExpenseCaption?: string;
-    settleUpCaption?: string;
 }
 
 /**
- * The sheet behind the FAB. "Add an expense" carries the accent because it is
- * the everyday action and the one the + button literally promises; the
- * situational peers (split a bill, settle up, money received) stay neutral so
- * the eye lands on the primary. A live tab gets its prominence from the
- * "pick up where you left off" strip instead, which is the situational slot.
+ * The sheet behind the FAB, in three tiers: "Add an expense" carries the
+ * accent because it is the everyday action and the one the + button literally
+ * promises; "Split a bill" keeps a full card; "Settle up" and "Money
+ * received" are slimmer rows that keep their teaching subtitles, which wrap
+ * rather than truncate on narrow phones. The eye lands on the primary. A live tab
+ * gets its prominence from the "pick up where you left off" strip instead,
+ * which is the situational slot.
  */
 const FabSheet: React.FC<FabSheetProps> = ({
     open,
@@ -54,8 +55,7 @@ const FabSheet: React.FC<FabSheetProps> = ({
     onSplitBill,
     onSettleUp,
     resumeTargets = [],
-    addExpenseCaption = 'Split it with a group or a person',
-    settleUpCaption = 'Clear what you owe, or get paid back',
+    addExpenseCaption = 'Split it with the group',
 }) => {
     const run = (action: () => void) => () => {
         onClose();
@@ -91,31 +91,35 @@ const FabSheet: React.FC<FabSheetProps> = ({
                 trailing={<CaretRight size={17} className="text-sw-dim" />}
             />
 
-            <Row
-                variant="card"
+            {/* The quiet tier: full width so the teaching subtitles fit and
+                wrap rather than truncate, but visibly smaller than the cards
+                above — small dim icon, tighter padding, no caret. */}
+            <button
+                type="button"
                 onClick={run(onSettleUp)}
-                leading={
-                    <IconTile tone="neutral">
-                        <Handshake size={21} />
-                    </IconTile>
-                }
-                title={<span className="text-[15px]">Settle up</span>}
-                subtitle={settleUpCaption}
-                trailing={<CaretRight size={17} className="text-sw-dim" />}
-            />
-
-            <Row
-                variant="card"
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-sw-card bg-sw-surface shadow-[0_0_0_1px_var(--sw-line)] text-left focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
+            >
+                <Handshake size={18} className="text-sw-dim flex-none" aria-hidden="true" />
+                <span className="min-w-0">
+                    <span className="block text-[13px] font-medium">Settle up</span>
+                    <span className="block text-[11px] text-sw-dim leading-snug">
+                        Clear what you owe, or get paid back
+                    </span>
+                </span>
+            </button>
+            <button
+                type="button"
                 onClick={run(onAddIncome)}
-                leading={
-                    <IconTile tone="neutral">
-                        <HandCoins size={21} />
-                    </IconTile>
-                }
-                title={<span className="text-[15px]">Money received</span>}
-                subtitle="A refund or deposit someone's holding for the group"
-                trailing={<CaretRight size={17} className="text-sw-dim" />}
-            />
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-sw-card bg-sw-surface shadow-[0_0_0_1px_var(--sw-line)] text-left focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
+            >
+                <HandCoins size={18} className="text-sw-dim flex-none" aria-hidden="true" />
+                <span className="min-w-0">
+                    <span className="block text-[13px] font-medium">Money received</span>
+                    <span className="block text-[11px] text-sw-dim leading-snug">
+                        A refund or deposit someone&apos;s holding for the group
+                    </span>
+                </span>
+            </button>
 
             {resumeTargets.length > 0 && (
                 <>
