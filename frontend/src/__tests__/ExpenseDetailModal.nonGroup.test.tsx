@@ -174,4 +174,58 @@ describe('ExpenseDetailModal editing a non-group expense', () => {
         expect(screen.getByRole('button', { name: 'Add guest' })).toBeDisabled();
         expect(screen.getByText('dana is already on this expense.')).toBeInTheDocument();
     });
+
+    it('does not send a guest added but given no item', async () => {
+        await openEditor(itemizedExpense);
+
+        fireEvent.change(screen.getByLabelText('Guest name'), { target: { value: 'Ben' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add guest' }));
+        const payload = await savedPayload();
+
+        expect(payload.expense_guests).toBeUndefined();
+    });
+
+    it('offers Add guest only on an itemized split, where a guest can owe something', async () => {
+        await openEditor(equalExpense);
+
+        expect(screen.queryByLabelText('Guest name')).not.toBeInTheDocument();
+    });
+
+    it('leaves ad-hoc guests out of Paid by', async () => {
+        await openEditor({
+            ...equalExpense,
+            expense_guests: [
+                { id: 1, expense_id: 7, name: 'Dana', amount_owed: 0, paid: false, paid_at: null },
+            ],
+        });
+
+        const payers = Array.from(
+            (screen.getByLabelText('Paid by') as HTMLSelectElement).options
+        ).map(o => o.textContent);
+        expect(payers).toEqual(['You', 'Sam']);
+    });
+});
+
+describe('ExpenseDetailModal viewing a non-group expense', () => {
+    it('names a payer who is on the bill but not a friend', async () => {
+        vi.mocked(expensesApi.getById).mockResolvedValue({ ...equalExpense, payer_id: 9 });
+        render(
+            <MemoryRouter>
+                <ExpenseDetailModal
+                    isOpen
+                    onClose={vi.fn()}
+                    expenseId={7}
+                    onExpenseUpdated={vi.fn()}
+                    onExpenseDeleted={vi.fn()}
+                    groupMembers={[]}
+                    groupGuests={[]}
+                    friends={friends}
+                    currentUserId={1}
+                />
+            </MemoryRouter>
+        );
+
+        const paidBy = await screen.findByText('Paid by');
+        expect(paidBy.parentElement).toHaveTextContent('Paid bySam');
+    });
 });

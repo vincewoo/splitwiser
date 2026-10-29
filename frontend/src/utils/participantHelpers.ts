@@ -6,7 +6,8 @@ import { assignmentIsParticipant } from './expenseTransformations';
  */
 export const getParticipantKey = (participant: Participant): string => {
     if (participant.isExpenseGuest) {
-        return `expenseguest_${participant.id}`;
+        // A guest added but not yet saved has id 0; its temp id tells them apart.
+        return `expenseguest_${participant.tempId ?? participant.id}`;
     }
     return participant.isGuest ? `guest_${participant.id}` : `user_${participant.id}`;
 };
@@ -15,7 +16,8 @@ export const getParticipantKey = (participant: Participant): string => {
  * Get display name for a participant
  */
 export const getParticipantName = (participant: Participant, currentUserId?: number): string => {
-    if (!participant.isGuest && currentUserId && participant.id === currentUserId) {
+    // Only a registered user can be you: guest ids overlap user ids.
+    if (!participant.isGuest && !participant.isExpenseGuest && currentUserId && participant.id === currentUserId) {
         return "You";
     }
     return participant.name;
@@ -34,8 +36,8 @@ export const shouldUseCompactMode = (participants: Participant[]): boolean => {
 export const sortParticipants = (participants: Participant[], currentUserId?: number): Participant[] => {
     return [...participants].sort((a, b) => {
         // Current user always comes first
-        const aIsCurrentUser = !a.isGuest && currentUserId && a.id === currentUserId;
-        const bIsCurrentUser = !b.isGuest && currentUserId && b.id === currentUserId;
+        const aIsCurrentUser = !a.isGuest && !a.isExpenseGuest && currentUserId && a.id === currentUserId;
+        const bIsCurrentUser = !b.isGuest && !b.isExpenseGuest && currentUserId && b.id === currentUserId;
 
         if (aIsCurrentUser && !bIsCurrentUser) return -1;
         if (!aIsCurrentUser && bIsCurrentUser) return 1;

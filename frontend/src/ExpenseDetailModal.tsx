@@ -364,10 +364,13 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             return getAvailableParticipants();
         }
 
+        // An ad-hoc guest can't be chosen here: the select encodes payers as
+        // user/guest ids, and an expense guest's id would land on a real user.
+
         // Otherwise (friend expense), only return selected participants
         // (Though in this app version, maybe we only have group expenses or friend expenses behave effectively as groups of 2. 
         //  The logic in AddExpenseModal was stricter for friends, so let's stick to valid logic.)
-        return getAllParticipants().sort((a, b) => {
+        return getAllParticipants().filter(p => !p.isExpenseGuest).sort((a, b) => {
             if (a.name === 'You') return -1;
             if (b.name === 'You') return 1;
             return a.name.localeCompare(b.name);
@@ -541,14 +544,14 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             is_settlement: kind === 'settlement'
         };
 
-        // Guests added while editing, as long as somebody still uses them.
-        const usedAddedGuests = addedGuests.filter(g =>
-            selectedParticipantKeys.includes(`newguest_${g.temp_id}`) ||
+        // Guests added while editing, as long as they were given an item: only
+        // an itemized split charges a guest, so one without an item would be
+        // saved owing nothing, for good.
+        const usedAddedGuests = splitType !== 'ITEMIZED' ? [] : addedGuests.filter(g =>
             itemizedExpense.itemizedItems.some(item =>
                 item.assignments.some(a => a.temp_guest_id === g.temp_id)
             )
         );
-        if (usedAddedGuests.length > 0) payload.expense_guests = usedAddedGuests;
 
         if (splitType === 'ITEMIZED') {
             setIsSubmitting(true);
@@ -937,7 +940,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                 })}
                                             </div>
                                         )}
-                                        {expense?.group_id === null && (
+                                        {expense?.group_id === null && splitType === 'ITEMIZED' && (
                                             <div className="flex gap-2 mt-2">
                                                 <input
                                                     type="text"
@@ -963,7 +966,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                 </Button>
                                             </div>
                                         )}
-                                        {expense?.group_id === null && guestNameTaken && (
+                                        {expense?.group_id === null && splitType === 'ITEMIZED' && guestNameTaken && (
                                             <p className="text-[12.5px] text-sw-dim mt-1">
                                                 {trimmedGuestName} is already on this expense.
                                             </p>

@@ -619,6 +619,11 @@ def get_expense(
     )
 
 
+def _guest_name_key(name: str) -> str:
+    """How an update's guest names match the expense's saved guests."""
+    return name.strip().casefold()
+
+
 @router.put("/expenses/{expense_id}", response_model=schemas.Expense)
 def update_expense(
     expense_id: int, 
@@ -641,26 +646,36 @@ def update_expense(
     # A guest named in the update that the expense doesn't have yet was added
     # while editing. Create it now, so the name-matching below maps its temp id
     # exactly as it maps a guest saved earlier.
+    # Names match trimmed and case-insensitively, as the edit form checks them.
     if expense_update.expense_guests:
         if expense.group_id is not None:
             raise HTTPException(
                 status_code=400,
                 detail="Expense guests can only be added to expenses outside of a group"
             )
+        # Only an itemized split charges a guest; any other would save one
+        # owing nothing, with no way to take them off again.
+        if expense_update.split_type != "ITEMIZED":
+            raise HTTPException(
+                status_code=400,
+                detail="Guests can only be added to an itemized expense"
+            )
+        if any(not g.name.strip() for g in expense_update.expense_guests):
+            raise HTTPException(status_code=400, detail="Please give each guest a name")
         known_names = {
-            eg.name for eg in db.query(models.ExpenseGuest).filter(
+            _guest_name_key(eg.name) for eg in db.query(models.ExpenseGuest).filter(
                 models.ExpenseGuest.expense_id == expense_id
             ).all()
         }
         for guest_data in expense_update.expense_guests:
-            if guest_data.name not in known_names:
+            if _guest_name_key(guest_data.name) not in known_names:
                 db.add(models.ExpenseGuest(
                     expense_id=expense_id,
-                    name=guest_data.name,
+                    name=guest_data.name.strip(),
                     amount_owed=0,  # Set by the itemized calculation below
                     created_by_id=current_user.id,
                 ))
-                known_names.add(guest_data.name)
+                known_names.add(_guest_name_key(guest_data.name))
         db.flush()
 
     # Initialize expense guest amounts (will be populated by itemized calculation if needed)
@@ -692,9 +707,9 @@ def update_expense(
             # by matching names from the update payload to existing DB records
             temp_id_to_expense_guest = {}
             if expense_update.expense_guests:
-                eg_by_name = {eg.name: eg for eg in existing_expense_guests}
+                eg_by_name = {_guest_name_key(eg.name): eg for eg in existing_expense_guests}
                 for guest_data in expense_update.expense_guests:
-                    matched_eg = eg_by_name.get(guest_data.name)
+                    matched_eg = eg_by_name.get(_guest_name_key(guest_data.name))
                     if matched_eg:
                         temp_id_to_expense_guest[guest_data.temp_id] = matched_eg
 

@@ -84,7 +84,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/components/OffPlanPaymentSheet.tsx` - recording a payment the plan never suggested: any two people in a group, guests included, with a group picker on `/settle`
 - `frontend/src/components/PaymentAmountField.tsx` - the labelled amount input with the currency pinned beside it, shared by both sheets
 - `frontend/src/hooks/useBalanceSheetExport.ts` - Downloads the balance sheet CSV; owns the blob URL lifecycle and refuses while offline, since the sheet is server-computed and a cached one would be stale
-- `frontend/src/hooks/useOpenExpense.ts` - Opens the expense detail modal from a feed row, loading group context in the background
+- `frontend/src/hooks/useOpenExpense.ts` - Opens the expense detail modal from a feed row or a person's page, loading group context in the background
 - `frontend/src/components/PullToRefresh.tsx` - Pull down from the top of any mobile screen to refresh; wraps the shell's routed content once, finds the scroller under the finger, and runs `refreshAll()`. Gesture arithmetic in `utils/pullToRefresh.ts`
 - `frontend/src/components/tab/OpenTabsList.tsx` - Open tabs as re-entry rows; on the home page and Activity
 - `frontend/src/hooks/useItemizedExpense.ts` - Itemized expense state management
@@ -275,6 +275,7 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 - `POST /expenses`, `GET /expenses`, `GET /expenses/{expense_id}`, `PUT /expenses/{expense_id}`, `DELETE /expenses/{expense_id}` - Expense CRUD
 - Split types: EQUAL, EXACT, PERCENTAGE, SHARES, ITEMIZED
 - `POST`/`PUT /expenses` accept `kind` (`expense` | `settlement` | `income`). The legacy `is_settlement` alias still works; contradictions between the two are rejected (422). Income must have `amount > 0` and a non-ITEMIZED split (400). A PUT naming neither field preserves the stored kind
+- `PUT /expenses/{id}` can add ad-hoc guests to a **non-group, ITEMIZED** expense: `expense_guests` (`{temp_id, name}`) entries whose name (trimmed, case-insensitive) matches no guest on the expense are created, and item assignments reference them by `temp_guest_id`. A group expense, a non-ITEMIZED split or a blank name is a 400
 - The detail response carries `tab_id` when the expense is what a closed tab
   resolved into, and only for that tab's owner — see `docs/TABS.md`
 

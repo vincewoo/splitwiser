@@ -156,9 +156,12 @@ export const offlineExpensesApi = {
     const existing = await db.expenses.get(expenseId);
     if (existing) {
       // Same as create: the edited splits carry no server ids until sync.
+      // expense_guests on an update are new guests by name only; the cached
+      // copy keeps its saved guests until sync brings back the real rows.
+      const { expense_guests: _newGuests, ...cachedFields } = expenseData;
       const updated = {
         ...existing,
-        ...expenseData,
+        ...cachedFields,
         id: expenseId,
         cached_at: Date.now(),
         local_version: (existing.local_version || 1) + 1

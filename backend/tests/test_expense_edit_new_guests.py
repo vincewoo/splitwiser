@@ -94,3 +94,45 @@ def test_edit_refuses_new_guests_on_a_group_expense(client, auth_headers, test_u
     resp = client.put(f"/expenses/{resp.json()['id']}", headers=auth_headers, json=update)
     assert resp.status_code == 400
     assert "outside of a group" in resp.json()["detail"]
+
+
+def test_edit_refuses_new_guests_on_a_non_itemized_split(client, auth_headers, test_user):
+    expense_id, _ = _create(client, auth_headers, test_user)
+
+    update = {
+        **_itemized(test_user, [[], []], [{"temp_id": "x", "name": "Ben"}]),
+        "split_type": "EQUAL",
+        "items": None,
+        "splits": [{"user_id": test_user.id, "amount_owed": 1000, "is_guest": False}],
+    }
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 400
+    assert "itemized" in resp.json()["detail"]
+
+
+def test_edit_matches_an_existing_guest_trimmed_and_ignoring_case(client, auth_headers, test_user):
+    expense_id, ana = _create(client, auth_headers, test_user)
+
+    update = _itemized(
+        test_user,
+        [[{"is_guest": False, "temp_guest_id": "t"}], [{"user_id": test_user.id, "is_guest": False}]],
+        [{"temp_id": "t", "name": "  ana "}],
+    )
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 200, resp.json()
+
+    guests = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()["expense_guests"]
+    assert [(g["id"], g["name"], g["amount_owed"]) for g in guests] == [(ana["id"], "Ana", 600)]
+
+
+def test_edit_refuses_a_blank_guest_name(client, auth_headers, test_user):
+    expense_id, _ = _create(client, auth_headers, test_user)
+
+    update = _itemized(
+        test_user,
+        [[{"is_guest": False, "temp_guest_id": "t"}], [{"user_id": test_user.id, "is_guest": False}]],
+        [{"temp_id": "t", "name": "   "}],
+    )
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 400
+

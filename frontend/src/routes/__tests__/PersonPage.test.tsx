@@ -11,6 +11,7 @@ const getFriends = vi.fn();
 const getGroups = vi.fn();
 const getBalances = vi.fn();
 const getPending = vi.fn();
+const getGroupById = vi.fn();
 vi.mock('../../services/api', () => ({
     friendsApi: {
         getAll: (...args: unknown[]) => getFriends(...args),
@@ -19,7 +20,10 @@ vi.mock('../../services/api', () => ({
         getExpenses: (...args: unknown[]) => getFriendExpenses(...args),
         getBalance: (...args: unknown[]) => getFriendBalance(...args),
     },
-    groupsApi: { getAll: (...args: unknown[]) => getGroups(...args) },
+    groupsApi: {
+        getAll: (...args: unknown[]) => getGroups(...args),
+        getById: (...args: unknown[]) => getGroupById(...args),
+    },
     balancesApi: { getAll: (...args: unknown[]) => getBalances(...args) },
 }));
 
@@ -39,6 +43,16 @@ vi.mock('../../contexts/SyncContext', () => ({
 vi.mock('../../services/offlineApi', () => ({
     offlineGroupsApi: { getById: vi.fn() },
     offlineExpensesApi: { create: vi.fn() },
+}));
+
+// The detail modal's own fetches are not the subject here: what it is handed is.
+vi.mock('../../ExpenseDetailModal', () => ({
+    default: (props: { groupMembers: { full_name: string }[]; friends?: { full_name: string }[] }) => (
+        <div data-testid="expense-modal">
+            members: {props.groupMembers.map(m => m.full_name).join(', ') || 'none'};
+            friends: {(props.friends ?? []).map(f => f.full_name).join(', ') || 'none'}
+        </div>
+    ),
 }));
 
 /**
@@ -89,6 +103,7 @@ beforeEach(() => {
     getGroups.mockReset().mockResolvedValue([]);
     getBalances.mockReset().mockResolvedValue({ balances: [] });
     getPending.mockReset().mockResolvedValue({ count: 0 });
+    getGroupById.mockReset();
     // PersonPage fetches exchange rates straight through fetch().
     vi.stubGlobal(
         'fetch',
@@ -123,5 +138,36 @@ describe('PersonPage refresh generation', () => {
         // One bump, one reload — not one per collection the provider refreshes.
         await waitFor(() => expect(getFriendExpenses).toHaveBeenCalledTimes(2));
         expect(getFriendExpenses).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('PersonPage opening an expense', () => {
+    it('hands a group expense its group\'s members, so the edit form can resolve them', async () => {
+        getFriendExpenses.mockResolvedValue([{ ...dinner, id: 22, description: 'Green fees', group_id: 7 }]);
+        getGroupById.mockResolvedValue({
+            members: [{ id: 1, user_id: 1, full_name: 'Maya Lin' }, { id: 2, user_id: 2, full_name: 'Sam Okafor' }],
+            guests: [],
+        });
+        open();
+
+        fireEvent.click(await screen.findByText('Green fees'));
+
+        expect(getGroupById).toHaveBeenCalledWith(7);
+        await waitFor(() =>
+            expect(screen.getByTestId('expense-modal')).toHaveTextContent('members: Maya Lin, Sam Okafor')
+        );
+    });
+
+    it('hands a non-group expense your friends instead, and fetches no group', async () => {
+        getFriends.mockResolvedValue([{ id: 2, full_name: 'Sam Okafor', email: 'sam@example.com' }]);
+        getFriendExpenses.mockResolvedValue([dinner]);
+        open();
+
+        fireEvent.click(await screen.findByText('Dinner'));
+
+        expect(getGroupById).not.toHaveBeenCalled();
+        await waitFor(() =>
+            expect(screen.getByTestId('expense-modal')).toHaveTextContent('friends: Sam Okafor')
+        );
     });
 });
