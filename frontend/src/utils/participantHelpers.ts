@@ -1,4 +1,5 @@
 import type { Participant, ItemAssignment } from '../types/expense';
+import { assignmentIsParticipant } from './expenseTransformations';
 
 /**
  * Generate a unique key for a participant (user or guest)
@@ -61,13 +62,8 @@ export const getAssignmentDisplayText = (
     }
 
     const names = assignments.map(a => {
-        // Match expense guests by expense_guest_id
-        const p = allParticipants.find(p => {
-            if (a.expense_guest_id !== undefined) {
-                return p.isExpenseGuest && p.id === a.expense_guest_id;
-            }
-            return p.id === a.user_id && p.isGuest === a.is_guest;
-        });
+        // Expense guests by temp or saved guest id, everyone else by user id.
+        const p = allParticipants.find(p => assignmentIsParticipant(a, p));
         return p ? getParticipantName(p, currentUserId) : '';
     }).filter(n => n);
 

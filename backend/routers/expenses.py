@@ -638,6 +638,31 @@ def update_expense(
         if expense.created_by_id != current_user.id:
             raise HTTPException(status_code=403, detail="Only the expense creator can edit this expense")
 
+    # A guest named in the update that the expense doesn't have yet was added
+    # while editing. Create it now, so the name-matching below maps its temp id
+    # exactly as it maps a guest saved earlier.
+    if expense_update.expense_guests:
+        if expense.group_id is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Expense guests can only be added to expenses outside of a group"
+            )
+        known_names = {
+            eg.name for eg in db.query(models.ExpenseGuest).filter(
+                models.ExpenseGuest.expense_id == expense_id
+            ).all()
+        }
+        for guest_data in expense_update.expense_guests:
+            if guest_data.name not in known_names:
+                db.add(models.ExpenseGuest(
+                    expense_id=expense_id,
+                    name=guest_data.name,
+                    amount_owed=0,  # Set by the itemized calculation below
+                    created_by_id=current_user.id,
+                ))
+                known_names.add(guest_data.name)
+        db.flush()
+
     # Initialize expense guest amounts (will be populated by itemized calculation if needed)
     expense_guest_amounts = {}
     # Mapping from temp_id to existing ExpenseGuest DB records (for updates with expense guests)

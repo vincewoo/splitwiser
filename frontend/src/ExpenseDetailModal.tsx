@@ -25,7 +25,8 @@ import type {
     GuestMember,
     Participant,
     SplitType,
-    ExpensePayload
+    ExpensePayload,
+    ExpenseGuestCreate
 } from './types/expense';
 import {
     getParticipantName as getParticipantNameUtil
@@ -44,7 +45,9 @@ import {
     assembleSplitsPayload,
     amountToCents,
     centsToDisplayAmount,
+    assignmentIsParticipant,
 } from './utils/expenseTransformations';
+import type { Friend } from './types/friend';
 import { payerParticipantId } from './utils/tabShares';
 import { expenseKind, isIncome } from './utils/expenseKind';
 import type { ExpenseKind } from './utils/expenseKind';
@@ -84,6 +87,8 @@ interface ExpenseDetailModalProps {
     onExpenseDeleted: () => void;
     groupMembers: GroupMember[];
     groupGuests: GuestMember[];
+    /** Who a non-group expense can be split with, besides those already on it. */
+    friends?: Friend[];
     currentUserId: number;
     shareLinkId?: string;
     readOnly?: boolean;
@@ -98,6 +103,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     onExpenseDeleted,
     groupMembers,
     groupGuests,
+    friends = [],
     currentUserId,
     shareLinkId,
     readOnly = false,
@@ -106,6 +112,25 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const { isOnline: _isOnline } = useSync();
     const navigate = useNavigate();
     const [expense, setExpense] = useState<ExpenseWithSplits | null>(null);
+    // Guests added while editing a non-group expense. Like the create form's,
+    // they are named by a temp id until the save creates them.
+    const [addedGuests, setAddedGuests] = useState<ExpenseGuestCreate[]>([]);
+    const [newGuestName, setNewGuestName] = useState('');
+
+    // The registered people this expense can be split between. A group
+    // expense draws them from the group. A non-group expense has no group, so
+    // it offers you, your friends, and everyone already on it — without the
+    // last, a non-friend seated by a closed tab would drop off the bill.
+    const people: Array<{ user_id: number; full_name: string }> =
+        expense && expense.group_id === null
+            ? [
+                { user_id: currentUserId, full_name: 'You' },
+                ...friends.map(f => ({ user_id: f.id, full_name: f.full_name })),
+                ...expense.splits
+                    .filter(s => !s.is_guest)
+                    .map(s => ({ user_id: s.user_id, full_name: s.user_name })),
+            ].filter((p, i, all) => all.findIndex(q => q.user_id === p.user_id) === i)
+            : groupMembers;
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
@@ -258,6 +283,8 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
         // Set selected participants from splits
         setSelectedParticipantKeys(extractParticipantKeysFromExpense(exp));
+        setAddedGuests([]);
+        setNewGuestName('');
 
         // Set split details for non-EQUAL types
         const details = extractSplitDetailsFromExpense(exp);
@@ -289,7 +316,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             return guest?.name || 'Unknown Guest';
         }
         if (expense.payer_id === currentUserId) return 'You';
-        const member = groupMembers.find(m => m.user_id === expense.payer_id);
+        const member = people.find(m => m.user_id === expense.payer_id);
         return member?.full_name || 'Unknown';
     };
 
@@ -305,6 +332,11 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 if (guest) {
                     participants.push({ id: guest.id, name: guest.name, isGuest: true });
                 }
+            } else if (type === 'newguest') {
+                const added = addedGuests.find(g => g.temp_id === idStr);
+                if (added) {
+                    participants.push({ id: 0, name: added.name, isGuest: false, isExpenseGuest: true, tempId: added.temp_id });
+                }
             } else if (type === 'expenseguest') {
                 // For expense guests (non-group expenses)
                 const expenseGuest = expense?.expense_guests?.find(eg => eg.id === id);
@@ -312,7 +344,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     participants.push({ id: expenseGuest.id, name: expenseGuest.name, isGuest: false, isExpenseGuest: true });
                 }
             } else {
-                const member = groupMembers.find(m => m.user_id === id);
+                const member = people.find(m => m.user_id === id);
                 if (member) {
                     participants.push({
                         id: member.user_id,
@@ -346,6 +378,20 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
         return getParticipantNameUtil(p, currentUserId);
     };
 
+    const trimmedGuestName = newGuestName.trim();
+    const guestNameTaken = [
+        ...(expense?.expense_guests ?? []).map(g => g.name),
+        ...addedGuests.map(g => g.name),
+    ].some(name => name.toLowerCase() === trimmedGuestName.toLowerCase());
+
+    const addGuest = () => {
+        if (!trimmedGuestName || guestNameTaken) return;
+        const tempId = `new-${Date.now()}-${addedGuests.length}`;
+        setAddedGuests([...addedGuests, { temp_id: tempId, name: trimmedGuestName }]);
+        setSelectedParticipantKeys([...selectedParticipantKeys, `newguest_${tempId}`]);
+        setNewGuestName('');
+    };
+
     const toggleParticipant = (key: string) => {
         if (selectedParticipantKeys.includes(key)) {
             setSelectedParticipantKeys(selectedParticipantKeys.filter(k => k !== key));
@@ -357,7 +403,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const getAvailableParticipants = (): Participant[] => {
         const participants: Participant[] = [];
 
-        groupMembers.forEach(m => {
+        people.forEach(m => {
             participants.push({
                 id: m.user_id,
                 name: m.user_id === currentUserId ? 'You' : m.full_name,
@@ -384,6 +430,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                 });
             });
         }
+        addedGuests.forEach(g => {
+            participants.push({ id: 0, name: g.name, isGuest: false, isExpenseGuest: true, tempId: g.temp_id });
+        });
 
         // Sort: "You" first, then alphabetically
         return participants.sort((a, b) => {
@@ -396,7 +445,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const handleMainParticipantSelectorConfirm = (selectedParticipants: Participant[]) => {
         const keys = selectedParticipants.map(p => {
             if (p.isExpenseGuest) {
-                return `expenseguest_${p.id}`;
+                return p.tempId != null ? `newguest_${p.tempId}` : `expenseguest_${p.id}`;
             }
             return p.isGuest ? `guest_${p.id}` : `user_${p.id}`;
         });
@@ -407,7 +456,9 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const handleParticipantSelectorConfirm = (itemIdx: number, selectedParticipants: Participant[]) => {
         itemizedExpense.updateItemAssignments(itemIdx, selectedParticipants.map(p => {
             if (p.isExpenseGuest) {
-                return { is_guest: false, expense_guest_id: p.id };
+                return p.tempId != null
+                    ? { is_guest: false, temp_guest_id: p.tempId }
+                    : { is_guest: false, expense_guest_id: p.id };
             }
             return {
                 user_id: p.id,
@@ -490,6 +541,15 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             is_settlement: kind === 'settlement'
         };
 
+        // Guests added while editing, as long as somebody still uses them.
+        const usedAddedGuests = addedGuests.filter(g =>
+            selectedParticipantKeys.includes(`newguest_${g.temp_id}`) ||
+            itemizedExpense.itemizedItems.some(item =>
+                item.assignments.some(a => a.temp_guest_id === g.temp_id)
+            )
+        );
+        if (usedAddedGuests.length > 0) payload.expense_guests = usedAddedGuests;
+
         if (splitType === 'ITEMIZED') {
             setIsSubmitting(true);
             try {
@@ -514,6 +574,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     kind,
                     is_settlement: kind === 'settlement'
                 };
+                if (usedAddedGuests.length > 0) itemizedPayload.expense_guests = usedAddedGuests;
 
                 const result = await offlineExpensesApi.update(expenseId!, itemizedPayload);
 
@@ -638,12 +699,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                     participants={getAllParticipants()}
                     selectedParticipants={getAllParticipants().filter(p => {
                         const item = itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex!];
-                        return item?.assignments.some(a => {
-                            if (p.isExpenseGuest) {
-                                return a.expense_guest_id === p.id;
-                            }
-                            return a.user_id === p.id && a.is_guest === p.isGuest;
-                        });
+                        return item?.assignments.some(a => assignmentIsParticipant(a, p));
                     })}
                     onConfirm={(selected) => handleParticipantSelectorConfirm(itemizedExpense.editingItemIndex!, selected)}
                     itemDescription={itemizedExpense.itemizedItems[itemizedExpense.editingItemIndex]?.description || ''}
@@ -823,7 +879,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                  * accent, so selection is the only thing the colour
                                                  * says here; who someone is is already in their name.
                                                  */}
-                                                {groupMembers.map(member => {
+                                                {people.map(member => {
                                                     const key = `user_${member.user_id}`;
                                                     return (
                                                         <button
@@ -865,7 +921,52 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                                         </button>
                                                     );
                                                 })}
+                                                {addedGuests.map(guest => {
+                                                    const key = `newguest_${guest.temp_id}`;
+                                                    return (
+                                                        <button
+                                                            key={key}
+                                                            type="button"
+                                                            onClick={() => toggleParticipant(key)}
+                                                            aria-pressed={selectedParticipantKeys.includes(key)}
+                                                            className={participantPillClass(selectedParticipantKeys.includes(key))}
+                                                        >
+                                                            {guest.name}
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
+                                        )}
+                                        {expense?.group_id === null && (
+                                            <div className="flex gap-2 mt-2">
+                                                <input
+                                                    type="text"
+                                                    aria-label="Guest name"
+                                                    placeholder="Add a guest (not on Splitwiser)"
+                                                    value={newGuestName}
+                                                    onChange={(e) => setNewGuestName(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            addGuest();
+                                                        }
+                                                    }}
+                                                    className={`${CONTROL_CLASS} flex-1`}
+                                                />
+                                                <Button
+                                                    variant="secondary"
+                                                    onClick={addGuest}
+                                                    disabled={!trimmedGuestName || guestNameTaken}
+                                                    className="min-h-[44px]"
+                                                >
+                                                    Add guest
+                                                </Button>
+                                            </div>
+                                        )}
+                                        {expense?.group_id === null && guestNameTaken && (
+                                            <p className="text-[12.5px] text-sw-dim mt-1">
+                                                {trimmedGuestName} is already on this expense.
+                                            </p>
                                         )}
                                     </div>
 

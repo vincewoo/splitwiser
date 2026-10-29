@@ -15,6 +15,7 @@ import ExpenseDetailModal from '../ExpenseDetailModal';
 import SettleUpModal from '../SettleUpModal';
 import { useAuth } from '../AuthContext';
 import { useAppData } from '../contexts/AppDataContext';
+import { useOpenExpense } from '../hooks/useOpenExpense';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { getApiUrl } from '../api';
@@ -58,7 +59,9 @@ const PersonPage: React.FC = () => {
     const [expanded, setExpanded] = useState(false);
     const [addExpenseOpen, setAddExpenseOpen] = useState(false);
     const [settleUpOpen, setSettleUpOpen] = useState(false);
-    const [openExpenseId, setOpenExpenseId] = useState<number | null>(null);
+    // Loads a group expense's members too: without them the edit form could
+    // not resolve anyone on the bill.
+    const openExpense = useOpenExpense();
     const [inUSD, setInUSD] = useState(false);
 
     usePageTitle(friend?.full_name ?? 'Person');
@@ -282,7 +285,7 @@ const PersonPage: React.FC = () => {
                                 <button
                                     key={expense.id}
                                     type="button"
-                                    onClick={() => setOpenExpenseId(expense.id)}
+                                    onClick={() => openExpense.open({ id: expense.id, group_id: expense.group_id ?? null })}
                                     className="flex items-center gap-3 py-[11px] border-b border-sw-line text-left hover:bg-sw-surface focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
                                 >
                                     <IconTile tone="surface" size={38}>
@@ -364,18 +367,19 @@ const PersonPage: React.FC = () => {
                 preselectedFriendId={friend.id}
             />
 
-            {openExpenseId !== null && (
+            {openExpense.expenseId !== null && (
                 <ExpenseDetailModal
                     isOpen
-                    expenseId={openExpenseId}
-                    onClose={() => setOpenExpenseId(null)}
+                    expenseId={openExpense.expenseId}
+                    onClose={openExpense.close}
                     onExpenseUpdated={refreshAll}
                     onExpenseDeleted={() => {
-                        setOpenExpenseId(null);
+                        openExpense.close();
                         refreshAll();
                     }}
-                    groupMembers={[]}
-                    groupGuests={[]}
+                    groupMembers={openExpense.members}
+                    groupGuests={openExpense.guests}
+                    friends={friends}
                     currentUserId={user?.id ?? 0}
                 />
             )}

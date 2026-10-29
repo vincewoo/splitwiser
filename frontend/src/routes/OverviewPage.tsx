@@ -645,6 +645,7 @@ const OverviewPage: React.FC = () => {
                         refreshAll();
                     }}
                     groupMembers={openExpense.members}
+                    friends={friends}
                     groupGuests={openExpense.guests}
                     currentUserId={user?.id ?? 0}
                 />
