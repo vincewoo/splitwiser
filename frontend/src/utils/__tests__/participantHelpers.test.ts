@@ -170,3 +170,31 @@ describe('getAssignmentDisplayText', () => {
         expect(text).toBe('All 2 people');
     });
 });
+
+describe('ad-hoc guests whose id overlaps a user id', () => {
+    it('never calls an expense guest "You"', () => {
+        expect(getParticipantName(expenseGuest(1, 'Ana'), 1)).toBe('Ana');
+        expect(getParticipantName(user(1, 'Me'), 1)).toBe('You');
+    });
+
+    it('does not sort an expense guest first as if it were you', () => {
+        const sorted = sortParticipants([user(1, 'Zoe'), expenseGuest(1, 'Ana')], 1);
+        expect(sorted.map(p => p.name)).toEqual(['Zoe', 'Ana']);
+    });
+
+    it('keys a guest added in this edit by its temp id', () => {
+        const ben: Participant = { id: 0, name: 'Ben', isGuest: false, isExpenseGuest: true, tempId: 'new-1' };
+        const cy: Participant = { id: 0, name: 'Cy', isGuest: false, isExpenseGuest: true, tempId: 'new-2' };
+        expect(getParticipantKey(ben)).not.toBe(getParticipantKey(cy));
+    });
+
+    it('names a just-added guest on an item by temp id, not as the user sharing id 0 or 1', () => {
+        const me = user(1, 'Me');
+        const ben: Participant = { id: 0, name: 'Ben', isGuest: false, isExpenseGuest: true, tempId: 'new-1' };
+        const ana = expenseGuest(1, 'Ana');
+        const people = [me, ben, ana, user(2, 'Bob')];
+        expect(getAssignmentDisplayText([{ is_guest: false, temp_guest_id: 'new-1' }], people, 1)).toBe('Ben');
+        expect(getAssignmentDisplayText([{ is_guest: false, expense_guest_id: 1 }], people, 1)).toBe('Ana');
+        expect(getAssignmentDisplayText([{ user_id: 1, is_guest: false }], people, 1)).toBe('You');
+    });
+});

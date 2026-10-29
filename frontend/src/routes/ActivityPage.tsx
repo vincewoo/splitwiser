@@ -19,7 +19,7 @@ import { useOpenTabs } from '../hooks/useOpenTabs';
 const ActivityPage: React.FC = () => {
     usePageTitle('Activity');
     const { user } = useAuth();
-    const { refreshAll } = useAppData();
+    const { refreshAll, friends } = useAppData();
     const { expenses, loading } = useExpenseFeed();
     const { payerName, groupName } = useExpenseLabels();
     const openExpense = useOpenExpense();
@@ -87,6 +87,7 @@ const ActivityPage: React.FC = () => {
                     }}
                     groupMembers={openExpense.members}
                     groupGuests={openExpense.guests}
+                    friends={friends}
                     currentUserId={user?.id ?? 0}
                 />
             )}

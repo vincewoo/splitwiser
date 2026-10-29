@@ -118,7 +118,7 @@ const ExpenseItemList: React.FC<ExpenseItemListProps> = ({
 
                                 return (
                                     <button
-                                        key={p.isExpenseGuest ? `expenseguest_${p.id}` : (p.isGuest ? `guest_${p.id}` : `user_${p.id}`)}
+                                        key={p.isExpenseGuest ? `expenseguest_${p.tempId ?? p.id}` : (p.isGuest ? `guest_${p.id}` : `user_${p.id}`)}
                                         type="button"
                                         onClick={() => onToggleAssignment(idx, p)}
                                         aria-pressed={isAssigned}

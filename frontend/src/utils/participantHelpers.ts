@@ -1,11 +1,13 @@
 import type { Participant, ItemAssignment } from '../types/expense';
+import { assignmentIsParticipant } from './expenseTransformations';
 
 /**
  * Generate a unique key for a participant (user or guest)
  */
 export const getParticipantKey = (participant: Participant): string => {
     if (participant.isExpenseGuest) {
-        return `expenseguest_${participant.id}`;
+        // A guest added but not yet saved has id 0; its temp id tells them apart.
+        return `expenseguest_${participant.tempId ?? participant.id}`;
     }
     return participant.isGuest ? `guest_${participant.id}` : `user_${participant.id}`;
 };
@@ -14,7 +16,8 @@ export const getParticipantKey = (participant: Participant): string => {
  * Get display name for a participant
  */
 export const getParticipantName = (participant: Participant, currentUserId?: number): string => {
-    if (!participant.isGuest && currentUserId && participant.id === currentUserId) {
+    // Only a registered user can be you: guest ids overlap user ids.
+    if (!participant.isGuest && !participant.isExpenseGuest && currentUserId && participant.id === currentUserId) {
         return "You";
     }
     return participant.name;
@@ -33,8 +36,8 @@ export const shouldUseCompactMode = (participants: Participant[]): boolean => {
 export const sortParticipants = (participants: Participant[], currentUserId?: number): Participant[] => {
     return [...participants].sort((a, b) => {
         // Current user always comes first
-        const aIsCurrentUser = !a.isGuest && currentUserId && a.id === currentUserId;
-        const bIsCurrentUser = !b.isGuest && currentUserId && b.id === currentUserId;
+        const aIsCurrentUser = !a.isGuest && !a.isExpenseGuest && currentUserId && a.id === currentUserId;
+        const bIsCurrentUser = !b.isGuest && !b.isExpenseGuest && currentUserId && b.id === currentUserId;
 
         if (aIsCurrentUser && !bIsCurrentUser) return -1;
         if (!aIsCurrentUser && bIsCurrentUser) return 1;
@@ -61,13 +64,8 @@ export const getAssignmentDisplayText = (
     }
 
     const names = assignments.map(a => {
-        // Match expense guests by expense_guest_id
-        const p = allParticipants.find(p => {
-            if (a.expense_guest_id !== undefined) {
-                return p.isExpenseGuest && p.id === a.expense_guest_id;
-            }
-            return p.id === a.user_id && p.isGuest === a.is_guest;
-        });
+        // Expense guests by temp or saved guest id, everyone else by user id.
+        const p = allParticipants.find(p => assignmentIsParticipant(a, p));
         return p ? getParticipantName(p, currentUserId) : '';
     }).filter(n => n);
 
