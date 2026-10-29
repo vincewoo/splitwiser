@@ -185,7 +185,7 @@ Conventions:
 ```bash
 cd frontend
 npm run lint      # report everything
-npm run lint:ci   # what CI runs: fails on any error, or >19 warnings
+npm run lint:ci   # what CI runs: fails on any error, or >13 warnings
 ```
 
 The codebase is free of ESLint errors and of `any`. Two rules are set to
@@ -195,9 +195,10 @@ reasoning:
 - `react-hooks/set-state-in-effect` (fetch-on-mount, reset-modal-on-open)
 - `react-refresh/only-export-components` (context modules, app entry point)
 
-Those plus `react-hooks/exhaustive-deps` make up the 19 accepted warnings.
-`lint:ci` caps the count so the backlog cannot grow; lower the ceiling in
-`package.json` as warnings are worked off.
+Those plus `react-hooks/exhaustive-deps` make up the accepted warnings (12 at
+last count). `lint:ci` caps the count at 13 so the backlog cannot grow; lower
+the ceiling in `package.json` as warnings are worked off, and keep this
+section in step with it.
 
 ### Backend static analysis
 
