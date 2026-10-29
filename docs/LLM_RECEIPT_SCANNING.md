@@ -23,7 +23,7 @@ User uploads image or PDF
     → Backend validates response, returns items
     → Frontend shows editable item list with tax/tip/total summary
     → User reviews/edits, confirms → items + tax + tip + total flow into expense form
-    → Expense form shows validation warning if items+tax+tip ≠ receipt total
+    → Expense form warns, live, while items+tax+tip ≠ receipt total
 ```
 
 ### Multi-Provider Support
@@ -95,7 +95,7 @@ System prompt rules:
 - `handleScannedItems` receives items, tax, tip, and total from scanner
 - Sets itemized items, tax amount, tip amount, and total directly from receipt
 - Uses receipt's `total_cents` as expense amount (avoids rounding errors from recomputing)
-- Shows validation warning if items + tax + tip ≠ receipt total
+- Keeps the receipt total and reconciles it against the current items, tax and tip on every render: the warning states how far under or over the bill is, shrinks as lines are fixed, and goes once they add up. Dismissing hides it until the next scan; a scan with no total shows none
 
 ### Removed Files
 
@@ -126,7 +126,7 @@ No code changes needed — the backend reads these from environment variables at
 ## Known Limitations
 
 - LLM accuracy: tax amounts can be off by a few cents, complex discount layouts may not always be parsed perfectly
-- The review step exists for the user to catch and correct these — validation warning on the expense form flags mismatches
+- The review step exists for the user to catch and correct these — the expense form's live under/over warning flags mismatches
 - Each scan costs one LLM API call (~$0.01-0.05 depending on image/page count and provider)
 - PDFs are capped at 10 pages (`MAX_PDF_PAGES`); larger PDFs are rejected with HTTP 400
 - Uploads (images and PDFs) are capped at 10 MB (shared limit); larger files are rejected

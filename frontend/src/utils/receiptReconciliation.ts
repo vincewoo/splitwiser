@@ -27,9 +27,9 @@ export const RECONCILE_TOLERANCE_CENTS = 1;
 /**
  * Check the scanned lines against the printed total.
  *
- * This is the redesign's main change to review: instead of warning *after* the
- * user confirms, the mismatch is stated up front with the amount, so the fix is
- * one tap rather than a proof-read of every line.
+ * The mismatch is stated up front with the amount, so the fix is one tap rather
+ * than a proof-read of every line. The scanner's review step and the expense
+ * form both call this on every render, so the figure follows each edit.
  */
 export function reconcileReceipt(
     items: ReceiptLine[],
@@ -59,8 +59,8 @@ export function reconcileReceipt(
 }
 
 /**
- * The legacy one-line warning, kept for the payload handed to the expense form
- * so downstream behaviour does not change.
+ * The mismatch as one sentence, for the expense form's warning. Null when there
+ * is nothing to say: balanced, or no printed total to check against.
  */
 export function reconciliationWarning(
     reconciliation: Reconciliation,

@@ -726,7 +726,8 @@ def update_expense(
         items=expense_update.items if expense_update.split_type == "ITEMIZED" else None,
         skip_expense_guest_validation=bool(temp_id_to_expense_guest),
         group_id=expense.group_id,
-        current_user_id=current_user.id
+        current_user_id=current_user.id,
+        expense_id=expense_id
     )
 
     # Validate item split details if itemized expense

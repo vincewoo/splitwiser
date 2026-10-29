@@ -302,7 +302,10 @@ export const calculateItemizedTotal = (
     tipAmount: string
 ): string => {
     const itemsTotal = items.reduce((sum, item) => sum + item.price, 0);
-    const tax = Math.round(parseFloat(taxAmount || '0') * 100);
-    const tip = Math.round(parseFloat(tipAmount || '0') * 100);
-    return ((itemsTotal + tax + tip) / 100).toFixed(2);
+    // Free-text fields: a half-typed "." or "-" counts as nothing yet.
+    const toCents = (amount: string) => {
+        const cents = Math.round(parseFloat(amount || '0') * 100);
+        return Number.isFinite(cents) ? cents : 0;
+    };
+    return ((itemsTotal + toCents(taxAmount) + toCents(tipAmount)) / 100).toFixed(2);
 };

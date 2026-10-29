@@ -16,10 +16,7 @@ import { useSync } from './contexts/SyncContext';
 import { compressImage } from './utils/imageCompression';
 import { Button } from './components/ui';
 import { useStagedReveal } from './hooks/useStagedReveal';
-import {
-    reconcileReceipt,
-    reconciliationWarning,
-} from './utils/receiptReconciliation';
+import { reconcileReceipt } from './utils/receiptReconciliation';
 
 // Synthesize a filename for a clipboard blob that usually has none.
 // e.g. image/png -> pasted-receipt.png (defaults to png).
@@ -70,7 +67,7 @@ async function imageFileFromAsyncClipboard(items: ClipboardItems): Promise<File 
 }
 
 interface ReceiptScannerProps {
-    onItemsDetected: (items: { description: string; price: number }[], receiptPath?: string, validationWarning?: string | null, taxCents?: number | null, tipCents?: number | null, totalCents?: number | null) => void;
+    onItemsDetected: (items: { description: string; price: number }[], receiptPath?: string, taxCents?: number | null, tipCents?: number | null, totalCents?: number | null) => void;
     onClose: () => void;
 }
 
@@ -292,7 +289,6 @@ const ReceiptScanner: React.FC<ReceiptScannerProps> = ({ onItemsDetected, onClos
         onItemsDetected(
             finalItems,
             receiptImagePath,
-            reconciliationWarning(reconciliation, formatCents),
             tax,
             tip,
             total
