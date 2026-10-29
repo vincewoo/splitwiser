@@ -92,24 +92,24 @@ export const assignmentIsParticipant = (
 
 /**
  * Build participant key strings from an expense's splits and expense_guests.
+ *
+ * Splits only ever hold users and group guests; ad-hoc expense guests live
+ * in expense_guests alone. A split's user_id is never read as a guest's id:
+ * the two id spaces overlap, and a friend whose id matched a guest's would
+ * be shown, and saved, as that guest.
  */
 export const extractParticipantKeysFromExpense = (
     expense: ExpenseWithSplits,
-): string[] => {
-    return expense.splits.map(s => {
-        if (expense.expense_guests) {
-            const isExpenseGuest = expense.expense_guests.some(
-                eg => eg.id === s.user_id && !s.is_guest,
-            );
-            if (isExpenseGuest) {
-                return buildParticipantKey('expenseguest', s.user_id);
-            }
-        }
-        return s.is_guest
+): string[] => [
+    ...expense.splits.map(s =>
+        s.is_guest
             ? buildParticipantKey('guest', s.user_id)
-            : buildParticipantKey('user', s.user_id);
-    });
-};
+            : buildParticipantKey('user', s.user_id),
+    ),
+    ...(expense.expense_guests ?? []).map(eg =>
+        buildParticipantKey('expenseguest', eg.id),
+    ),
+];
 
 // ── Extract split details from an existing expense ──────────────────
 
@@ -129,23 +129,10 @@ export const extractSplitDetailsFromExpense = (
     const details: Record<string, number> = {};
 
     expense.splits.forEach(s => {
-        let key: string;
-        if (expense.expense_guests) {
-            const isExpenseGuest = expense.expense_guests.some(
-                eg => eg.id === s.user_id && !s.is_guest,
-            );
-            if (isExpenseGuest) {
-                key = buildParticipantKey('expenseguest', s.user_id);
-            } else {
-                key = s.is_guest
-                    ? buildParticipantKey('guest', s.user_id)
-                    : buildParticipantKey('user', s.user_id);
-            }
-        } else {
-            key = s.is_guest
-                ? buildParticipantKey('guest', s.user_id)
-                : buildParticipantKey('user', s.user_id);
-        }
+        // Splits never hold expense guests; see extractParticipantKeysFromExpense.
+        const key = s.is_guest
+            ? buildParticipantKey('guest', s.user_id)
+            : buildParticipantKey('user', s.user_id);
 
         if (expense.split_type === 'PERCENT' && s.percentage !== null) {
             details[key] = s.percentage;

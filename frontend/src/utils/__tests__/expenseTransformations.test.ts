@@ -121,16 +121,16 @@ describe('extractParticipantKeysFromExpense', () => {
     it('with expense_guests → expenseguest_X keys added', () => {
         const expense = makeExpense({
             splits: [
-                makeSplit({ user_id: 50, is_guest: false }),
+                makeSplit({ user_id: 1, is_guest: false }),
             ],
             expense_guests: [
                 { id: 50, expense_id: 100, name: 'Ad-hoc Guest', amount_owed: 500, paid: false, paid_at: null },
             ],
         });
-        expect(extractParticipantKeysFromExpense(expense)).toEqual(['expenseguest_50']);
+        expect(extractParticipantKeysFromExpense(expense)).toEqual(['user_1', 'expenseguest_50']);
     });
 
-    it('combined: splits + expense guests', () => {
+    it('never reads a user split as the expense guest sharing its id', () => {
         const expense = makeExpense({
             splits: [
                 makeSplit({ user_id: 1, is_guest: false }),
@@ -142,7 +142,7 @@ describe('extractParticipantKeysFromExpense', () => {
             ],
         });
         const keys = extractParticipantKeysFromExpense(expense);
-        expect(keys).toEqual(['user_1', 'guest_10', 'expenseguest_50']);
+        expect(keys).toEqual(['user_1', 'guest_10', 'user_50', 'expenseguest_50']);
     });
 });
 

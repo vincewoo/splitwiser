@@ -332,7 +332,7 @@ Public (no auth, rate-limited):
 - GuestMember: `claimed_by_id`, `managed_by_id`, `managed_by_type`
 - RefreshToken: `token_hash`, `expires_at`, `revoked`
 - ExpenseItem: `description`, `price`, `is_tax_tip`
-- ExpenseItemAssignment: `user_id`, `is_guest`
+- ExpenseItemAssignment: `user_id`, `is_guest`, `expense_guest_id` (an ad-hoc guest is named by this alone; its id overlaps user ids, so never by `user_id`)
 - Tab: `share_token`, `token_expires_at`, `revoked`, `status`, `tax`, `tip`, `total`, `expense_id`, `payer_id` (a user, set at close), `payer_participant_id` (a seat, nameable while open — how an off-app payer is recorded)
 - TabItem: `description`, `price`, `added_manually`
 - TabParticipant: `display_name` (unique per tab, case-insensitively), `user_id` (null when anonymous; unique per tab otherwise), `claim_token`, `venmo_username` (account-less seats only), `paid` / `paid_at`
