@@ -71,8 +71,7 @@ export const itemDetailKeyForParticipant = (p: Participant): string => {
 
 /**
  * Whether an item assignment is this participant's. Expense guests are
- * matched by temp or real guest id, never by user_id — a hydrated
- * expense-guest assignment carries user_id = the guest's id, which can
+ * matched by temp or real guest id, never by user_id — a guest's id can
  * equal a real user's id on the same item.
  */
 export const assignmentIsParticipant = (
@@ -192,9 +191,10 @@ export const extractItemizedDataFromExpense = (
         split_type: item.split_type || 'EQUAL',
         split_details: item.split_details ? structuredClone(item.split_details) : undefined,
         assignments: item.assignments.map(a => {
+            // An expense guest is named by expense_guest_id alone: its id is
+            // not a user id, and echoing it into user_id collides with one.
             if (a.expense_guest_id != null) {
                 return {
-                    user_id: a.expense_guest_id,
                     is_guest: false,
                     expense_guest_id: a.expense_guest_id,
                 };

@@ -407,11 +407,7 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
     const handleParticipantSelectorConfirm = (itemIdx: number, selectedParticipants: Participant[]) => {
         itemizedExpense.updateItemAssignments(itemIdx, selectedParticipants.map(p => {
             if (p.isExpenseGuest) {
-                return {
-                    user_id: p.id,
-                    is_guest: false,
-                    expense_guest_id: p.id
-                };
+                return { is_guest: false, expense_guest_id: p.id };
             }
             return {
                 user_id: p.id,

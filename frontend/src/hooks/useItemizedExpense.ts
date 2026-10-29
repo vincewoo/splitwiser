@@ -153,11 +153,7 @@ export const useItemizedExpense = () => {
                 const newAssignment: ItemAssignment = participant.isExpenseGuest
                     ? participant.tempId != null
                         ? { is_guest: false, temp_guest_id: participant.tempId }
-                        : {
-                            user_id: participant.id,
-                            is_guest: false,
-                            expense_guest_id: participant.id,
-                        }
+                        : { is_guest: false, expense_guest_id: participant.id }
                     : {
                         user_id: participant.id,
                         is_guest: participant.isGuest
