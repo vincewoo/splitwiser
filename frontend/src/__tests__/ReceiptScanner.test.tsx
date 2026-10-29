@@ -209,7 +209,7 @@ describe('ReceiptScanner tax and tip editing', () => {
         fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
 
         expect(onItemsDetected).toHaveBeenCalledTimes(1);
-        const [, , , taxCents, tipCents] = onItemsDetected.mock.calls[0];
+        const [, , taxCents, tipCents] = onItemsDetected.mock.calls[0];
         expect(taxCents).toBe(50);
         expect(tipCents).toBe(100);
     });
@@ -222,7 +222,7 @@ describe('ReceiptScanner tax and tip editing', () => {
         fireEvent.change(screen.getByLabelText('Tax'), { target: { value: '' } });
         fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
 
-        const [, , , taxCents] = onItemsDetected.mock.calls[0];
+        const [, , taxCents] = onItemsDetected.mock.calls[0];
         expect(taxCents).toBeNull();
     });
 
@@ -234,7 +234,7 @@ describe('ReceiptScanner tax and tip editing', () => {
         fireEvent.change(screen.getByLabelText('Tip'), { target: { value: '' } });
         fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
 
-        const [, , , , tipCents] = onItemsDetected.mock.calls[0];
+        const [, , , tipCents] = onItemsDetected.mock.calls[0];
         expect(tipCents).toBeNull();
     });
 
@@ -246,7 +246,7 @@ describe('ReceiptScanner tax and tip editing', () => {
         fireEvent.change(screen.getByLabelText('Tax'), { target: { value: '-5' } });
         fireEvent.click(screen.getByRole('button', { name: /who had what/i }));
 
-        const [, , , taxCents] = onItemsDetected.mock.calls[0];
+        const [, , taxCents] = onItemsDetected.mock.calls[0];
         expect(taxCents).toBe(0);
     });
 });

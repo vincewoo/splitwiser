@@ -62,7 +62,6 @@ const AppShell: React.FC = () => {
         (
             items: { description: string; price: number }[],
             receiptPath?: string,
-            _warning?: string | null,
             tax?: number | null,
             tip?: number | null,
             total?: number | null

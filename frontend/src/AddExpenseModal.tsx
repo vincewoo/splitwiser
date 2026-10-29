@@ -36,6 +36,7 @@ import {
     amountToCents,
     centsToDisplayAmount,
 } from './utils/expenseTransformations';
+import { reconcileReceipt, reconciliationWarning } from './utils/receiptReconciliation';
 import type { EntryKind } from './utils/expenseKind';
 import { formatDateForInput } from './utils/formatters';
 import { formatCurrencyDisplay } from './utils/currencyHelpers';
@@ -88,7 +89,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     const [splitType, setSplitType] = useState<SplitType>('EQUAL');
     const [showScanner, setShowScanner] = useState(false);
     const [scannedItems, setScannedItems] = useState<{ description: string, price: number }[]>([]);
-    const [ocrValidationWarning, setOcrValidationWarning] = useState<string | null>(null);
+    // The printed total from a scan, reconciled live against the items below.
+    const [scannedReceiptTotal, setScannedReceiptTotal] = useState<number | null>(null);
+    const [ocrWarningDismissed, setOcrWarningDismissed] = useState(false);
     const [expenseDate, setExpenseDate] = useState<string>(formatDateForInput());
     const [showParticipantSelector, setShowParticipantSelector] = useState(false);
     const [receiptImagePath, setReceiptImagePath] = useState<string | null>(null);
@@ -159,6 +162,25 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
     // Use custom hooks
     const itemizedExpense = useItemizedExpense();
+
+    // Recomputed on every render, so the warning follows the items as they
+    // are fixed rather than freezing whatever the scan first came back with.
+    // Tax and tip are free text, so a half-typed "." counts as nothing yet.
+    const typedCents = (amount: string) => {
+        const cents = amountToCents(amount);
+        return Number.isFinite(cents) ? cents : 0;
+    };
+    const receiptReconciliation = scannedReceiptTotal === null
+        ? null
+        : reconcileReceipt(
+            itemizedExpense.itemizedItems.filter(item => !item.is_tax_tip),
+            typedCents(itemizedExpense.taxAmount),
+            typedCents(itemizedExpense.tipAmount),
+            scannedReceiptTotal
+        );
+    const ocrValidationWarning = receiptReconciliation && !ocrWarningDismissed
+        ? reconciliationWarning(receiptReconciliation, cents => `${currency} ${centsToDisplayAmount(cents)}`)
+        : null;
     const { splitDetails, handleSplitDetailChange, removeSplitDetail, setSplitDetails } = useSplitDetails();
 
     /*
@@ -251,7 +273,8 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setExpenseDate(formatDateForInput());
         setSplitType('EQUAL');
         setScannedItems([]);
-        setOcrValidationWarning(null);
+        setScannedReceiptTotal(null);
+        setOcrWarningDismissed(false);
         setSelectedIcon(null);
         setReceiptImagePath(null);
         setNotes('');
@@ -292,17 +315,19 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             // the itemized lines so none of it rides into the income payload.
             setReceiptImagePath(null);
             setScannedItems([]);
-            setOcrValidationWarning(null);
+            setScannedReceiptTotal(null);
+            setOcrWarningDismissed(false);
             itemizedExpense.setItemizedItems([]);
             itemizedExpense.setTaxAmount('');
             itemizedExpense.setTipAmount('');
         }
     };
 
-    const handleScannedItems = (items: { description: string, price: number }[], receiptPath?: string, validationWarning?: string | null, taxCents?: number | null, tipCents?: number | null, totalCents?: number | null) => {
+    const handleScannedItems = (items: { description: string, price: number }[], receiptPath?: string, taxCents?: number | null, tipCents?: number | null, totalCents?: number | null) => {
         setScannedItems(items);
         if (receiptPath) setReceiptImagePath(receiptPath);
-        setOcrValidationWarning(validationWarning || null);
+        setScannedReceiptTotal(totalCents != null && totalCents > 0 ? totalCents : null);
+        setOcrWarningDismissed(false);
         setShowScanner(false);
 
         const newItems = items.map(item => ({
@@ -1203,15 +1228,21 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                         <Notice tone="error" className="mb-3">
                                             <span className="flex items-start gap-2">
                                                 <span className="flex-1">
-                                                    <span className="font-medium block">Some items may be missing</span>
+                                                    <span className="font-medium block">
+                                                        {receiptReconciliation?.status === 'under'
+                                                            ? 'Some items may be missing'
+                                                            : 'Items come to more than the receipt'}
+                                                    </span>
                                                     <span className="block mt-1">{ocrValidationWarning}</span>
                                                     <span className="block mt-1">
-                                                        Please review and add any missing items manually using the "Add item" button.
+                                                        {receiptReconciliation?.status === 'under'
+                                                            ? 'Please review and add any missing items manually using the "Add item" button.'
+                                                            : 'Please check the prices for a misread or duplicated line.'}
                                                     </span>
                                                 </span>
                                                 <button
                                                     type="button"
-                                                    onClick={() => setOcrValidationWarning(null)}
+                                                    onClick={() => setOcrWarningDismissed(true)}
                                                     aria-label="Dismiss warning"
                                                     className="flex-none opacity-70 hover:opacity-100 cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
                                                 >
@@ -1245,6 +1276,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                     placeholder="0.00"
                                                     step="0.01"
                                                     className="w-28 sm:w-24 border border-sw-line rounded p-2 text-sm text-right min-h-[44px] bg-sw-surface text-sw-text"
+                                                    aria-label="Tax"
                                                     value={itemizedExpense.taxAmount}
                                                     onChange={(e) => itemizedExpense.setTaxAmount(e.target.value)}
                                                 />
@@ -1263,6 +1295,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                         placeholder="0.00"
                                                         step="0.01"
                                                         className="w-28 sm:w-24 border border-sw-line rounded p-2 text-sm text-right min-h-[44px] bg-sw-surface text-sw-text"
+                                                        aria-label="Tip"
                                                         value={itemizedExpense.tipAmount}
                                                         onChange={(e) => itemizedExpense.setTipAmount(e.target.value)}
                                                     />

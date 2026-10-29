@@ -228,3 +228,111 @@ def test_update_percent_item_split_with_saved_expense_guest(client, auth_headers
 
     details = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()
     assert details["expense_guests"][0]["amount_owed"] == 700
+
+
+def _create_with_guests(client, auth_headers, test_user, names):
+    expense_guests = [{"temp_id": f"g{i}", "name": n} for i, n in enumerate(names)]
+    create = _base_payload(
+        test_user,
+        items=[
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "assignments": [{"temp_guest_id": g["temp_id"]} for g in expense_guests],
+            },
+        ],
+        expense_guests=expense_guests,
+    )
+    created = client.post("/expenses", headers=auth_headers, json=create)
+    assert created.status_code == 200
+    expense_id = created.json()["id"]
+    details = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()
+    return create, expense_id, details["expense_guests"]
+
+
+def test_update_saved_guest_whose_id_matches_a_stranger(client, auth_headers, test_user, db_session):
+    # The edit modal echoes a saved guest's id into user_id as well as
+    # expense_guest_id. When that id is also some non-friend's user id, the
+    # assignment must still be read as the guest, not refused as that user.
+    from models import User
+
+    stranger = User(email="stranger@example.com", hashed_password="x", full_name="Stranger")
+    db_session.add(stranger)
+    db_session.commit()
+
+    create, expense_id, guests = _create_with_guests(
+        client, auth_headers, test_user, ["Guest A", "Guest B"]
+    )
+    guest = next((g for g in guests if g["id"] == stranger.id), None)
+    assert guest is not None, "fixture needs a guest id that collides with the stranger"
+
+    update = {
+        **create,
+        "expense_guests": [],
+        "items": [
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "assignments": [
+                    {"user_id": guest["id"], "is_guest": False, "expense_guest_id": guest["id"]},
+                ],
+            },
+        ],
+    }
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 200, resp.json()
+
+    details = client.get(f"/expenses/{expense_id}", headers=auth_headers).json()
+    owed = {g["name"]: g["amount_owed"] for g in details["expense_guests"]}
+    assert owed[guest["name"]] == 1000
+    assert all(s["user_id"] != stranger.id for s in details["splits"])
+
+
+def test_update_refuses_a_guest_from_another_expense(client, auth_headers, test_user):
+    create, expense_id, _ = _create_with_guests(client, auth_headers, test_user, ["Mine"])
+    _, _, other_guests = _create_with_guests(client, auth_headers, test_user, ["Theirs"])
+    foreign_id = other_guests[0]["id"]
+
+    update = {
+        **create,
+        "expense_guests": [],
+        "items": [
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "assignments": [{"expense_guest_id": foreign_id, "is_guest": False}],
+            },
+        ],
+    }
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 400
+    assert "not found on this expense" in resp.json()["detail"]
+
+
+def test_update_refuses_a_foreign_guest_alongside_a_temp_id(client, auth_headers, test_user):
+    # A temp_guest_id on the same assignment must not slip a foreign
+    # expense_guest_id past the ownership check: the save trusts the latter.
+    create, expense_id, _ = _create_with_guests(client, auth_headers, test_user, ["Mine"])
+    _, _, other_guests = _create_with_guests(client, auth_headers, test_user, ["Theirs"])
+
+    update = {
+        **create,
+        # Name-matches this expense's guest, which turns the temp-id skip on.
+        "expense_guests": [{"temp_id": "a", "name": "Mine"}],
+        "items": [
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "assignments": [
+                    {"temp_guest_id": "a", "expense_guest_id": other_guests[0]["id"], "is_guest": False},
+                ],
+            },
+        ],
+    }
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 400
+    assert "not found on this expense" in resp.json()["detail"]

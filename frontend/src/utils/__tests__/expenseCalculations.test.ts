@@ -196,6 +196,13 @@ describe('calculateItemizedTotal', () => {
         expect(result).toBe('4.50');
     });
 
+    it('treats half-typed tax/tip as 0 rather than NaN', () => {
+        const items: ExpenseItem[] = [
+            { description: 'Coffee', price: 450, is_tax_tip: false, assignments: [] },
+        ];
+        expect(calculateItemizedTotal(items, '.', '-')).toBe('4.50');
+    });
+
     it('handles zero items with tax/tip only', () => {
         const items: ExpenseItem[] = [];
         const result = calculateItemizedTotal(items, '1.50', '2.50');
