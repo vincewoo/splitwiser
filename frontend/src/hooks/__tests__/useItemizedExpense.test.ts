@@ -99,7 +99,8 @@ describe('useItemizedExpense', () => {
         const assignments = result.current.itemizedItems[0].assignments;
         expect(assignments).toHaveLength(1);
         expect(assignments[0].expense_guest_id).toBe(5);
-        expect(assignments[0].user_id).toBe(5);
+        // Never echoed into user_id: guest and user ids overlap.
+        expect(assignments[0].user_id).toBeUndefined();
         expect(assignments[0].is_guest).toBe(false);
 
         // Toggle again to remove

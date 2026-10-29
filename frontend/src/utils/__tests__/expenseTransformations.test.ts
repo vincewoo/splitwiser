@@ -121,16 +121,16 @@ describe('extractParticipantKeysFromExpense', () => {
     it('with expense_guests → expenseguest_X keys added', () => {
         const expense = makeExpense({
             splits: [
-                makeSplit({ user_id: 50, is_guest: false }),
+                makeSplit({ user_id: 1, is_guest: false }),
             ],
             expense_guests: [
                 { id: 50, expense_id: 100, name: 'Ad-hoc Guest', amount_owed: 500, paid: false, paid_at: null },
             ],
         });
-        expect(extractParticipantKeysFromExpense(expense)).toEqual(['expenseguest_50']);
+        expect(extractParticipantKeysFromExpense(expense)).toEqual(['user_1', 'expenseguest_50']);
     });
 
-    it('combined: splits + expense guests', () => {
+    it('never reads a user split as the expense guest sharing its id', () => {
         const expense = makeExpense({
             splits: [
                 makeSplit({ user_id: 1, is_guest: false }),
@@ -142,7 +142,7 @@ describe('extractParticipantKeysFromExpense', () => {
             ],
         });
         const keys = extractParticipantKeysFromExpense(expense);
-        expect(keys).toEqual(['user_1', 'guest_10', 'expenseguest_50']);
+        expect(keys).toEqual(['user_1', 'guest_10', 'user_50', 'expenseguest_50']);
     });
 });
 
@@ -306,7 +306,7 @@ describe('extractItemizedDataFromExpense', () => {
         const result = extractItemizedDataFromExpense(items);
         expect(result.items[0].assignments).toHaveLength(2);
         expect(result.items[0].assignments[0]).toEqual({ user_id: 1, is_guest: false });
-        expect(result.items[0].assignments[1]).toEqual({ user_id: 50, is_guest: false, expense_guest_id: 50 });
+        expect(result.items[0].assignments[1]).toEqual({ is_guest: false, expense_guest_id: 50 });
     });
 
     it('preserves user_id when expense_guest_id is null', () => {
@@ -732,8 +732,8 @@ describe('itemDetailKeyForAssignment / itemDetailKeyForParticipant', () => {
 
 describe('assignmentIsParticipant', () => {
     it('never matches a hydrated expense-guest assignment to the real user with the same id', () => {
-        // Expense guest #7 hydrates as {user_id: 7, is_guest: false,
-        // expense_guest_id: 7} — user #7 must not claim it, and vice versa.
+        // An expense-guest assignment carrying a colliding user_id (as older
+        // clients sent) — user #7 must not claim it, and vice versa.
         const egAssignment = { user_id: 7, is_guest: false, expense_guest_id: 7 };
         const user7: Participant = { id: 7, name: 'User Seven', isGuest: false };
         const guest7: Participant = { id: 7, name: 'Guest', isGuest: false, isExpenseGuest: true };

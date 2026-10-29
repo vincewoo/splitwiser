@@ -453,7 +453,10 @@ def get_expense(
 
             expense_guests = {}
             if expense_guest_ids:
-                eg_records = db.query(models.ExpenseGuest).filter(models.ExpenseGuest.id.in_(expense_guest_ids)).all()
+                eg_records = db.query(models.ExpenseGuest).filter(
+                    models.ExpenseGuest.id.in_(expense_guest_ids),
+                    models.ExpenseGuest.expense_id == expense_id
+                ).all()
                 expense_guests = {eg.id: eg for eg in eg_records}
 
             for item in expense_items:
@@ -793,7 +796,13 @@ def update_expense(
         )
         db.add(db_split)
 
-    # Update expense guest amounts from itemized calculation
+    # Update expense guest amounts from itemized calculation. Zero every saved
+    # guest first: one whose items were all taken away is absent from the
+    # calculation, and would otherwise keep owing its old share.
+    if expense_update.split_type == "ITEMIZED":
+        db.query(models.ExpenseGuest).filter(
+            models.ExpenseGuest.expense_id == expense_id
+        ).update({models.ExpenseGuest.amount_owed: 0}, synchronize_session="fetch")
     if expense_guest_amounts:
         for temp_id, amount in expense_guest_amounts.items():
             # First check the temp_id mapping
@@ -866,32 +875,16 @@ def update_expense(
                         )
                         db.add(db_assignment)
                 else:
-                    # Regular user or group guest assignment
-                    # For existing expense guests, user_id will contain the expense_guest.id
-                    # and we need to check if it matches an expense guest
-                    expense_guest = None
-                    if not assignment.is_guest and assignment.user_id:
-                        expense_guest = db.query(models.ExpenseGuest).filter(
-                            models.ExpenseGuest.expense_id == expense_id,
-                            models.ExpenseGuest.id == assignment.user_id
-                        ).first()
-
-                    if expense_guest:
-                        # This is an expense guest assignment
-                        db_assignment = models.ExpenseItemAssignment(
-                            expense_item_id=db_item.id,
-                            user_id=None,
-                            is_guest=False,
-                            expense_guest_id=expense_guest.id
-                        )
-                    else:
-                        # Regular user or group guest
-                        db_assignment = models.ExpenseItemAssignment(
-                            expense_item_id=db_item.id,
-                            user_id=assignment.user_id,
-                            is_guest=assignment.is_guest,
-                            expense_guest_id=None
-                        )
+                    # Regular user or group guest. A saved expense guest always
+                    # arrives with expense_guest_id (above), so user_id is never
+                    # read as a guest's id: the two id spaces overlap, and
+                    # guessing put real users on the bill as somebody's guest.
+                    db_assignment = models.ExpenseItemAssignment(
+                        expense_item_id=db_item.id,
+                        user_id=assignment.user_id,
+                        is_guest=assignment.is_guest,
+                        expense_guest_id=None
+                    )
                     db.add(db_assignment)
 
     db.commit()

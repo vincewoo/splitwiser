@@ -97,7 +97,7 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      # Fails on any error, and on more than the 19 warnings currently
+      # Fails on any error, and on more than the 13 warnings currently
       # accepted — so the known backlog cannot grow. Lower the ceiling in
       # package.json as those are worked off.
       - name: Run ESLint

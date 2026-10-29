@@ -135,9 +135,10 @@ def validate_expense_participants(
         for item in items:
             if item.assignments:
                 for assignment in item.assignments:
-                    # A saved ad-hoc guest from the edit flow. The client echoes the
-                    # guest's id into user_id too, so checking it as a user would
+                    # A saved ad-hoc guest from the edit flow. Older clients echo the
+                    # guest's id into user_id too; checking that as a user would
                     # refuse the save whenever it collides with a non-friend's id.
+                    # Safe only because the save ignores user_id on these.
                     # Checked before the temp_guest_id skip: the save trusts this
                     # id whatever else the assignment carries.
                     if expense_id is not None and assignment.expense_guest_id is not None:
