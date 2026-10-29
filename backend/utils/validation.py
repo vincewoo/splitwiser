@@ -69,7 +69,8 @@ def validate_expense_participants(
     items: list[schemas.ExpenseItemCreate] | None = None,
     skip_expense_guest_validation: bool = False,
     group_id: int | None = None,
-    current_user_id: int | None = None
+    current_user_id: int | None = None,
+    expense_id: int | None = None
 ) -> None:
     """Validate that all participants (payer, split participants, item assignees) exist and are authorized.
 
@@ -77,6 +78,7 @@ def validate_expense_participants(
         skip_expense_guest_validation: If True, skip validation for expense guests (they're created during expense creation)
         group_id: If provided, validates that all participants belong to this group.
         current_user_id: If provided (and group_id is None), validates that all participants are friends of this user.
+        expense_id: The expense being edited. Its saved ad-hoc guests may then be assigned by expense_guest_id.
     """
     # Validate payer
     if payer_is_guest:
@@ -134,6 +136,18 @@ def validate_expense_participants(
                 for assignment in item.assignments:
                     # Skip expense guest assignments (they use temp_guest_id)
                     if skip_expense_guest_validation and assignment.temp_guest_id:
+                        continue
+
+                    # A saved ad-hoc guest from the edit flow. The client echoes the
+                    # guest's id into user_id too, so checking it as a user would
+                    # refuse the save whenever it collides with a non-friend's id.
+                    if expense_id is not None and assignment.expense_guest_id is not None:
+                        expense_guest = db.query(models.ExpenseGuest).filter(
+                            models.ExpenseGuest.id == assignment.expense_guest_id,
+                            models.ExpenseGuest.expense_id == expense_id
+                        ).first()
+                        if not expense_guest:
+                            raise HTTPException(status_code=400, detail=f"Expense guest with ID {assignment.expense_guest_id} not found on this expense")
                         continue
 
                     # Skip if no user_id (expense guest assignment)
