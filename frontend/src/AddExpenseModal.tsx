@@ -165,12 +165,17 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
     // Recomputed on every render, so the warning follows the items as they
     // are fixed rather than freezing whatever the scan first came back with.
+    // Tax and tip are free text, so a half-typed "." counts as nothing yet.
+    const typedCents = (amount: string) => {
+        const cents = amountToCents(amount);
+        return Number.isFinite(cents) ? cents : 0;
+    };
     const receiptReconciliation = scannedReceiptTotal === null
         ? null
         : reconcileReceipt(
             itemizedExpense.itemizedItems.filter(item => !item.is_tax_tip),
-            amountToCents(itemizedExpense.taxAmount),
-            amountToCents(itemizedExpense.tipAmount),
+            typedCents(itemizedExpense.taxAmount),
+            typedCents(itemizedExpense.tipAmount),
             scannedReceiptTotal
         );
     const ocrValidationWarning = receiptReconciliation && !ocrWarningDismissed
@@ -269,6 +274,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         setSplitType('EQUAL');
         setScannedItems([]);
         setScannedReceiptTotal(null);
+        setOcrWarningDismissed(false);
         setSelectedIcon(null);
         setReceiptImagePath(null);
         setNotes('');
@@ -310,13 +316,14 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             setReceiptImagePath(null);
             setScannedItems([]);
             setScannedReceiptTotal(null);
+            setOcrWarningDismissed(false);
             itemizedExpense.setItemizedItems([]);
             itemizedExpense.setTaxAmount('');
             itemizedExpense.setTipAmount('');
         }
     };
 
-    const handleScannedItems = (items: { description: string, price: number }[], receiptPath?: string, _validationWarning?: string | null, taxCents?: number | null, tipCents?: number | null, totalCents?: number | null) => {
+    const handleScannedItems = (items: { description: string, price: number }[], receiptPath?: string, taxCents?: number | null, tipCents?: number | null, totalCents?: number | null) => {
         setScannedItems(items);
         if (receiptPath) setReceiptImagePath(receiptPath);
         setScannedReceiptTotal(totalCents != null && totalCents > 0 ? totalCents : null);
@@ -1269,6 +1276,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                     placeholder="0.00"
                                                     step="0.01"
                                                     className="w-28 sm:w-24 border border-sw-line rounded p-2 text-sm text-right min-h-[44px] bg-sw-surface text-sw-text"
+                                                    aria-label="Tax"
                                                     value={itemizedExpense.taxAmount}
                                                     onChange={(e) => itemizedExpense.setTaxAmount(e.target.value)}
                                                 />
@@ -1287,6 +1295,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                                                         placeholder="0.00"
                                                         step="0.01"
                                                         className="w-28 sm:w-24 border border-sw-line rounded p-2 text-sm text-right min-h-[44px] bg-sw-surface text-sw-text"
+                                                        aria-label="Tip"
                                                         value={itemizedExpense.tipAmount}
                                                         onChange={(e) => itemizedExpense.setTipAmount(e.target.value)}
                                                     />

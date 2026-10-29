@@ -29,15 +29,11 @@ vi.mock('../hooks/useCurrencyPreferences', () => ({
 }));
 
 // What the scan "returns" for the current test.
-let scan: { items: { description: string; price: number }[]; total: number };
-
-// The one-line warning the real scanner hands over, in its own format. The
-// form must not lean on it: a frozen copy is exactly what went stale.
-const scannerWarning = () => {
-    const computed = scan.items.reduce((sum, item) => sum + item.price, 0);
-    const delta = scan.total - computed;
-    const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-    return `Items, tax and tip come to ${money(computed)}, which is ${money(Math.abs(delta))} ${delta > 0 ? 'under' : 'over'} the receipt total.`;
+let scan: {
+    items: { description: string; price: number }[];
+    total: number | null;
+    tax?: number | null;
+    tip?: number | null;
 };
 
 vi.mock('../ReceiptScanner', () => ({
@@ -47,7 +43,7 @@ vi.mock('../ReceiptScanner', () => ({
         <button
             type="button"
             onClick={() =>
-                onItemsDetected(scan.items, '/r.jpg', scannerWarning(), null, null, scan.total)
+                onItemsDetected(scan.items, '/r.jpg', scan.tax ?? null, scan.tip ?? null, scan.total)
             }
         >
             Finish scan
@@ -68,6 +64,13 @@ const renderScanned = () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Finish scan' }));
 };
+
+const rescan = () => {
+    fireEvent.click(screen.getByRole('button', { name: '+ Scan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Finish scan' }));
+};
+
+const UNDER = 'Some items may be missing';
 
 const addItem = (description: string, price: string) => {
     fireEvent.click(screen.getByRole('button', { name: '+ Add' }));
@@ -119,5 +122,55 @@ describe('AddExpenseModal receipt total warning', () => {
         expect(
             screen.queryByText('Items come to more than the receipt')
         ).not.toBeInTheDocument();
+    });
+
+    it('clears once the tax makes up the difference', () => {
+        scan = { items: [{ description: 'Wings', price: 1000 }], total: 1500 };
+        renderScanned();
+        expect(screen.getByText(UNDER)).toBeInTheDocument();
+
+        fireEvent.change(screen.getByLabelText('Tax'), { target: { value: '5.00' } });
+
+        expect(screen.queryByText(UNDER)).not.toBeInTheDocument();
+    });
+
+    it('counts the scanned tax and tip towards the total', () => {
+        scan = { items: [{ description: 'Wings', price: 1000 }], total: 1500, tax: 200, tip: 300 };
+        renderScanned();
+
+        expect(screen.queryByText(UNDER)).not.toBeInTheDocument();
+        expect(screen.getByLabelText('Tip')).toHaveValue('3.00');
+    });
+
+    it('ignores a half-typed tax rather than reporting NaN', () => {
+        scan = { items: [{ description: 'Wings', price: 1000 }], total: 1500 };
+        renderScanned();
+
+        fireEvent.change(screen.getByLabelText('Tax'), { target: { value: '.' } });
+
+        expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+        expect(screen.getByText(/5\.00 under the receipt total/)).toBeInTheDocument();
+    });
+
+    it.each([null, 0])('shows nothing when the scan read a total of %s', total => {
+        scan = { items: [{ description: 'Wings', price: 1000 }], total };
+        renderScanned();
+
+        expect(screen.queryByText(UNDER)).not.toBeInTheDocument();
+        expect(screen.queryByText('Items come to more than the receipt')).not.toBeInTheDocument();
+    });
+
+    it('stays dismissed while editing, and comes back with the next scan', () => {
+        scan = { items: [{ description: 'Wings', price: 1000 }], total: 2000 };
+        renderScanned();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Dismiss warning' }));
+        expect(screen.queryByText(UNDER)).not.toBeInTheDocument();
+
+        addItem('Fries', '4.00');
+        expect(screen.queryByText(UNDER)).not.toBeInTheDocument();
+
+        rescan();
+        expect(screen.getByText(UNDER)).toBeInTheDocument();
     });
 });

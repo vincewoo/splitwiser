@@ -310,3 +310,29 @@ def test_update_refuses_a_guest_from_another_expense(client, auth_headers, test_
     resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
     assert resp.status_code == 400
     assert "not found on this expense" in resp.json()["detail"]
+
+
+def test_update_refuses_a_foreign_guest_alongside_a_temp_id(client, auth_headers, test_user):
+    # A temp_guest_id on the same assignment must not slip a foreign
+    # expense_guest_id past the ownership check: the save trusts the latter.
+    create, expense_id, _ = _create_with_guests(client, auth_headers, test_user, ["Mine"])
+    _, _, other_guests = _create_with_guests(client, auth_headers, test_user, ["Theirs"])
+
+    update = {
+        **create,
+        # Name-matches this expense's guest, which turns the temp-id skip on.
+        "expense_guests": [{"temp_id": "a", "name": "Mine"}],
+        "items": [
+            {
+                "description": "Pasta",
+                "price": 1000,
+                "is_tax_tip": False,
+                "assignments": [
+                    {"temp_guest_id": "a", "expense_guest_id": other_guests[0]["id"], "is_guest": False},
+                ],
+            },
+        ],
+    }
+    resp = client.put(f"/expenses/{expense_id}", headers=auth_headers, json=update)
+    assert resp.status_code == 400
+    assert "not found on this expense" in resp.json()["detail"]
