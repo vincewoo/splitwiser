@@ -14,6 +14,7 @@ python migrations/add_tab_participant_name_uniqueness.py --db-path "$DATABASE_PA
 python migrations/detach_tabs_from_deleted_expenses.py --db-path "$DATABASE_PATH"
 python migrations/add_tab_offapp_payer.py --db-path "$DATABASE_PATH"
 python migrations/add_expense_kind.py --db-path "$DATABASE_PATH"
+python migrations/backfill_tab_expense_items.py --db-path "$DATABASE_PATH"
 
 # Start supervisor
 echo "Starting Supervisor..."

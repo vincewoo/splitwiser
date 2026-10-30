@@ -768,6 +768,7 @@ class TabOut(BaseModel):
     # The seat that fronted the bill, nameable while the tab is still open.
     payer_participant_id: Optional[int] = None
     expense_id: Optional[int]
+    closed_at: Optional[datetime] = None
     items: List[TabItemOut] = Field(default_factory=list)
     participants: List[TabParticipantOut] = Field(default_factory=list)
     # The scanned bill, so the owner can check the lines against the paper.

@@ -30,6 +30,7 @@ import {
     toShareItems,
     unclaimedTotal,
 } from '../utils/tabShares';
+import { closedTabFate, closedTabNote } from '../utils/closedTab';
 import type { Tab, TabItem } from '../types/tab';
 
 /** How often the board re-reads while people are still claiming. */
@@ -902,7 +903,7 @@ const TabBoardPage: React.FC = () => {
             ) : (
                 <div className="px-4 pt-3 pb-3.5 bg-sw-sunk border-t border-sw-line flex-none text-center">
                     <p className="text-[12.5px] text-sw-muted">
-                        Closed — this landed in your normal balances.
+                        {closedTabNote[closedTabFate(tab)]}
                     </p>
                 </div>
             )}

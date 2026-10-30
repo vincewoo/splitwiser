@@ -1,16 +1,17 @@
 import React from 'react';
-import { Receipt } from '@phosphor-icons/react';
+import { CaretRight, Receipt } from '@phosphor-icons/react';
+import { Link } from 'react-router-dom';
 import PageHeader from './PageHeader';
 import ExpenseFeedRow from '../components/ExpenseFeedRow';
 import ExpenseDetailModal from '../ExpenseDetailModal';
-import OpenTabsList from '../components/tab/OpenTabsList';
+import TabList from '../components/tab/TabList';
 import { useAuth } from '../AuthContext';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useAppData } from '../contexts/AppDataContext';
 import { useExpenseFeed } from '../hooks/useExpenseFeed';
 import { useExpenseLabels } from '../hooks/useExpenseLabels';
 import { useOpenExpense } from '../hooks/useOpenExpense';
-import { useOpenTabs } from '../hooks/useOpenTabs';
+import { useTabs } from '../hooks/useTabs';
 
 /**
  * Everything that has happened, newest first — the "Lately" feed at full
@@ -24,8 +25,8 @@ const ActivityPage: React.FC = () => {
     const { payerName, groupName } = useExpenseLabels();
     const openExpense = useOpenExpense();
 
-    // Open tabs live here rather than under Groups — a tab is not a group.
-    const { openTabs } = useOpenTabs();
+    // Tabs live here rather than under Groups — a tab is not a group.
+    const { openTabs, closedTabs } = useTabs();
 
     return (
         <>
@@ -42,8 +43,26 @@ const ActivityPage: React.FC = () => {
                             Open tabs
                         </div>
                         <div className="mb-4">
-                            <OpenTabsList tabs={openTabs} />
+                            <TabList tabs={openTabs} />
                         </div>
+                    </div>
+                )}
+
+                {/*
+                  * A closed tab's expense is already in the feed below, but a
+                  * tab settled outside the app, or whose expense was deleted,
+                  * has nothing else to show for it.
+                  */}
+                {closedTabs.length > 0 && (
+                    <div className="max-w-3xl pt-3 pb-1">
+                        <Link
+                            to="/tabs"
+                            className="flex items-center gap-2 text-[12.5px] text-sw-muted hover:text-sw-text mb-3"
+                        >
+                            Past tabs
+                            <span className="text-sw-dim">{closedTabs.length}</span>
+                            <CaretRight size={14} className="text-sw-dim" />
+                        </Link>
                     </div>
                 )}
 

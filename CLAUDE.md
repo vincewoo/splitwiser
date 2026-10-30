@@ -86,7 +86,8 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/hooks/useBalanceSheetExport.ts` - Downloads the balance sheet CSV; owns the blob URL lifecycle and refuses while offline, since the sheet is server-computed and a cached one would be stale
 - `frontend/src/hooks/useOpenExpense.ts` - Opens the expense detail modal from a feed row or a person's page, loading group context in the background
 - `frontend/src/components/PullToRefresh.tsx` - Pull down from the top of any mobile screen to refresh; wraps the shell's routed content once, finds the scroller under the finger, and runs `refreshAll()`. Gesture arithmetic in `utils/pullToRefresh.ts`
-- `frontend/src/components/tab/OpenTabsList.tsx` - Open tabs as re-entry rows; on the home page and Activity
+- `frontend/src/components/tab/TabList.tsx` - Tabs as re-entry rows: open ones on the home page and Activity, open and closed on `/tabs`
+- `frontend/src/routes/TabsPage.tsx` - `/tabs`: every tab you opened, closed ones included — the only way back to a tab settled outside the app or whose expense was deleted. Linked from Activity as "Past tabs"; `utils/closedTab.ts` says where each closed one went
 - `frontend/src/hooks/useItemizedExpense.ts` - Itemized expense state management
 - `frontend/src/components/summary/SummarySection.tsx` - Spending summary (consumption, not balances)
 - `frontend/src/components/summary/MemberConsumptionTable.tsx` - Per-member rows
@@ -98,7 +99,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/components/tab/WhoPaidSheet.tsx` - Who fronted the bill, including somebody with no Splitwiser account, plus the Venmo handle the claim page needs to reach them
 - `frontend/src/components/tab/TabAmountsSheet.tsx` - Correcting a live tab's tax and tip; the scan is a convenience, not the authority
 - `frontend/src/components/tab/` - Receipt paper, item × person matrix, QR, progress
-- `frontend/src/components/tab/TabBreakdown.tsx` - What each person owes and why (their items, unclaimed share, tax and tip); used on the board, the close screen, the claim page and the expense detail modal
+- `frontend/src/components/tab/TabBreakdown.tsx` - What each person owes and why (their items, unclaimed share, tax and tip); used on the board, the close screen and the claim page
 
 **PWA Support:**
 - `frontend/public/manifest.json` - PWA manifest for installable app
@@ -116,7 +117,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - Itemized expenses use proportional tax/tip distribution. `utils/splits.py::allocate_items` is the single implementation: the write path collapses it to one total per person, the balance sheet keeps the per-line detail including which person absorbed the remainder cents
 - An expense has a `kind`: `expense` | `settlement` | `income` (`is_settlement` survives as a compat alias, derived from `kind` on every response). Income is money received — the dual of an expense: it runs every ledger loop with the sign flipped (`utils/balances.py::ledger_sign`) and is excluded from the consumption summary. **Any new loop over expenses must handle `kind`.**
 - A settlement is an ordinary expense with `kind="settlement"`, so the backend never cared whether the amount matched the plan. The settle screens let it differ: a suggested payment can be recorded for a different figure (overpaying is allowed — the payer comes out owed the excess, and the copy says so rather than promising who pays it), and a payment to somebody the plan never named can be recorded outright, which is the one thing that legitimately re-plans the group
-- `AppDataContext.refreshGeneration` is bumped by every `refreshAll()`, and every screen-local fetch (`useGroupData`, `useExpenseFeed`, `useSettlement`, `useOpenTabs`, the person page) re-runs on it. Mutations call `refreshAll()` alone — never a local `reload()` beside it, which would fetch twice — and the initial load does not bump it. This is how an expense added from the shell's modal reaches the group page that is open behind it; see `docs/PWA.md`
+- `AppDataContext.refreshGeneration` is bumped by every `refreshAll()`, and every screen-local fetch (`useGroupData`, `useExpenseFeed`, `useSettlement`, `useTabs`, the person page) re-runs on it. Mutations call `refreshAll()` alone — never a local `reload()` beside it, which would fetch twice — and the initial load does not bump it. This is how an expense added from the shell's modal reaches the group page that is open behind it; see `docs/PWA.md`
 - Settling up can hand off to Venmo (app scheme first, https fallback) with the amount pre-filled; it never marks anything paid, since there is no callback. Offered on every surface that settles a specific debt — `/settle`, a group's Simplify Debts, a person's Settle up, the overview's "Clear it in N payments" — but only for debts the signed-in user is party to, and on the off-plan sheet only when the signed-in user is the payer
 - Tabs are share-link bills with no group: high-entropy expiring write tokens, anonymous claimers held by their own claim token, signed-in claimers seated as their account so the closed tab becomes a real shared expense, unclaimed lines spread across everyone at close. A claimer can Venmo the host straight from the claim page — the surface where the hand-off matters most, since they often owe somebody they have no other way to pay
 - Receipt uploads (images and PDFs) stored in `data/receipts/` directory (configurable via `DATA_DIR` env var); PDFs are rasterized per-page for the LLM but the original file is preserved. Served from `/static/receipts/`, which reaches the browser as `/api/static/receipts/` — so the service worker's navigation fallback must keep its hands off `/api/` (see `navigateFallbackDenylist` in `frontend/vite.config.ts`)
@@ -306,7 +307,7 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 A tab is a one-off bill people claim their own items from via a link — no group, nobody to invite. See `docs/TABS.md`.
 
 Owner (authenticated):
-- `POST /tabs`, `GET /tabs`, `GET /tabs/{tab_id}` - Open, list, read
+- `POST /tabs`, `GET /tabs`, `GET /tabs/{tab_id}` - Open, list (all of yours, or `?status_filter=open`), read
 - `POST /tabs/{tab_id}/items`, `DELETE /tabs/{tab_id}/items/{item_id}` - Lines the scan missed; deleting drops the line's claims
 - `PATCH /tabs/{tab_id}/amounts` - Correct the tax or the tip while the tab is open; `total` follows, and a closed tab is refused
 - `POST /tabs/{tab_id}/participants` - Seat somebody with no phone of their own; a guest seat, same name rules as joining. Takes an optional `venmo_username`, for a seat that is going to be owed money
@@ -315,7 +316,7 @@ Owner (authenticated):
 - `POST /tabs/{tab_id}/items/{item_id}/claim` - Claim as yourself (any signed-in participant)
 - `POST /tabs/{tab_id}/items/{item_id}/claim/{participant_id}` - Set anyone's claim (owner only)
 - `POST /tabs/{tab_id}/revoke` - Kill the link without closing
-- `POST /tabs/{tab_id}/close` - Resolve into one direct expense — or, when the payer has no Splitwiser account, into a plain record with no expense at all, since everyone settles with them outside the app
+- `POST /tabs/{tab_id}/close` - Resolve into one direct itemized expense, the tab's lines copied on as its items so it can be edited — or, when the payer has no Splitwiser account, into a plain record with no expense at all, since everyone settles with them outside the app
 
 Public (no auth, rate-limited):
 - `GET /public/tabs/{share_token}` - Read the tab, plus `host_name` / `host_venmo_username` so a claimer can Venmo whoever fronted the bill — the only unauthenticated audience for a handle, and the host's alone
@@ -334,7 +335,7 @@ Public (no auth, rate-limited):
 - RefreshToken: `token_hash`, `expires_at`, `revoked`
 - ExpenseItem: `description`, `price`, `is_tax_tip`
 - ExpenseItemAssignment: `user_id`, `is_guest`, `expense_guest_id` (an ad-hoc guest is named by this alone; its id overlaps user ids, so never by `user_id`)
-- Tab: `share_token`, `token_expires_at`, `revoked`, `status`, `tax`, `tip`, `total`, `expense_id`, `payer_id` (a user, set at close), `payer_participant_id` (a seat, nameable while open — how an off-app payer is recorded)
+- Tab: `share_token`, `token_expires_at`, `revoked`, `status`, `tax`, `tip`, `total`, `expense_id`, `payer_id` (a user, set at close), `payer_participant_id` (a seat, nameable while open — how an off-app payer is recorded), `closed_at`
 - TabItem: `description`, `price`, `added_manually`
 - TabParticipant: `display_name` (unique per tab, case-insensitively), `user_id` (null when anonymous; unique per tab otherwise), `claim_token`, `venmo_username` (account-less seats only), `paid` / `paid_at`
 - TabItemClaim: `item_id`, `participant_id` (unique together)

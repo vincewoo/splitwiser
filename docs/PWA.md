@@ -122,7 +122,7 @@ around the shell's routed content on mobile.
 
 `AppDataContext.refreshGeneration` is a counter bumped by every
 `refreshAll()`. Screens that fetch their own data — `useGroupData`,
-`useExpenseFeed`, `useSettlement`, `useOpenTabs`, the person page — put it in
+`useExpenseFeed`, `useSettlement`, `useTabs`, the person page — put it in
 their fetch effect's dependencies, so a mutation recorded anywhere (the
 shell's add-expense modal behind the FAB, a settlement on `/settle`, an edit
 from the activity feed, a pull to refresh) reaches the screen showing the

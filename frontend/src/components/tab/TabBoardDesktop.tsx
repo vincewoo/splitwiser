@@ -13,6 +13,7 @@ import TabProgress from './TabProgress';
 import TabMatrix from './TabMatrix';
 import TabBreakdown from './TabBreakdown';
 import { payerParticipantId } from '../../utils/tabShares';
+import { closedTabFate, closedTabNote } from '../../utils/closedTab';
 import type { Tab } from '../../types/tab';
 
 export interface TabBoardDesktopProps {
@@ -42,7 +43,7 @@ export interface TabBoardDesktopProps {
 
 /** Friday · $212.35 · link live for 5 more days */
 function caption(tab: Tab, expiresAt: string | null | undefined): string | null {
-    if (tab.status !== 'open') return 'Closed — this landed in everyone’s balances.';
+    if (tab.status !== 'open') return closedTabNote[closedTabFate(tab)];
     if (!expiresAt) return null;
 
     const days = Math.ceil(

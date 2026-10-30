@@ -252,12 +252,66 @@ def _tab_out(db: Session, tab: models.Tab) -> schemas.TabOut:
         payer_id=tab.payer_id,
         payer_participant_id=tab.payer_participant_id,
         expense_id=tab.expense_id,
+        closed_at=tab.closed_at,
         items=_serialize_items(db, tab.id),
         participants=_serialize_participants(db, tab.id),
         receipt_image_path=tab.receipt_image_path,
         share_token=tab.share_token,
         token_expires_at=tab.token_expires_at,
     )
+
+
+def _write_expense_items(
+    db: Session,
+    expense_id: int,
+    items: List[models.TabItem],
+    claims: dict,
+    seat_refs: dict,
+    tab: models.Tab,
+) -> None:
+    """
+    Copy the tab's lines onto its expense as ordinary itemized lines.
+
+    The expense is ITEMIZED, and an itemized expense is edited from its items:
+    without them the edit form starts from nothing and the save cannot stand.
+    A line nobody claimed goes to everyone, as it did in the share computation,
+    and tax and tip become tax/tip lines. The splits written beside these keep
+    the tab's own arithmetic; an edit later re-allocates from the lines, which
+    rounds differently and can move a few cents between people.
+
+    `seat_refs` maps a participant id to how that seat is named on the
+    expense: `{"user_id": ...}` or `{"expense_guest_id": ...}`.
+    """
+    lines = [
+        (item.description, item.price, False, claims.get(item.id) or [])
+        for item in items
+    ]
+    if tab.tax:
+        lines.append(("Tax", tab.tax, True, []))
+    if tab.tip:
+        lines.append(("Tip", tab.tip, True, []))
+
+    for description, price, is_tax_tip, claimers in lines:
+        db_item = models.ExpenseItem(
+            expense_id=expense_id,
+            description=description,
+            price=price,
+            is_tax_tip=is_tax_tip,
+            split_type="EQUAL",
+        )
+        db.add(db_item)
+        db.flush()
+        if is_tax_tip:
+            continue
+        assignees = [p for p in claimers if p in seat_refs] or list(seat_refs)
+        for participant_id in assignees:
+            db.add(
+                models.ExpenseItemAssignment(
+                    expense_item_id=db_item.id,
+                    is_guest=False,
+                    **seat_refs[participant_id],
+                )
+            )
 
 
 def _payer_seat(db: Session, tab: models.Tab) -> Optional[models.TabParticipant]:
@@ -896,6 +950,8 @@ def close_tab(
     db.commit()
     db.refresh(expense)
 
+    # How each seat is named on the expense, for the item assignments below.
+    seat_refs: dict = {}
     for participant in participants:
         owed = shares.get(participant.id, 0)
         if participant.user_id is not None:
@@ -907,17 +963,23 @@ def close_tab(
                     amount_owed=owed,
                 )
             )
+            seat_refs[participant.id] = {"user_id": participant.user_id}
         else:
             # Anonymous claimers land as expense guests, the same records a
             # direct expense with guests already uses.
-            db.add(
-                models.ExpenseGuest(
-                    expense_id=expense.id,
-                    name=participant.display_name,
-                    amount_owed=owed,
-                    created_by_id=current_user.id,
-                )
+            guest = models.ExpenseGuest(
+                expense_id=expense.id,
+                name=participant.display_name,
+                amount_owed=owed,
+                created_by_id=current_user.id,
             )
+            db.add(guest)
+            db.flush()
+            seat_refs[participant.id] = {"expense_guest_id": guest.id}
+
+    _write_expense_items(
+        db, expense.id, items, _claims_by_item(db, tab.id), seat_refs, tab
+    )
 
     tab.status = "closed"
     tab.closed_at = datetime.utcnow()
