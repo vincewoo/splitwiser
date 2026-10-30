@@ -42,6 +42,8 @@ export interface Tab {
     payer_participant_id?: number | null;
     /** Null on a tab closed to a plain record, i.e. an off-app payer. */
     expense_id: number | null;
+    /** When the tab closed, as a naive UTC timestamp. Null while open. */
+    closed_at?: string | null;
     items: TabItem[];
     participants: TabParticipant[];
     /** The scanned bill. Owner view only, like the token below. */

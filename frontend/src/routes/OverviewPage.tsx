@@ -13,7 +13,7 @@ import {
 import PageHeader from './PageHeader';
 import ExpenseFeedRow from '../components/ExpenseFeedRow';
 import ExpenseDetailModal from '../ExpenseDetailModal';
-import OpenTabsList from '../components/tab/OpenTabsList';
+import TabList from '../components/tab/TabList';
 import VenmoButton from '../components/VenmoButton';
 import { useAppData } from '../contexts/AppDataContext';
 import { useAuth } from '../AuthContext';
@@ -23,7 +23,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useExpenseFeed } from '../hooks/useExpenseFeed';
 import { useExpenseLabels } from '../hooks/useExpenseLabels';
 import { useOpenExpense } from '../hooks/useOpenExpense';
-import { useOpenTabs } from '../hooks/useOpenTabs';
+import { useTabs } from '../hooks/useTabs';
 import { useSettlement } from '../hooks/useSettlement';
 import { netForGroup } from '../utils/groupBalances';
 import { participantKey, partyName, settlementTotal } from '../utils/settlement';
@@ -68,7 +68,7 @@ const OverviewPage: React.FC = () => {
     const { expenses, loading } = useExpenseFeed();
     const { payerName, groupName } = useExpenseLabels();
     const openExpense = useOpenExpense();
-    const { openTabs } = useOpenTabs();
+    const { openTabs } = useTabs();
 
     const { counterparties, directory } = useSettlement();
 
@@ -192,7 +192,7 @@ const OverviewPage: React.FC = () => {
                 </div>
             </div>
             <div className="px-2.5 pt-1 pb-3">
-                <OpenTabsList tabs={openTabs} size="sm" />
+                <TabList tabs={openTabs} size="sm" />
             </div>
         </Card>
     );
@@ -594,7 +594,7 @@ const OverviewPage: React.FC = () => {
                                 {openTabs.length}
                             </div>
                         </div>
-                        <OpenTabsList tabs={openTabs} size="sm" />
+                        <TabList tabs={openTabs} size="sm" />
                     </div>
                 )}
 

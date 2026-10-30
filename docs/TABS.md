@@ -244,6 +244,14 @@ the app at all.
   expense with guests already uses.
 - The expense gets `split_type = "ITEMIZED"`, icon `🧾`, and a note naming the
   venue. `Tab.expense_id` points at it.
+- The tab's lines are copied onto it as `ExpenseItem`s, with an assignment per
+  claimer (an account by `user_id`, an anonymous seat by its new
+  `expense_guest_id`). A line nobody claimed is assigned to everyone, as the
+  share computation spread it; tax and tip become tax/tip lines. Without the
+  lines an itemized expense cannot be edited — the form builds it from its
+  items, so it started from $0. The splits keep the tab's own arithmetic; an
+  edit re-allocates from the lines with `allocate_items`, which can move a
+  rounding cent.
 
 **A payer with no account** writes nothing. There is genuinely no debt for
 Splitwiser to hold: everyone settles with that person directly, outside the
@@ -275,10 +283,10 @@ settle days later; a closed tab is exactly when the ticking-off happens.
 
 ### Getting back to a closed tab
 
-Closed tabs are not listed anywhere — `GET /tabs` is filtered to `open` by
-every caller — so the expense is the only handle on one. `GET
-/expenses/{id}` therefore carries `tab_id`, derived from `Tab.expense_id`, and
-the expense detail view turns it into a "View tab" action.
+Two ways back. `/tabs` lists every tab you opened, closed ones included, and
+Activity links to it as "Past tabs". From an expense, `GET /expenses/{id}`
+carries `tab_id`, derived from `Tab.expense_id`, and the expense detail view
+turns it into a "View tab" action.
 
 Only for the tab's owner. `GET /tabs/{id}` answers everyone else with `404`
 precisely so it never confirms a tab exists, so `tab_id` is filtered on
@@ -292,8 +300,9 @@ moment the row goes and handed straight to the next insert, so a tab left
 holding one ends up answering for an unrelated expense — its owner offered a
 trip back to a bill they had already thrown away, with the wrong people on it.
 The tab stays `closed` rather than reopening, since its claims are spent and
-reopening would put a writable link back in circulation; it is simply
-unreachable, which is what deleting it meant.
+reopening would put a writable link back in circulation. It stays listed under
+`/tabs`, marked "expense deleted": deleting a bill by mistake used to leave no
+trace of it at all, and the tab still holds its lines, claims and receipt.
 `migrations/detach_tabs_from_deleted_expenses.py` clears the links written
 before this held, and runs on every boot.
 
@@ -366,6 +375,9 @@ before this held, and runs on every boot.
 - `TabPassPage.tsx` - `/tabs/:tabId/pass`. Signed in, but no shell — see
   *Passing the phone*.
 - `TabClosePage.tsx` - confirm who paid, see the final shares.
+- `TabsPage.tsx` - `/tabs`. Every tab you opened, open then closed. Each closed
+  row says when it closed and where it went (`utils/closedTab.ts`): into
+  balances, settled outside the app, or expense deleted.
 
 **Components** (`src/components/tab/`)
 - `TabBoardDesktop.tsx` - the two-pane board
@@ -382,6 +394,8 @@ before this held, and runs on every boot.
   both sides of the counter: tax and tip are never claimed, they ride along on
   whatever each person picked, so a fully claimed tab reads 100%
 - `ClaimerStack.tsx` - overlapping avatars on a claimed line
+- `TabList.tsx` - tabs as re-entry rows: open on the home page and Activity,
+  open and closed on `/tabs`
 - `QrCode.tsx` - the share link as a QR. Everyone is at the same table, so a
   code on the host's screen beats sending four messages.
 
@@ -488,6 +502,12 @@ suffixes the later of each pair ("Maya" → "Maya (2)") first; a repeated accoun
 (which no released code path produces, but which would stop the container
 booting) has the account detached from the later seat, leaving it a guest seat
 with its claims. Runs from `start.sh`; idempotent, and supports `--dry-run`.
+
+`backend/migrations/backfill_tab_expense_items.py` — copies a closed tab's lines
+onto the expense it resolved into, for expenses closed before closing wrote
+them. Skips (and reports) an expense whose amount no longer matches the tab or
+whose anonymous seats have no expense guest of the same name. Runs from
+`start.sh`; idempotent, and supports `--dry-run`.
 
 ## Not Built
 

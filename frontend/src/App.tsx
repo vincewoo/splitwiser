@@ -16,6 +16,7 @@ import GroupPage from './routes/GroupPage';
 import PersonPage from './routes/PersonPage';
 import SettleUpPage from './routes/SettleUpPage';
 import TabBoardPage from './routes/TabBoardPage';
+import TabsPage from './routes/TabsPage';
 import TabClosePage from './routes/TabClosePage';
 import TabClaimPage from './routes/TabClaimPage';
 import TabPassPage from './routes/TabPassPage';
@@ -82,6 +83,7 @@ function App() {
                 <Route path="/friends/:friendId" element={<PersonPage />} />
                 <Route path="/activity" element={<ActivityPage />} />
                 <Route path="/settle" element={<SettleUpPage />} />
+                <Route path="/tabs" element={<TabsPage />} />
                 <Route path="/tabs/:tabId" element={<TabBoardPage />} />
                 <Route path="/tabs/:tabId/close" element={<TabClosePage />} />
                 <Route path="/account" element={<AccountSettingsPage />} />
