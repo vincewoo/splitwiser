@@ -508,6 +508,13 @@ them. Skips (and reports) an expense whose amount no longer matches the tab or
 whose anonymous seats have no expense guest of the same name. Runs from
 `start.sh`; idempotent, and supports `--dry-run`.
 
+`backend/migrations/relax_assignment_user_id.py` — rebuilds
+`expense_item_assignments` with `user_id` nullable. An anonymous seat's lines
+are assigned to its expense guest with `user_id` NULL, and databases older than
+`add_expense_guests.py` still had the column NOT NULL, so closing a tab with an
+anonymous claimer (and the backfill above) was refused. Runs from `start.sh`
+before the backfill; idempotent, and supports `--dry-run`.
+
 ## Not Built
 
 - **Nudging** a participant who has not claimed. They are link-holders and
