@@ -88,6 +88,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/components/OpenExpenseModal.tsx` - The modal `useOpenExpense` opens; a page renders it once in every layout it returns
 - `frontend/src/components/PullToRefresh.tsx` - Pull down from the top of any mobile screen to refresh; wraps the shell's routed content once, finds the scroller under the finger, and runs `refreshAll()`. Gesture arithmetic in `utils/pullToRefresh.ts`
 - `frontend/src/components/tab/TabList.tsx` - Tabs as re-entry rows: open ones on the home page and Activity, open and closed on `/tabs`
+- `frontend/src/routes/GrouplessPage.tsx` - `/groups/groupless`: every expense you're on with no group (split directly, a closed tab's, a direct payment, or one whose group was deleted). Linked from the bottom of Groups, since a bill whose only other people are guests has no person page to find it on
 - `frontend/src/routes/TabsPage.tsx` - `/tabs`: every tab you opened, closed ones included — the only way back to a tab settled outside the app or whose expense was deleted. Linked from Activity as "Past tabs"; `utils/closedTab.ts` says where each closed one went
 - `frontend/src/hooks/useItemizedExpense.ts` - Itemized expense state management
 - `frontend/src/components/summary/SummarySection.tsx` - Spending summary (consumption, not balances)

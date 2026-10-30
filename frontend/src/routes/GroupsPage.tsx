@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, UsersThree } from '@phosphor-icons/react';
+import { Link, useNavigate } from 'react-router-dom';
+import { CaretRight, Plus, Receipt, UsersThree } from '@phosphor-icons/react';
 import { Button, Card, Money } from '../components/ui';
 import PageHeader from './PageHeader';
 import AddGroupModal from '../AddGroupModal';
@@ -94,6 +94,22 @@ const GroupsPage: React.FC = () => {
                         ))}
                     </div>
                 )}
+
+                {/*
+                  * Not a group, so not a card in the grid: the way to the
+                  * expenses that have no group to be found under.
+                  */}
+                <Link
+                    to="/groups/groupless"
+                    className="mt-4 flex items-center gap-3 rounded-sw-card-lg p-[13px] bg-sw-surface shadow-[0_0_0_1px_var(--sw-line)] hover:bg-sw-raise focus-visible:outline-2 focus-visible:outline-sw-accent focus-visible:outline-offset-2"
+                >
+                    <Receipt size={20} className="text-sw-dim flex-none" aria-hidden="true" />
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-medium">Group-less expenses</div>
+                        <div className="text-[12px] text-sw-dim">Not in any group</div>
+                    </div>
+                    <CaretRight size={14} className="text-sw-dim flex-none" aria-hidden="true" />
+                </Link>
             </div>
 
             <AddGroupModal

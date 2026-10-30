@@ -20,8 +20,8 @@ export interface FeedExpense {
 /**
  * Every expense the user is part of, newest first.
  *
- * Shared by the Activity page and the Overview's "Lately" card so the two do
- * not each define their own sort order.
+ * Shared by the Activity page, the Overview's "Lately" card and the group-less
+ * list so they do not each define their own sort order.
  *
  * Note: /expenses returns expenses without their splits, so callers can show
  * the bill total but not the user's share of it.
