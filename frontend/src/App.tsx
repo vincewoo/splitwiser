@@ -17,6 +17,7 @@ import PersonPage from './routes/PersonPage';
 import SettleUpPage from './routes/SettleUpPage';
 import TabBoardPage from './routes/TabBoardPage';
 import TabsPage from './routes/TabsPage';
+import GrouplessPage from './routes/GrouplessPage';
 import TabClosePage from './routes/TabClosePage';
 import TabClaimPage from './routes/TabClaimPage';
 import TabPassPage from './routes/TabPassPage';
@@ -78,6 +79,7 @@ function App() {
               <Route element={<ShellRoute />}>
                 <Route path="/" element={<OverviewPage />} />
                 <Route path="/groups" element={<GroupsPage />} />
+                <Route path="/groups/groupless" element={<GrouplessPage />} />
                 <Route path="/groups/:groupId" element={<GroupPage />} />
                 <Route path="/people" element={<PeoplePage />} />
                 <Route path="/friends/:friendId" element={<PersonPage />} />
