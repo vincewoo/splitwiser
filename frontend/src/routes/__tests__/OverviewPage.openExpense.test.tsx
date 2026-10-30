@@ -1,32 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import OverviewPage from '../OverviewPage';
+import type { FeedExpense } from '../../hooks/useExpenseFeed';
 
 let isDesktop = true;
-let openExpenseId: number | null = null;
+
+const BILL: FeedExpense = {
+    id: 334,
+    description: 'Bar bill',
+    amount: 58900,
+    currency: 'USD',
+    date: '2026-10-30',
+    payer_id: 1,
+    group_id: null,
+    kind: 'expense',
+};
+
+const refreshAll = vi.fn();
 
 vi.mock('../../hooks/useMediaQuery', () => ({ useIsDesktop: () => isDesktop }));
 vi.mock('../../hooks/useTabs', () => ({ useTabs: () => ({ openTabs: [] }) }));
 vi.mock('../../hooks/useExpenseFeed', () => ({
-    useExpenseFeed: () => ({ expenses: [], loading: false }),
+    useExpenseFeed: () => ({ expenses: [BILL], loading: false }),
 }));
 vi.mock('../../hooks/useExpenseLabels', () => ({
-    useExpenseLabels: () => ({ payerName: () => '', groupName: () => null }),
-}));
-vi.mock('../../hooks/useOpenExpense', () => ({
-    useOpenExpense: () => ({
-        expenseId: openExpenseId,
-        members: [],
-        guests: [],
-        open: vi.fn(),
-        close: vi.fn(),
-    }),
+    useExpenseLabels: () => ({ payerName: () => 'You paid', groupName: () => null }),
 }));
 vi.mock('../../hooks/useSettlement', () => ({
     useSettlement: () => ({ counterparties: [], directory: new Map() }),
 }));
 vi.mock('../../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
+vi.mock('../../services/api', () => ({ groupsApi: { getById: vi.fn() } }));
 vi.mock('../../layouts/shellActions', () => ({
     useShellActions: () => ({
         openAddExpense: vi.fn(),
@@ -44,12 +49,24 @@ vi.mock('../../contexts/AppDataContext', () => ({
         setShowInMyCurrency: vi.fn(),
         displayCurrency: 'USD',
         pendingRequests: [],
-        refreshAll: vi.fn(),
+        refreshAll,
     }),
 }));
 vi.mock('../../ExpenseDetailModal', () => ({
-    default: ({ expenseId }: { expenseId: number }) => (
-        <div role="dialog">expense {expenseId}</div>
+    default: ({
+        expenseId,
+        onClose,
+        onExpenseDeleted,
+    }: {
+        expenseId: number;
+        onClose: () => void;
+        onExpenseDeleted: () => void;
+    }) => (
+        <div role="dialog">
+            expense {expenseId}
+            <button onClick={onClose}>Close</button>
+            <button onClick={onExpenseDeleted}>Delete</button>
+        </div>
     ),
 }));
 
@@ -60,26 +77,41 @@ const renderPage = () =>
         </MemoryRouter>
     );
 
-describe('OverviewPage opening an expense', () => {
+describe('OverviewPage opening a Lately expense', () => {
     beforeEach(() => {
-        openExpenseId = null;
+        isDesktop = true;
+        refreshAll.mockClear();
     });
 
     it.each([
         ['desktop', true],
         ['mobile', false],
-    ])('shows the picked expense on %s', (_layout, desktop) => {
+    ])('opens the clicked row on %s', (_layout, desktop) => {
         isDesktop = desktop;
-        openExpenseId = 334;
         renderPage();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: /Bar bill/ }));
 
         expect(screen.getByRole('dialog')).toHaveTextContent('expense 334');
     });
 
-    it('shows no expense until one is picked', () => {
-        isDesktop = true;
+    it('closes the expense', () => {
         renderPage();
+        fireEvent.click(screen.getByRole('button', { name: /Bar bill/ }));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('closes and refreshes after a delete', () => {
+        renderPage();
+        fireEvent.click(screen.getByRole('button', { name: /Bar bill/ }));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(refreshAll).toHaveBeenCalledTimes(1);
     });
 });

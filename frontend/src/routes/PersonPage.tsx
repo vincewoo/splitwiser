@@ -11,7 +11,7 @@ import {
     TagPill,
 } from '../components/ui';
 import AddExpenseModal from '../AddExpenseModal';
-import ExpenseDetailModal from '../ExpenseDetailModal';
+import OpenExpenseModal from '../components/OpenExpenseModal';
 import SettleUpModal from '../SettleUpModal';
 import { useAuth } from '../AuthContext';
 import { useAppData } from '../contexts/AppDataContext';
@@ -367,22 +367,7 @@ const PersonPage: React.FC = () => {
                 preselectedFriendId={friend.id}
             />
 
-            {openExpense.expenseId !== null && (
-                <ExpenseDetailModal
-                    isOpen
-                    expenseId={openExpense.expenseId}
-                    onClose={openExpense.close}
-                    onExpenseUpdated={refreshAll}
-                    onExpenseDeleted={() => {
-                        openExpense.close();
-                        refreshAll();
-                    }}
-                    groupMembers={openExpense.members}
-                    groupGuests={openExpense.guests}
-                    friends={friends}
-                    currentUserId={user?.id ?? 0}
-                />
-            )}
+            <OpenExpenseModal openExpense={openExpense} />
         </>
     );
 };
