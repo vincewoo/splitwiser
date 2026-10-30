@@ -7,8 +7,8 @@ import type { FeedExpense } from './useExpenseFeed';
 /**
  * Resolves the ids on a feed expense into names the user recognises.
  *
- * Shared by the Activity page and the Overview's "Lately" card so both phrase
- * an expense the same way.
+ * Shared by the Activity page, the Overview's "Lately" card and the group-less
+ * list so they all phrase an expense the same way.
  */
 export function useExpenseLabels() {
     const { user } = useAuth();

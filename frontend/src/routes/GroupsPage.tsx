@@ -106,7 +106,7 @@ const GroupsPage: React.FC = () => {
                     <Receipt size={20} className="text-sw-dim flex-none" aria-hidden="true" />
                     <div className="min-w-0 flex-1">
                         <div className="text-[13px] font-medium">Group-less expenses</div>
-                        <div className="text-[12px] text-sw-dim">Split directly, not in a group</div>
+                        <div className="text-[12px] text-sw-dim">Not in any group</div>
                     </div>
                     <CaretRight size={14} className="text-sw-dim flex-none" aria-hidden="true" />
                 </Link>

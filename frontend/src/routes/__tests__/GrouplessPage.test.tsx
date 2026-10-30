@@ -74,6 +74,15 @@ describe('GrouplessPage', () => {
         expect(screen.getByText('No group-less expenses')).toBeInTheDocument();
     });
 
+    it('links back to groups', () => {
+        renderPage();
+
+        expect(screen.getByRole('link', { name: 'Back to groups' })).toHaveAttribute(
+            'href',
+            '/groups'
+        );
+    });
+
     it('shows loading until the feed arrives', () => {
         feed = { expenses: [], loading: true };
         renderPage();

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Receipt } from '@phosphor-icons/react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, Receipt } from '@phosphor-icons/react';
 import PageHeader from './PageHeader';
 import ExpenseFeedRow from '../components/ExpenseFeedRow';
 import OpenExpenseModal from '../components/OpenExpenseModal';
@@ -10,7 +11,8 @@ import { useOpenExpense } from '../hooks/useOpenExpense';
 
 /**
  * Every expense you are on that belongs to no group: one split with friends
- * directly, a closed tab's, a direct payment.
+ * directly, a closed tab's, a direct payment — and one whose group was
+ * deleted, since deleting a group keeps its expenses and clears their group.
  *
  * Reached from the bottom of Groups. Activity has these mixed in with
  * everything else, and a person's page has only the ones with that friend, so
@@ -24,15 +26,27 @@ const GrouplessPage: React.FC = () => {
     const openExpense = useOpenExpense();
 
     const groupless = useMemo(
-        () => expenses.filter((expense) => expense.group_id === null),
+        () => expenses.filter((expense) => expense.group_id == null),
         [expenses]
     );
 
     return (
         <>
             <PageHeader
-                title="Group-less expenses"
-                caption="Split directly, not in a group"
+                title={
+                    <span className="flex items-center gap-2.5">
+                        {/* The rail is always there on desktop; a phone has only this. */}
+                        <Link
+                            to="/groups"
+                            aria-label="Back to groups"
+                            className="text-sw-muted flex-none lg:hidden"
+                        >
+                            <ArrowLeft size={21} />
+                        </Link>
+                        Group-less expenses
+                    </span>
+                }
+                caption="Not in any group"
                 mobileInset
             />
 
@@ -46,7 +60,7 @@ const GrouplessPage: React.FC = () => {
                         </div>
                         <p className="text-sm text-sw-muted">No group-less expenses</p>
                         <p className="text-[12.5px] text-sw-dim">
-                            Expenses split with people directly, outside a group, show up here.
+                            Expenses that aren’t in any group show up here.
                         </p>
                     </div>
                 ) : (

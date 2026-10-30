@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import models
@@ -336,13 +337,20 @@ def read_expenses(
     current_user: Annotated[models.User, Depends(get_current_user)], 
     db: Session = Depends(get_db)
 ):
-    # Return expenses where user is involved (payer or splitter)
-    subquery = db.query(models.ExpenseSplit.expense_id).filter(
-        models.ExpenseSplit.user_id == current_user.id
-    ).subquery()
+    # Return expenses where user is involved (payer or splitter). A guest's id
+    # shares its number space with user ids, so an id only names this user
+    # when the row says it is not a guest's.
+    subquery = select(models.ExpenseSplit.expense_id).where(
+        models.ExpenseSplit.user_id == current_user.id,
+        models.ExpenseSplit.is_guest == False,
+    )
 
     expenses = db.query(models.Expense).filter(
-        (models.Expense.payer_id == current_user.id) |
+        (
+            (models.Expense.payer_id == current_user.id)
+            & (models.Expense.payer_is_guest == False)
+            & (models.Expense.payer_is_expense_guest == False)
+        ) |
         (models.Expense.id.in_(subquery))
     ).all()
 
@@ -364,7 +372,11 @@ def get_expense(
     split_user_ids = [s.user_id for s in splits if not s.is_guest]
 
     has_access = (
-        (expense.payer_id == current_user.id and not expense.payer_is_guest) or
+        (
+            expense.payer_id == current_user.id
+            and not expense.payer_is_guest
+            and not expense.payer_is_expense_guest
+        ) or
         current_user.id in split_user_ids or
         (expense.group_id and db.query(models.GroupMember).filter(
             models.GroupMember.group_id == expense.group_id,
