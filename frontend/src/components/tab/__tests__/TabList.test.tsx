@@ -15,7 +15,7 @@ const base: Tab = {
     created_by_id: 18,
     payer_id: 18,
     expense_id: null,
-    closed_at: '2026-10-28T20:45:00',
+    closed_at: '2026-10-28T12:00:00',
     items: [{ id: 1, description: 'Bay', price: 5000, added_manually: false, claimed_by: [] }],
     participants: [{ id: 1, display_name: 'Clinton', user_id: 18 }],
 };

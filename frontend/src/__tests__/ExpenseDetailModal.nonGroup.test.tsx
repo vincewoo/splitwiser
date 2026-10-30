@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import ExpenseDetailModal from '../ExpenseDetailModal';
-import { expensesApi } from '../services/api';
+import { expensesApi, tabsApi } from '../services/api';
 import { offlineExpensesApi } from '../services/offlineApi';
 import type { ExpenseWithSplits } from '../types/expense';
 
@@ -227,5 +227,32 @@ describe('ExpenseDetailModal viewing a non-group expense', () => {
 
         const paidBy = await screen.findByText('Paid by');
         expect(paidBy.parentElement).toHaveTextContent('Paid bySam');
+    });
+});
+
+describe('ExpenseDetailModal on an expense a tab closed into', () => {
+    it('shows its own items and links to the tab instead of re-reading it', async () => {
+        vi.mocked(expensesApi.getById).mockResolvedValue({ ...itemizedExpense, tab_id: 12 });
+        render(
+            <MemoryRouter>
+                <ExpenseDetailModal
+                    isOpen
+                    onClose={vi.fn()}
+                    expenseId={7}
+                    onExpenseUpdated={vi.fn()}
+                    onExpenseDeleted={vi.fn()}
+                    groupMembers={[]}
+                    groupGuests={[]}
+                    friends={friends}
+                    currentUserId={1}
+                />
+            </MemoryRouter>
+        );
+
+        expect(await screen.findByRole('button', { name: 'Open the tab' })).toBeInTheDocument();
+        // The expense's own Items section, not a breakdown read off the tab.
+        const items = screen.getByRole('heading', { name: 'Items' }).parentElement as HTMLElement;
+        expect(within(items).getByText('Pasta')).toBeInTheDocument();
+        expect(tabsApi.getById).not.toHaveBeenCalled();
     });
 });

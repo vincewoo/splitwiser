@@ -250,8 +250,9 @@ the app at all.
   share computation spread it; tax and tip become tax/tip lines. Without the
   lines an itemized expense cannot be edited — the form builds it from its
   items, so it started from $0. The splits keep the tab's own arithmetic; an
-  edit re-allocates from the lines with `allocate_items`, which can move a
-  rounding cent.
+  edit re-allocates from the lines with `allocate_items`, which rounds
+  differently (the last person absorbs the tax/tip remainder) and can move a
+  few cents between people.
 
 **A payer with no account** writes nothing. There is genuinely no debt for
 Splitwiser to hold: everyone settles with that person directly, outside the
@@ -310,7 +311,7 @@ before this held, and runs on every boot.
 
 ### Owner (authenticated)
 - `POST /tabs` - open a tab from scanned lines
-- `GET /tabs` - your tabs; `?status_filter=open`
+- `GET /tabs` - your tabs, open and closed, each with `closed_at`; `?status_filter=open` for open only
 - `GET /tabs/{tab_id}` - full view, including the share token
 - `POST /tabs/{tab_id}/items` - add a line the scan missed
 - `DELETE /tabs/{tab_id}/items/{item_id}` - remove a line, dropping its claims.
@@ -469,7 +470,7 @@ separate feature.
 
 ### Where the breakdown appears
 
-The same component on four surfaces, so a person's number is explained wherever
+The same component on three surfaces, so a person’s number is explained wherever
 they meet it:
 
 - **The board**, live, for the host — mobile behind the toggle, desktop under
@@ -480,12 +481,10 @@ they meet it:
 - **The claim screen**, for the one person reading it: *Your bit* expands into
   their own lines, their share of anything spare, and the tax and tip that
   arrived without ever being ticked. Recomputed on every tap.
-- **The expense detail modal**, for a closed tab. Closing writes no expense
-  items — the item detail only ever existed on the tab — so the recorded splits
-  flatten to one figure per person and the modal reads the tab back in to
-  explain them. `Tab.expense_id` is only exposed to the tab's owner, so only
-  they can make that request. The recorded *Split breakdown* stays below it:
-  the expense remains editable after the fact, and it is the record.
+- **Not the expense detail modal.** Closing copies the lines onto the
+  expense, so the modal shows the expense's own Items — the record, and what
+  an edit changes — with an "Open the tab" link for the owner. A second
+  breakdown read from the tab would disagree with it after the first edit.
 
 The board polls every 5 seconds while the tab is open, because claims arrive
 from other people's phones.

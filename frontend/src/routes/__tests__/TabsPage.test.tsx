@@ -45,6 +45,14 @@ describe('TabsPage', () => {
         expect(screen.getByText('Karaoke')).toBeInTheDocument();
     });
 
+    it('says it could not load rather than that there are no tabs', async () => {
+        getAll.mockRejectedValue(new Error('offline'));
+        renderPage();
+
+        expect(await screen.findByText(/Couldn’t load your tabs/)).toBeInTheDocument();
+        expect(screen.queryByText(/No tabs yet/)).not.toBeInTheDocument();
+    });
+
     it('says so when there are no tabs', async () => {
         getAll.mockResolvedValue([]);
         renderPage();

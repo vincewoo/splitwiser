@@ -16,7 +16,8 @@ vi.mock('../../contexts/AppDataContext', () => ({
 
 const brunch = { id: 3, status: 'open', total: 8600 };
 const karaoke = { id: 4, status: 'open', total: 12000 };
-const golf = { id: 5, status: 'closed', total: 58903 };
+const golf = { id: 5, status: 'closed', total: 58903, closed_at: '2026-10-28T20:45:00' };
+const sol = { id: 2, status: 'closed', total: 4000, closed_at: '2026-08-04T08:19:00' };
 
 beforeEach(() => {
     refreshGeneration = 0;
@@ -34,10 +35,23 @@ describe('useTabs', () => {
         expect(getAll).toHaveBeenCalledWith();
     });
 
+    it('lists closed tabs most recently closed first', async () => {
+        getAll.mockResolvedValue([sol, golf]);
+        const { result } = renderHook(() => useTabs());
+        await waitFor(() => expect(result.current.closedTabs).toHaveLength(2));
+        expect(result.current.closedTabs.map((t) => t.id)).toEqual([5, 2]);
+    });
+
+    it('asks for open tabs only when told to', async () => {
+        renderHook(() => useTabs('open'));
+        await waitFor(() => expect(getAll).toHaveBeenCalledWith('open'));
+    });
+
     it('counts as loaded when the fetch fails, so a page stops saying Loading', async () => {
         getAll.mockRejectedValue(new Error('offline'));
         const { result } = renderHook(() => useTabs());
         await waitFor(() => expect(result.current.loaded).toBe(true));
+        expect(result.current.failed).toBe(true);
         expect(result.current.openTabs).toEqual([]);
     });
 

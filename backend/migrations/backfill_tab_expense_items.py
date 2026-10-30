@@ -15,11 +15,14 @@ An expense is filled in when:
     which runs first and drops links that are not the tab's own);
   * it is still ITEMIZED and has no lines of its own;
   * its amount is still the tab's lines plus tax and tip;
-  * every seat can be found on it — an account by its id, an anonymous seat by
-    the expense guest of the same name.
+  * every seat can be found on it — an account among its splits, an anonymous
+    seat as the one expense guest of the same name.
 
 Anything else is reported and left alone. Splits are not touched: they already
 hold what everyone owes. Running it twice does nothing the second time.
+
+A failure is reported but does not fail the boot: this only fills in detail,
+and nothing else depends on it having run.
 
 Usage:
   python migrations/backfill_tab_expense_items.py --dry-run
@@ -71,19 +74,28 @@ def _seat_refs(cursor, tab_id, expense_id):
     )
     seats = cursor.fetchall()
     cursor.execute(
+        "SELECT user_id FROM expense_splits WHERE expense_id = ? AND is_guest = 0",
+        (expense_id,),
+    )
+    split_users = {uid for (uid,) in cursor.fetchall()}
+    cursor.execute(
         "SELECT id, name FROM expense_guests WHERE expense_id = ?", (expense_id,)
     )
-    guests = {name.strip().casefold(): gid for gid, name in cursor.fetchall()}
+    guests: dict = {}
+    for gid, name in cursor.fetchall():
+        guests.setdefault(name.strip().casefold(), []).append(gid)
 
     refs = {}
     for seat_id, user_id, display_name in seats:
         if user_id is not None:
+            if user_id not in split_users:
+                return None, f"{display_name!r} is no longer split on the expense"
             refs[seat_id] = ("user", user_id)
             continue
-        guest_id = guests.get(display_name.strip().casefold())
-        if guest_id is None:
-            return None, f"no expense guest named {display_name!r}"
-        refs[seat_id] = ("expense_guest", guest_id)
+        matches = guests.get(display_name.strip().casefold(), [])
+        if len(matches) != 1:
+            return None, f"{len(matches)} expense guests named {display_name!r}"
+        refs[seat_id] = ("expense_guest", matches[0])
     if not refs:
         return None, "the tab has nobody seated"
     return refs, ""
@@ -189,8 +201,9 @@ def migrate(db_path: str, dry_run: bool = False) -> int:
 
     except sqlite3.Error as error:
         conn.rollback()
-        print(f"✗ Migration failed, database not modified: {error}")
-        return 1
+        # Not fatal: see the docstring. The app runs fine without the lines.
+        print(f"✗ Backfill failed, database not modified: {error}")
+        return 0
     finally:
         conn.close()
 

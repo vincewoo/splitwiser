@@ -99,7 +99,7 @@ Splitwiser is a Splitwise clone for expense splitting among friends and groups. 
 - `frontend/src/components/tab/WhoPaidSheet.tsx` - Who fronted the bill, including somebody with no Splitwiser account, plus the Venmo handle the claim page needs to reach them
 - `frontend/src/components/tab/TabAmountsSheet.tsx` - Correcting a live tab's tax and tip; the scan is a convenience, not the authority
 - `frontend/src/components/tab/` - Receipt paper, item × person matrix, QR, progress
-- `frontend/src/components/tab/TabBreakdown.tsx` - What each person owes and why (their items, unclaimed share, tax and tip); used on the board, the close screen, the claim page and the expense detail modal
+- `frontend/src/components/tab/TabBreakdown.tsx` - What each person owes and why (their items, unclaimed share, tax and tip); used on the board, the close screen and the claim page
 
 **PWA Support:**
 - `frontend/public/manifest.json` - PWA manifest for installable app
@@ -307,7 +307,7 @@ ALTER TABLE table_name ADD COLUMN column_name TYPE DEFAULT 'value';
 A tab is a one-off bill people claim their own items from via a link — no group, nobody to invite. See `docs/TABS.md`.
 
 Owner (authenticated):
-- `POST /tabs`, `GET /tabs`, `GET /tabs/{tab_id}` - Open, list, read
+- `POST /tabs`, `GET /tabs`, `GET /tabs/{tab_id}` - Open, list (all of yours, or `?status_filter=open`), read
 - `POST /tabs/{tab_id}/items`, `DELETE /tabs/{tab_id}/items/{item_id}` - Lines the scan missed; deleting drops the line's claims
 - `PATCH /tabs/{tab_id}/amounts` - Correct the tax or the tip while the tab is open; `total` follows, and a closed tab is refused
 - `POST /tabs/{tab_id}/participants` - Seat somebody with no phone of their own; a guest seat, same name rules as joining. Takes an optional `venmo_username`, for a seat that is going to be owed money
@@ -335,7 +335,7 @@ Public (no auth, rate-limited):
 - RefreshToken: `token_hash`, `expires_at`, `revoked`
 - ExpenseItem: `description`, `price`, `is_tax_tip`
 - ExpenseItemAssignment: `user_id`, `is_guest`, `expense_guest_id` (an ad-hoc guest is named by this alone; its id overlaps user ids, so never by `user_id`)
-- Tab: `share_token`, `token_expires_at`, `revoked`, `status`, `tax`, `tip`, `total`, `expense_id`, `payer_id` (a user, set at close), `payer_participant_id` (a seat, nameable while open — how an off-app payer is recorded)
+- Tab: `share_token`, `token_expires_at`, `revoked`, `status`, `tax`, `tip`, `total`, `expense_id`, `payer_id` (a user, set at close), `payer_participant_id` (a seat, nameable while open — how an off-app payer is recorded), `closed_at`
 - TabItem: `description`, `price`, `added_manually`
 - TabParticipant: `display_name` (unique per tab, case-insensitively), `user_id` (null when anonymous; unique per tab otherwise), `claim_token`, `venmo_username` (account-less seats only), `paid` / `paid_at`
 - TabItemClaim: `item_id`, `participant_id` (unique together)

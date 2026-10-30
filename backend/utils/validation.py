@@ -79,8 +79,28 @@ def validate_expense_participants(
         group_id: If provided, validates that all participants belong to this group.
         current_user_id: If provided (and group_id is None), validates that all participants are friends of this user.
         expense_id: The expense being edited. An expense_guest_id assignment must then name one of its
-            saved ad-hoc guests (400 otherwise), and is not checked as a user.
+            saved ad-hoc guests (400 otherwise), and is not checked as a user. On a non-group
+            expense, the people already on it (its payer and split users) also pass the friend
+            check: they got there without one, e.g. by claiming from a tab, and an edit must not
+            be refused for keeping them. Adding somebody new still takes a friendship.
     """
+    already_on: set = set()
+    if expense_id is not None and not group_id and current_user_id:
+        saved = db.query(models.Expense).filter(models.Expense.id == expense_id).first()
+        if saved and not saved.payer_is_guest:
+            already_on.add(saved.payer_id)
+        already_on.update(
+            uid for (uid,) in db.query(models.ExpenseSplit.user_id).filter(
+                models.ExpenseSplit.expense_id == expense_id,
+                models.ExpenseSplit.is_guest == False,
+            )
+        )
+
+    def allowed(user_id: int) -> bool:
+        return user_id == current_user_id or user_id in already_on or is_friend(
+            db, current_user_id, user_id
+        )
+
     # Validate payer
     if payer_is_guest:
         payer = db.query(models.GuestMember).filter(models.GuestMember.id == payer_id).first()
@@ -99,8 +119,8 @@ def validate_expense_participants(
                 raise HTTPException(status_code=400, detail=f"Payer with ID {payer_id} is not a member of the group")
 
         # Validation for non-group expense (Friendship check)
-        elif current_user_id and payer_id != current_user_id:
-            if not is_friend(db, current_user_id, payer_id):
+        elif current_user_id:
+            if not allowed(payer_id):
                 raise HTTPException(status_code=400, detail=f"Payer with ID {payer_id} is not a friend")
 
     # Validate split participants
@@ -126,8 +146,8 @@ def validate_expense_participants(
             if group_id:
                 if not is_group_member(db, group_id, split.user_id):
                     raise HTTPException(status_code=400, detail=f"User with ID {split.user_id} is not a member of the group")
-            elif current_user_id and split.user_id != current_user_id:
-                if not is_friend(db, current_user_id, split.user_id):
+            elif current_user_id:
+                if not allowed(split.user_id):
                     raise HTTPException(status_code=400, detail=f"User with ID {split.user_id} is not a friend")
 
     # Validate item assignments if provided
@@ -179,8 +199,8 @@ def validate_expense_participants(
                         if group_id:
                             if not is_group_member(db, group_id, assignment.user_id):
                                 raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} is not a member of the group")
-                        elif current_user_id and assignment.user_id != current_user_id:
-                            if not is_friend(db, current_user_id, assignment.user_id):
+                        elif current_user_id:
+                            if not allowed(assignment.user_id):
                                 raise HTTPException(status_code=400, detail=f"User with ID {assignment.user_id} is not a friend")
 
 

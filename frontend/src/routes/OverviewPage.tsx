@@ -68,7 +68,7 @@ const OverviewPage: React.FC = () => {
     const { expenses, loading } = useExpenseFeed();
     const { payerName, groupName } = useExpenseLabels();
     const openExpense = useOpenExpense();
-    const { openTabs } = useTabs();
+    const { openTabs } = useTabs('open');
 
     const { counterparties, directory } = useSettlement();
 

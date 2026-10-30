@@ -277,7 +277,7 @@ def _write_expense_items(
     A line nobody claimed goes to everyone, as it did in the share computation,
     and tax and tip become tax/tip lines. The splits written beside these keep
     the tab's own arithmetic; an edit later re-allocates from the lines, which
-    can move a rounding cent.
+    rounds differently and can move a few cents between people.
 
     `seat_refs` maps a participant id to how that seat is named on the
     expense: `{"user_id": ...}` or `{"expense_guest_id": ...}`.
