@@ -369,6 +369,25 @@ const OverviewPage: React.FC = () => {
         </div>
     );
 
+    // Both layouts open a feed row's expense here.
+    const expenseModal = openExpense.expenseId !== null && (
+        <ExpenseDetailModal
+            isOpen
+            expenseId={openExpense.expenseId}
+            onClose={openExpense.close}
+            // Balances and groups move with an edit, not just the feed.
+            onExpenseUpdated={refreshAll}
+            onExpenseDeleted={() => {
+                openExpense.close();
+                refreshAll();
+            }}
+            groupMembers={openExpense.members}
+            friends={friends}
+            groupGuests={openExpense.guests}
+            currentUserId={user?.id ?? 0}
+        />
+    );
+
     if (isDesktop) {
         return (
             <>
@@ -478,6 +497,7 @@ const OverviewPage: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                {expenseModal}
             </>
         );
     }
@@ -633,23 +653,7 @@ const OverviewPage: React.FC = () => {
                 </div>
             </div>
 
-            {openExpense.expenseId !== null && (
-                <ExpenseDetailModal
-                    isOpen
-                    expenseId={openExpense.expenseId}
-                    onClose={openExpense.close}
-                    // Balances and groups move with an edit, not just the feed.
-                    onExpenseUpdated={refreshAll}
-                    onExpenseDeleted={() => {
-                        openExpense.close();
-                        refreshAll();
-                    }}
-                    groupMembers={openExpense.members}
-                    friends={friends}
-                    groupGuests={openExpense.guests}
-                    currentUserId={user?.id ?? 0}
-                />
-            )}
+            {expenseModal}
         </>
     );
 };
