@@ -12,7 +12,7 @@ import {
 } from '../components/ui';
 import PageHeader from './PageHeader';
 import ExpenseFeedRow from '../components/ExpenseFeedRow';
-import ExpenseDetailModal from '../ExpenseDetailModal';
+import OpenExpenseModal from '../components/OpenExpenseModal';
 import TabList from '../components/tab/TabList';
 import VenmoButton from '../components/VenmoButton';
 import { useAppData } from '../contexts/AppDataContext';
@@ -63,7 +63,6 @@ const OverviewPage: React.FC = () => {
         setShowInMyCurrency,
         displayCurrency,
         pendingRequests,
-        refreshAll,
     } = useAppData();
     const { expenses, loading } = useExpenseFeed();
     const { payerName, groupName } = useExpenseLabels();
@@ -478,6 +477,7 @@ const OverviewPage: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                <OpenExpenseModal openExpense={openExpense} />
             </>
         );
     }
@@ -633,23 +633,7 @@ const OverviewPage: React.FC = () => {
                 </div>
             </div>
 
-            {openExpense.expenseId !== null && (
-                <ExpenseDetailModal
-                    isOpen
-                    expenseId={openExpense.expenseId}
-                    onClose={openExpense.close}
-                    // Balances and groups move with an edit, not just the feed.
-                    onExpenseUpdated={refreshAll}
-                    onExpenseDeleted={() => {
-                        openExpense.close();
-                        refreshAll();
-                    }}
-                    groupMembers={openExpense.members}
-                    friends={friends}
-                    groupGuests={openExpense.guests}
-                    currentUserId={user?.id ?? 0}
-                />
-            )}
+            <OpenExpenseModal openExpense={openExpense} />
         </>
     );
 };

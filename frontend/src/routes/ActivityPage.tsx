@@ -3,11 +3,9 @@ import { CaretRight, Receipt } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
 import PageHeader from './PageHeader';
 import ExpenseFeedRow from '../components/ExpenseFeedRow';
-import ExpenseDetailModal from '../ExpenseDetailModal';
+import OpenExpenseModal from '../components/OpenExpenseModal';
 import TabList from '../components/tab/TabList';
-import { useAuth } from '../AuthContext';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { useAppData } from '../contexts/AppDataContext';
 import { useExpenseFeed } from '../hooks/useExpenseFeed';
 import { useExpenseLabels } from '../hooks/useExpenseLabels';
 import { useOpenExpense } from '../hooks/useOpenExpense';
@@ -19,8 +17,6 @@ import { useTabs } from '../hooks/useTabs';
  */
 const ActivityPage: React.FC = () => {
     usePageTitle('Activity');
-    const { user } = useAuth();
-    const { refreshAll, friends } = useAppData();
     const { expenses, loading } = useExpenseFeed();
     const { payerName, groupName } = useExpenseLabels();
     const openExpense = useOpenExpense();
@@ -93,23 +89,7 @@ const ActivityPage: React.FC = () => {
                 )}
             </div>
 
-            {openExpense.expenseId !== null && (
-                <ExpenseDetailModal
-                    isOpen
-                    expenseId={openExpense.expenseId}
-                    onClose={openExpense.close}
-                    // Balances and groups move with an edit, not just the feed.
-                    onExpenseUpdated={refreshAll}
-                    onExpenseDeleted={() => {
-                        openExpense.close();
-                        refreshAll();
-                    }}
-                    groupMembers={openExpense.members}
-                    groupGuests={openExpense.guests}
-                    friends={friends}
-                    currentUserId={user?.id ?? 0}
-                />
-            )}
+            <OpenExpenseModal openExpense={openExpense} />
         </>
     );
 };
