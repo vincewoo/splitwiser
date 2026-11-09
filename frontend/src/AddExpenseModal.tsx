@@ -349,7 +349,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             const itemTotal = newItems.reduce((acc, item) => acc + item.price, 0);
             setAmount(((itemTotal + (taxCents ?? 0) + (tipCents ?? 0)) / 100).toFixed(2));
         }
-        setDescription("Receipt Scan");
+        // Only a placeholder: a name typed before scanning is the user's, and
+        // the scan has nothing better to offer.
+        setDescription(prev => (prev.trim() ? prev : "Receipt Scan"));
     };
 
     const handleBackdropClick = (e: React.MouseEvent) => {
