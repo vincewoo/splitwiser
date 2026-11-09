@@ -269,9 +269,9 @@ describe('ExpenseDetailModal split breakdown with ad-hoc guests', () => {
     });
     const atTheTable: ExpenseWithSplits = {
         ...itemizedExpense,
-        amount: 3900,
-        splits: [split(71, 1, 'Maya Lin', 1300)],
-        expense_guests: [guest(1, 'Tancy', 2300), guest(2, 'Matie', 300)],
+        amount: 4290,
+        splits: [split(71, 1, 'Maya Lin', 1430)],
+        expense_guests: [guest(1, 'Tancy', 2530), guest(2, 'Matie', 330)],
         items: [
             {
                 id: 5,
@@ -304,11 +304,20 @@ describe('ExpenseDetailModal split breakdown with ad-hoc guests', () => {
                     { user_id: 2, is_guest: false, expense_guest_id: 2, user_name: 'Matie' },
                 ],
             },
+            {
+                id: 9,
+                expense_id: 7,
+                description: 'Tax',
+                price: 390,
+                is_tax_tip: true,
+                split_type: 'EQUAL',
+                assignments: [],
+            },
         ],
     };
 
-    it('shows every guest with their own lines, not just you', async () => {
-        vi.mocked(expensesApi.getById).mockResolvedValue(atTheTable);
+    const renderAtTheTable = (expense: ExpenseWithSplits) => {
+        vi.mocked(expensesApi.getById).mockResolvedValue(expense);
         render(
             <MemoryRouter>
                 <ExpenseDetailModal
@@ -324,6 +333,10 @@ describe('ExpenseDetailModal split breakdown with ad-hoc guests', () => {
                 />
             </MemoryRouter>
         );
+    };
+
+    it('shows every guest with their own lines, not just you', async () => {
+        renderAtTheTable(atTheTable);
 
         const heading = await screen.findByRole('heading', { name: 'Split breakdown' });
         const section = heading.parentElement as HTMLElement;
@@ -332,9 +345,9 @@ describe('ExpenseDetailModal split breakdown with ad-hoc guests', () => {
         );
 
         expect(cards.map((card) => card.firstChild?.textContent)).toEqual([
-            'You$13.00',
-            'Matie$3.00',
-            'Tancy$23.00',
+            'You$14.30',
+            'Matie$3.30',
+            'Tancy$25.30',
         ]);
         const [you, matie, tancy] = cards;
         expect(you).toHaveTextContent('Pasta');
@@ -344,5 +357,18 @@ describe('ExpenseDetailModal split breakdown with ad-hoc guests', () => {
         expect(tancy).toHaveTextContent('Ramen');
         expect(tancy).toHaveTextContent('Beer');
         expect(tancy).not.toHaveTextContent('Pasta');
+        // Her share of the tax: 2,300 of the 3,900 in lines.
+        expect(tancy).toHaveTextContent('+ Tax (59.0% share)$2.30');
+    });
+
+    it('leaves guests out once the bill is no longer itemized', async () => {
+        // An edit away from ITEMIZED leaves the guests' old amounts behind.
+        renderAtTheTable({ ...atTheTable, split_type: 'EQUAL', items: [] });
+
+        const heading = await screen.findByRole('heading', { name: 'Split breakdown' });
+        const section = heading.parentElement as HTMLElement;
+        expect(within(section).getByText('You')).toBeInTheDocument();
+        expect(within(section).queryByText('Tancy')).not.toBeInTheDocument();
+        expect(within(section).queryByText('Matie')).not.toBeInTheDocument();
     });
 });

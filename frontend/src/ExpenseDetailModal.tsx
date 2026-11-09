@@ -1245,24 +1245,28 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                         </h4>
                                         <div className="space-y-4">
                                             {[
-                                                ...expense.splits.map(split => ({
-                                                    key: `split_${split.id}`,
-                                                    displayName: split.user_id === currentUserId && !split.is_guest ? 'You' : split.user_name,
-                                                    amountOwed: split.amount_owed,
-                                                    person: { user_id: split.user_id, is_guest: split.is_guest },
-                                                })),
+                                                ...expense.splits.map(split => {
+                                                    const isYou = split.user_id === currentUserId && !split.is_guest;
+                                                    return {
+                                                        key: `split_${split.id}`,
+                                                        isYou,
+                                                        displayName: isYou ? 'You' : split.user_name,
+                                                        amountOwed: split.amount_owed,
+                                                        person: { user_id: split.user_id, is_guest: split.is_guest },
+                                                    };
+                                                }),
                                                 // An ad-hoc guest owes through their own row, not a
                                                 // split, so they would otherwise appear only under
-                                                // Quick settle.
-                                                ...(expense.expense_guests ?? []).map(guest => ({
+                                                // Quick settle. Only an itemized bill can charge them.
+                                                ...(expense.split_type === 'ITEMIZED' ? expense.expense_guests ?? [] : []).map(guest => ({
                                                     key: `expense_guest_${guest.id}`,
+                                                    isYou: false,
                                                     displayName: guest.name,
                                                     amountOwed: guest.amount_owed,
                                                     person: { user_id: guest.id, is_guest: false, expense_guest_id: guest.id },
                                                 })),
                                             ].sort((a, b) => {
-                                                if (a.displayName === 'You') return -1;
-                                                if (b.displayName === 'You') return 1;
+                                                if (a.isYou !== b.isYou) return a.isYou ? -1 : 1;
                                                 return a.displayName.localeCompare(b.displayName);
                                             }).map(({ key, displayName, amountOwed, person }) => {
                                                 // For itemized expenses, calculate the breakdown
