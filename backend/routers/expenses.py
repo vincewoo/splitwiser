@@ -850,11 +850,12 @@ def update_expense(
 
     # Update expense guest amounts from itemized calculation. Zero every saved
     # guest first: one whose items were all taken away is absent from the
-    # calculation, and would otherwise keep owing its old share.
-    if expense_update.split_type == "ITEMIZED":
-        db.query(models.ExpenseGuest).filter(
-            models.ExpenseGuest.expense_id == expense_id
-        ).update({models.ExpenseGuest.amount_owed: 0}, synchronize_session="fetch")
+    # calculation, and would otherwise keep owing its old share. So would every
+    # guest on a bill edited away from ITEMIZED, the only split that charges
+    # them, whose splits already cover the whole amount.
+    db.query(models.ExpenseGuest).filter(
+        models.ExpenseGuest.expense_id == expense_id
+    ).update({models.ExpenseGuest.amount_owed: 0}, synchronize_session="fetch")
     if expense_guest_amounts:
         for temp_id, amount in expense_guest_amounts.items():
             # First check the temp_id mapping
