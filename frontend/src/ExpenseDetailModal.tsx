@@ -1244,30 +1244,39 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
                                             {income ? 'Shared among' : 'Split breakdown'}
                                         </h4>
                                         <div className="space-y-4">
-                                            {[...expense.splits].sort((a, b) => {
-                                                const aName = a.user_id === currentUserId && !a.is_guest ? 'You' : a.user_name;
-                                                const bName = b.user_id === currentUserId && !b.is_guest ? 'You' : b.user_name;
-                                                if (aName === 'You') return -1;
-                                                if (bName === 'You') return 1;
-                                                return aName.localeCompare(bName);
-                                            }).map(split => {
-                                                const displayName = split.user_id === currentUserId && !split.is_guest ? 'You' : split.user_name;
-
+                                            {[
+                                                ...expense.splits.map(split => ({
+                                                    key: `split_${split.id}`,
+                                                    displayName: split.user_id === currentUserId && !split.is_guest ? 'You' : split.user_name,
+                                                    amountOwed: split.amount_owed,
+                                                    person: { user_id: split.user_id, is_guest: split.is_guest },
+                                                })),
+                                                // An ad-hoc guest owes through their own row, not a
+                                                // split, so they would otherwise appear only under
+                                                // Quick settle.
+                                                ...(expense.expense_guests ?? []).map(guest => ({
+                                                    key: `expense_guest_${guest.id}`,
+                                                    displayName: guest.name,
+                                                    amountOwed: guest.amount_owed,
+                                                    person: { user_id: guest.id, is_guest: false, expense_guest_id: guest.id },
+                                                })),
+                                            ].sort((a, b) => {
+                                                if (a.displayName === 'You') return -1;
+                                                if (b.displayName === 'You') return 1;
+                                                return a.displayName.localeCompare(b.displayName);
+                                            }).map(({ key, displayName, amountOwed, person }) => {
                                                 // For itemized expenses, calculate the breakdown
                                                 if (expense.split_type === 'ITEMIZED' && expense.items && expense.items.length > 0) {
-                                                    const breakdown = calculatePersonItemBreakdown(
-                                                        { user_id: split.user_id, is_guest: split.is_guest },
-                                                        expense.items
-                                                    );
+                                                    const breakdown = calculatePersonItemBreakdown(person, expense.items);
 
                                                     return (
-                                                        <Card key={split.id} tone="sunk" className="p-3">
+                                                        <Card key={key} tone="sunk" className="p-3">
                                                             <div className="flex justify-between items-center gap-3 mb-2">
                                                                 <span className="text-sm font-medium">
                                                                     {displayName}
                                                                 </span>
                                                                 <Money
-                                                                    amount={split.amount_owed}
+                                                                    amount={amountOwed}
                                                                     currency={expense.currency}
                                                                     className="font-medium"
                                                                 />
@@ -1313,12 +1322,12 @@ const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
 
                                                 // For non-itemized expenses, show simple display
                                                 return (
-                                                    <div key={split.id} className="flex justify-between items-center gap-3 text-sm">
+                                                    <div key={key} className="flex justify-between items-center gap-3 text-sm">
                                                         <span className="text-sw-muted">
                                                             {displayName}
                                                         </span>
                                                         <Money
-                                                            amount={split.amount_owed}
+                                                            amount={amountOwed}
                                                             currency={expense.currency}
                                                             className="font-medium"
                                                         />

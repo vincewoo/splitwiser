@@ -256,3 +256,93 @@ describe('ExpenseDetailModal on an expense a tab closed into', () => {
         expect(tabsApi.getById).not.toHaveBeenCalled();
     });
 });
+
+describe('ExpenseDetailModal split breakdown with ad-hoc guests', () => {
+    // Tancy's guest id is 1, the same as yours: her lines must not land on you.
+    const guest = (id: number, name: string, amount_owed: number) => ({
+        id,
+        expense_id: 7,
+        name,
+        amount_owed,
+        paid: false,
+        paid_at: null,
+    });
+    const atTheTable: ExpenseWithSplits = {
+        ...itemizedExpense,
+        amount: 3900,
+        splits: [split(71, 1, 'Maya Lin', 1300)],
+        expense_guests: [guest(1, 'Tancy', 2300), guest(2, 'Matie', 300)],
+        items: [
+            {
+                id: 5,
+                expense_id: 7,
+                description: 'Pasta',
+                price: 1000,
+                is_tax_tip: false,
+                split_type: 'EQUAL',
+                assignments: [{ user_id: 1, is_guest: false, user_name: 'Maya Lin' }],
+            },
+            {
+                id: 6,
+                expense_id: 7,
+                description: 'Ramen',
+                price: 2000,
+                is_tax_tip: false,
+                split_type: 'EQUAL',
+                assignments: [{ user_id: 1, is_guest: false, expense_guest_id: 1, user_name: 'Tancy' }],
+            },
+            {
+                id: 8,
+                expense_id: 7,
+                description: 'Beer',
+                price: 900,
+                is_tax_tip: false,
+                split_type: 'EQUAL',
+                assignments: [
+                    { user_id: 1, is_guest: false, user_name: 'Maya Lin' },
+                    { user_id: 1, is_guest: false, expense_guest_id: 1, user_name: 'Tancy' },
+                    { user_id: 2, is_guest: false, expense_guest_id: 2, user_name: 'Matie' },
+                ],
+            },
+        ],
+    };
+
+    it('shows every guest with their own lines, not just you', async () => {
+        vi.mocked(expensesApi.getById).mockResolvedValue(atTheTable);
+        render(
+            <MemoryRouter>
+                <ExpenseDetailModal
+                    isOpen
+                    onClose={vi.fn()}
+                    expenseId={7}
+                    onExpenseUpdated={vi.fn()}
+                    onExpenseDeleted={vi.fn()}
+                    groupMembers={[]}
+                    groupGuests={[]}
+                    friends={friends}
+                    currentUserId={1}
+                />
+            </MemoryRouter>
+        );
+
+        const heading = await screen.findByRole('heading', { name: 'Split breakdown' });
+        const section = heading.parentElement as HTMLElement;
+        const cards = within(section).getAllByText(/^(You|Matie|Tancy)$/).map(
+            (name) => name.parentElement?.parentElement as HTMLElement
+        );
+
+        expect(cards.map((card) => card.firstChild?.textContent)).toEqual([
+            'You$13.00',
+            'Matie$3.00',
+            'Tancy$23.00',
+        ]);
+        const [you, matie, tancy] = cards;
+        expect(you).toHaveTextContent('Pasta');
+        expect(you).not.toHaveTextContent('Ramen');
+        expect(matie).toHaveTextContent('Beer');
+        expect(matie).not.toHaveTextContent('Pasta');
+        expect(tancy).toHaveTextContent('Ramen');
+        expect(tancy).toHaveTextContent('Beer');
+        expect(tancy).not.toHaveTextContent('Pasta');
+    });
+});
