@@ -143,8 +143,9 @@ describe('ExpenseDetailModal income rows', () => {
         await screen.findByText('Received by');
 
         // The expense guest is on the row, so only the kind can be hiding this.
+        // She is still listed under Shared among; only her paid checkbox goes.
         expect(screen.queryByText('Quick settle')).not.toBeInTheDocument();
-        expect(screen.queryByText('Guest Dana')).not.toBeInTheDocument();
+        expect(screen.queryByRole('checkbox', { name: 'Guest Dana' })).not.toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
