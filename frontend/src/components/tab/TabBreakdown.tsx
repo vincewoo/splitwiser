@@ -214,7 +214,12 @@ const TabBreakdown: React.FC<TabBreakdownProps> = ({
     if (rows.length === 0) return null;
 
     return (
-        <Card radius="lg" className={`overflow-hidden ${className}`.trim()}>
+        // flex-none: every screen that uses this puts it in a flex-column
+        // scroller, and overflow-hidden drops the min-height:auto floor that
+        // keeps flex children at their content height. Without it the card is
+        // squeezed to the viewport and clips its own rows, so the scroller
+        // never overflows and the page cannot scroll.
+        <Card radius="lg" className={`flex-none overflow-hidden ${className}`.trim()}>
             {rows.map((participant, index) => {
                 const breakdown = breakdowns[participant.id];
                 if (!breakdown) return null;
